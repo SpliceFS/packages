@@ -379,7 +379,7 @@ apk update
    concatenate back to the exact input. */
 function tokenize(text) {
   var out = [];
-  var lines = text.match(/[^\n]*\n|[^\n]+/g) || [];
+  var lines = text.length ? text.split(/(?<=\n)/) : [];
   var heredoc = null;
   var expectCmd = true;
   var cont = false;
