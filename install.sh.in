@@ -4,10 +4,21 @@
 #
 # Usage: sh install.sh server|client|both
 #
-# Sets up the SpliceFS package sources for this system and installs the packages. Safe to
-# run again: it rewrites only files whose content is wrong and installs only what is missing.
+# Sets up the SpliceFS package sources for this system and installs the packages, or updates
+# them when the repository has a newer version. Safe to run again: a file is rewritten only
+# when its content differs.
 set -eu
 
+# Root may inherit the caller's PATH and umask through sudo or su, and either could make this
+# script run the wrong tools or write files that other users cannot read.
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+export PATH
+umask 022
+
+# The setup_ and install_ functions are called only as "setup_$FAMILY" and "install_$FAMILY",
+# which ShellCheck cannot follow, so it reports them as unreachable or unused. Only those two
+# codes are silenced, and no other check is turned off for the file.
+# shellcheck disable=SC2317,SC2329
 BASE_URL='@BASE_URL@'
 DOC_SERVER='https://github.com/SpliceFS/server/blob/main/docs/configuration.md'
 DOC_CLIENT='https://github.com/SpliceFS/client/blob/main/docs/configuration.md'
@@ -21,31 +32,54 @@ die() {
   exit 1
 }
 
-# The new content goes to a sibling file first, so an interrupted run never leaves a
-# half-written PATH, and an unchanged file keeps its timestamp.
+# The new content goes to a temporary file first, so an interrupted run never leaves a
+# half-written PATH, and an unchanged file keeps its timestamp. The temporary file must be on
+# the same filesystem as PATH for the final mv to be atomic.
 write_file() {
   wf_path=$1
   wf_mode=$2
-  cat > "$wf_path.new"
-  # Compared in the shell: cmp and diff are missing on some minimal systems.
-  if [ -f "$wf_path" ] && [ "$(cat "$wf_path.new")" = "$(cat "$wf_path")" ]; then
-    rm -f "$wf_path.new"
-    chmod "$wf_mode" "$wf_path"
-    return 0
+  WF_TMP=${3:-$wf_path.new}
+  if [ -d "$wf_path" ]; then
+    die "$wf_path is a folder; move it away and run this script again"
   fi
-  chmod "$wf_mode" "$wf_path.new"
-  mv "$wf_path.new" "$wf_path"
+  cat > "$WF_TMP"
+  # Compared in the shell when cmp is missing: cmp and diff are absent on some minimal systems.
+  if [ -f "$wf_path" ]; then
+    if command -v cmp >/dev/null 2>&1; then
+      wf_same=0
+      cmp -s "$WF_TMP" "$wf_path" || wf_same=1
+    else
+      wf_same=0
+      [ "$(cat "$WF_TMP")" = "$(cat "$wf_path")" ] || wf_same=1
+    fi
+    if [ "$wf_same" -eq 0 ]; then
+      rm -f "$WF_TMP"
+      WF_TMP=
+      chmod "$wf_mode" "$wf_path"
+      return 0
+    fi
+  fi
+  chmod "$wf_mode" "$WF_TMP"
+  mv "$WF_TMP" "$wf_path"
+  WF_TMP=
   echo "updated $wf_path"
 }
 
+# The path is only known at run time, so ShellCheck cannot follow the sourced file.
+# shellcheck disable=SC1090
 # The family decides which package manager and which repository format to use.
 detect_family() {
-  ID=
-  ID_LIKE=
   if [ -r /etc/os-release ]; then
-    # shellcheck disable=SC1091
-    . /etc/os-release
+    OS_RELEASE=/etc/os-release
+  elif [ -r /usr/lib/os-release ]; then
+    OS_RELEASE=/usr/lib/os-release
+  else
+    die "unsupported system 'unknown'; see $BASE_URL/ for the manual steps"
   fi
+  # ID and ID_LIKE are read in subshells so nothing in the file can change this script's
+  # variables or abort it.
+  ID=$( . "$OS_RELEASE" >/dev/null 2>&1; printf %s "${ID:-}" )
+  ID_LIKE=$( . "$OS_RELEASE" >/dev/null 2>&1; printf %s "${ID_LIKE:-}" )
   case "$ID" in
     debian | ubuntu) FAMILY=apt ;;
     rhel | rocky | almalinux | centos | fedora | amzn | ol) FAMILY=dnf ;;
@@ -62,15 +96,44 @@ detect_family() {
   esac
 }
 
+# Checked before anything is written, so a missing tool never leaves a half-configured system.
+check_tools() {
+  case "$FAMILY" in
+    apt)
+      command -v apt-get >/dev/null 2>&1 || die "apt-get not found"
+      ;;
+    dnf)
+      # yum takes the same repository file and the same install arguments.
+      if command -v dnf >/dev/null 2>&1; then
+        RPM_TOOL=dnf
+      elif command -v yum >/dev/null 2>&1; then
+        RPM_TOOL=yum
+      else
+        die "no supported package manager found (dnf or yum)"
+      fi
+      ;;
+    zypper)
+      command -v zypper >/dev/null 2>&1 || die "zypper not found"
+      if command -v transactional-update >/dev/null 2>&1; then
+        die "this system installs packages with transactional-update;" \
+          "the manual steps at $BASE_URL/ apply"
+      fi
+      ;;
+    apk)
+      command -v apk >/dev/null 2>&1 || die "apk not found"
+      ;;
+  esac
+}
+
 # Packages are static binaries, but the repositories are split per CPU type.
 check_cpu() {
   case "$(uname -m)" in
-    x86_64 | aarch64 | arm64) ;;
+    x86_64 | aarch64) ;;
     *) die "unsupported CPU type '$(uname -m)'; SpliceFS is built for x86_64 and aarch64" ;;
   esac
 }
 
-# The key is embedded so the trust anchor never depends on the network.
+# The keys travel inside this script, so installing needs no second download.
 write_openpgp_key() {
   write_file "$1" 0644 <<'KEY_EOF'
 @OPENPGP_KEY@
@@ -78,7 +141,7 @@ KEY_EOF
 }
 
 write_alpine_key() {
-  write_file "$1" 0644 <<'KEY_EOF'
+  write_file "$1" 0644 "$2" <<'KEY_EOF'
 @ALPINE_KEY@
 KEY_EOF
 }
@@ -133,7 +196,7 @@ repo_gpgcheck=1'
 }
 
 install_dnf() {
-  dnf install -y "$@"
+  "$RPM_TOOL" install -y "$@"
 }
 
 setup_zypper() {
@@ -142,7 +205,9 @@ setup_zypper() {
   # Importing a key that is already known is harmless, so no check is needed first.
   rpm --import /etc/pki/rpm-gpg/RPM-GPG-KEY-splicefs
   write_rpm_repo /etc/zypp/repos.d/splicefs.repo 'autorefresh=1
-gpgcheck=1'
+gpgcheck=1
+repo_gpgcheck=1
+pkg_gpgcheck=1'
   zypper --non-interactive refresh splicefs-server splicefs-client
 }
 
@@ -151,7 +216,9 @@ install_zypper() {
 }
 
 setup_apk() {
-  write_alpine_key /etc/apk/keys/splicefs.rsa.pub
+  # The temporary file stays out of the keys folder, because apk reads every file in it.
+  mkdir -p /etc/apk/keys
+  write_alpine_key /etc/apk/keys/splicefs.rsa.pub /etc/apk/splicefs.rsa.pub.new
   mkdir -p /etc/apk/repositories.d
   write_file /etc/apk/repositories.d/splicefs.list 0644 <<EOF
 $BASE_URL/server/alpine
@@ -163,7 +230,19 @@ install_apk() {
   apk add --update-cache "$@"
 }
 
+# Removes the file write_file is working on when the script is interrupted. The EXIT trap
+# keeps the exit status of the command that triggered it.
+cleanup() {
+  if [ -n "${WF_TMP:-}" ]; then
+    rm -f "$WF_TMP"
+  fi
+}
+
 main() {
+  WF_TMP=
+  trap cleanup EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
   case "${1:-}" in
     server) PACKAGES=splicefs-server ;;
     client) PACKAGES=splicefs-client ;;
@@ -177,6 +256,7 @@ main() {
     die "run this script as root, for example with sudo"
   fi
   detect_family
+  check_tools
   check_cpu
 
   # Both sources are always set up so the other package can be added later with the

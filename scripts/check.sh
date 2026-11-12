@@ -3,7 +3,7 @@
 # Needs python3 (standard library only). Uses node, dash and bash when they exist.
 set -u
 
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/.." || exit 1
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 FAILS=0
@@ -68,9 +68,9 @@ blocks = [html.unescape(b) for b in re.findall(r"<pre><code>(.*?)</code></pre>",
 json.dump(blocks, open(sys.argv[1], "w"))
 step = {k: open("steps/%s.sh" % k).read() for k in ("apt", "dnf", "zypper", "apk")}
 base = "https://packages.splicefs.org"
-curl = "curl -fsSL %s/install.sh -o splicefs-install.sh &&\n  sudo sh splicefs-install.sh server\n" % base
-wget = "wget -qO splicefs-install.sh %s/install.sh &&\n  sudo sh splicefs-install.sh server\n" % base
-expected = [curl, wget, "sha256sum splicefs-install.sh\n"]
+curl = "curl --proto '=https' --tlsv1.2 -fsSL %s/install.sh -o ~/splicefs-install.sh &&\n  sudo sh ~/splicefs-install.sh server\n" % base
+wget = "wget -qO ~/splicefs-install.sh %s/install.sh &&\n  sudo sh ~/splicefs-install.sh server\n" % base
+expected = [curl, wget, "sha256sum ~/splicefs-install.sh\n"]
 for k, cmd in (("apt", "sudo apt-get install -y splicefs-%s\n"), ("dnf", "sudo dnf install -y splicefs-%s\n"),
                ("zypper", "sudo zypper --non-interactive install splicefs-%s\n"), ("apk", "apk add splicefs-%s\n")):
     expected += [step[k], cmd % "server", cmd % "client"]
@@ -152,6 +152,27 @@ expect "6. no argument: usage, exit 2" 2 "usage:" sh dist/site/install.sh
 expect "6. bad argument: usage, exit 2" 2 "usage:" sh dist/site/install.sh nonsense
 expect "6. not root: message, exit 1" 1 "run this script as root, for example with sudo" \
   sh dist/site/install.sh server
+
+# 7. Properties of the built script that can be read from its text.
+cat > "$TMP/text.py" <<'PYEOF'
+import re, sys
+lines = open("dist/site/install.sh", encoding="ascii").read().split("\n")
+s = "\n".join(lines)
+bad = 0
+i = lines.index("set -eu")
+cmds = [l for l in lines[i + 1:] if l.strip() and not l.lstrip().startswith("#")]
+if cmds[:3] != ["PATH=/usr/sbin:/usr/bin:/sbin:/bin", "export PATH", "umask 022"]:
+    print("PATH, export PATH and umask 022 do not follow set -eu directly"); bad += 1
+if "/tmp" in s:
+    print("install.sh mentions /tmp"); bad += 1
+if "arm64" in s:
+    print("install.sh still accepts arm64"); bad += 1
+m = re.search(r"write_rpm_repo /etc/zypp/repos.d/splicefs.repo '([^']*)'", s)
+if not m or m.group(1).split("\n") != ["autorefresh=1", "gpgcheck=1", "repo_gpgcheck=1", "pkg_gpgcheck=1"]:
+    print("zypper repo lines are not autorefresh, gpgcheck, repo_gpgcheck, pkg_gpgcheck"); bad += 1
+sys.exit(1 if bad else 0)
+PYEOF
+run "7. built install.sh: PATH and umask first, no /tmp, no arm64, zypper lines" python3 -I "$TMP/text.py"
 
 if [ "$FAILS" -eq 0 ]; then
   echo "all checks passed"

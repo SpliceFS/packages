@@ -177,16 +177,17 @@ footer a:first-of-type { margin-left: 4px; }
         <button type="button" class="seg" data-what="both" aria-pressed="false">both</button>
       </div>
     </div>
-    <div class="block" id="oneblock"><div class="bar"><span class="label">curl</span></div><pre><code>curl -fsSL https://packages.splicefs.org/install.sh -o splicefs-install.sh &amp;&amp;
-  sudo sh splicefs-install.sh server
+    <div class="block" id="oneblock"><div class="bar"><span class="label">curl</span></div><pre><code>curl --proto '=https' --tlsv1.2 -fsSL https://packages.splicefs.org/install.sh -o ~/splicefs-install.sh &amp;&amp;
+  sudo sh ~/splicefs-install.sh server
 </code></pre></div>
-    <div class="block nojs"><div class="bar"><span class="label">wget</span></div><pre><code>wget -qO splicefs-install.sh https://packages.splicefs.org/install.sh &amp;&amp;
-  sudo sh splicefs-install.sh server
+    <div class="block nojs"><div class="bar"><span class="label">wget</span></div><pre><code>wget -qO ~/splicefs-install.sh https://packages.splicefs.org/install.sh &amp;&amp;
+  sudo sh ~/splicefs-install.sh server
 </code></pre></div>
     <p class="nojs">Replace server with client or both.</p>
+    <p class="small">Already root? Leave out sudo.</p>
     <p>The script sets up the SpliceFS package source for your system and installs the package. It is safe to run again.</p>
     <p>It is downloaded completely before it runs. To check it first, compare its SHA-256 with the one in the <a href="https://github.com/SpliceFS/packages#verify-the-install-script">packages repository on GitHub</a>:</p>
-    <div class="block"><div class="bar"><span class="label">Shell</span></div><pre><code>sha256sum splicefs-install.sh
+    <div class="block"><div class="bar"><span class="label">Shell</span></div><pre><code>sha256sum ~/splicefs-install.sh
 </code></pre></div>
     <p class="small">Works on Debian, Ubuntu, RHEL, Rocky Linux, AlmaLinux, Amazon Linux, openSUSE and Alpine, on x86-64 and arm64.</p>
   </section>
@@ -250,6 +251,7 @@ sudo apt-get update
         <div class="block"><div class="bar"><span class="label">Shell</span></div><pre><code># Add the SpliceFS signing key:
 sudo install -m 0755 -d /etc/pki/rpm-gpg
 sudo curl -fsSL https://packages.splicefs.org/keys/splicefs.asc -o /etc/pki/rpm-gpg/RPM-GPG-KEY-splicefs
+sudo chmod a+r /etc/pki/rpm-gpg/RPM-GPG-KEY-splicefs
 
 # Add the repository:
 sudo tee /etc/yum.repos.d/splicefs.repo &gt;/dev/null &lt;&lt;'EOF'
@@ -290,6 +292,7 @@ EOF
         <div class="block"><div class="bar"><span class="label">Shell</span></div><pre><code># Add the SpliceFS signing key:
 sudo install -m 0755 -d /etc/pki/rpm-gpg
 sudo curl -fsSL https://packages.splicefs.org/keys/splicefs.asc -o /etc/pki/rpm-gpg/RPM-GPG-KEY-splicefs
+sudo chmod a+r /etc/pki/rpm-gpg/RPM-GPG-KEY-splicefs
 sudo rpm --import /etc/pki/rpm-gpg/RPM-GPG-KEY-splicefs
 
 # Add the repository:
@@ -300,6 +303,8 @@ baseurl=https://packages.splicefs.org/server/rpm/$basearch
 enabled=1
 autorefresh=1
 gpgcheck=1
+repo_gpgcheck=1
+pkg_gpgcheck=1
 gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-splicefs
 
 [splicefs-client]
@@ -308,6 +313,8 @@ baseurl=https://packages.splicefs.org/client/rpm/$basearch
 enabled=1
 autorefresh=1
 gpgcheck=1
+repo_gpgcheck=1
+pkg_gpgcheck=1
 gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-splicefs
 EOF
 
@@ -441,7 +448,7 @@ function tokenize(text) {
           else { kind = 'cmd'; expectCmd = false; }
         } else if (w.indexOf('https://') === 0) kind = 'url';
         else if (w.charAt(0) === '-') kind = 'flag';
-        else if (w.charAt(0) === '/') kind = 'path';
+        else if (w.charAt(0) === '/' || w.indexOf('~/') === 0) kind = 'path';
         else if (w.charAt(0) === '$') kind = 'var';
         push(kind, w); i += w.length; continue;
       }
@@ -540,9 +547,9 @@ if (typeof module !== 'undefined' && module.exports) module.exports = { tokenize
   function oneText() {
     var base = 'https://packages.splicefs.org/install.sh';
     var get = tool === 'curl'
-      ? 'curl -fsSL ' + base + ' -o splicefs-install.sh &&\n'
-      : 'wget -qO splicefs-install.sh ' + base + ' &&\n';
-    return get + '  sudo sh splicefs-install.sh ' + what + '\n';
+      ? 'curl --proto \'=https\' --tlsv1.2 -fsSL ' + base + ' -o ~/splicefs-install.sh &&\n'
+      : 'wget -qO ~/splicefs-install.sh ' + base + ' &&\n';
+    return get + '  sudo sh ~/splicefs-install.sh ' + what + '\n';
   }
   function chooseOne() {
     oneBlock.setText(oneText());

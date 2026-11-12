@@ -11,8 +11,8 @@ keys. It is served at https://packages.splicefs.org.
 ## Install
 
 ```
-curl -fsSL https://packages.splicefs.org/install.sh -o splicefs-install.sh &&
-  sudo sh splicefs-install.sh server
+curl --proto '=https' --tlsv1.2 -fsSL https://packages.splicefs.org/install.sh -o ~/splicefs-install.sh &&
+  sudo sh ~/splicefs-install.sh server
 ```
 
 Use `client` or `both` instead of `server` for the other packages. The script is safe to run
@@ -24,12 +24,12 @@ The SHA-256 of the published script for each release is listed in this repositor
 To check a download before running it:
 
 ```
-sha256sum splicefs-install.sh
+sha256sum ~/splicefs-install.sh
 ```
 
 Compare the output with the hash in the release.
 
-The OpenPGP key that signs the apt and rpm packages has this fingerprint:
+The OpenPGP key that signs the apt and rpm packages has this fingerprint. It is the second place to check the key the script installs:
 
 ```
 93F2 C425 AA5A C125 B6C2  D10A 47FB E2B8 21A4 E69F
