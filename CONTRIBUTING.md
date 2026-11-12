@@ -69,6 +69,7 @@ must pass before a merge.
 | CI | builds the site and runs every check in `scripts/check.sh` |
 | Security | ShellCheck on all shell files, CodeQL on the page's script, dependency review on pull requests |
 | SonarQube | quality and security rating on SonarQube Cloud |
+| Install tests | runs the install script on every supported system, on x86-64 and arm64, weekly as well |
 | Scorecard | OpenSSF Scorecard, published weekly and on every push |
 
 ## Versioning and releases

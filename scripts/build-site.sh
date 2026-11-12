@@ -1,14 +1,15 @@
 #!/bin/sh
 # Builds dist/site from the page, the script template and the public keys.
 # Variables: KEYS_DIR (default keys, relative to the caller's folder), BASE_URL (default
-# https://packages.splicefs.org), OPENPGP_FINGERPRINT (the pinned primary key fingerprint).
+# https://packages.splicefs.org), OPENPGP_FINGERPRINT (the pinned primary key fingerprint),
+# SITE_DIR (output folder, default dist/site; the end to end test builds elsewhere).
 set -eu
 
 DEFAULT_URL='https://packages.splicefs.org'
 DEFAULT_FPR='93F2C425AA5AC125B6C2D10A47FBE2B821A4E69F'
 CALLER_DIR=$(pwd)
 BASE_URL=${BASE_URL:-$DEFAULT_URL}
-OUT=dist/site
+OUT=${SITE_DIR:-dist/site}
 
 # The pin is skipped for other keys unless the caller states which fingerprint to expect.
 if [ -z "${KEYS_DIR:-}" ]; then
@@ -34,6 +35,12 @@ fi
 case "$KEYS_DIR" in
   /*) ;;
   *) KEYS_DIR=$CALLER_DIR/$KEYS_DIR ;;
+esac
+
+# A relative SITE_DIR is meant relative to the caller's folder; the default stays in the repo.
+case "$OUT" in
+  /*) ;;
+  *) [ -z "${SITE_DIR:-}" ] || OUT=$CALLER_DIR/$OUT ;;
 esac
 
 cd "$(dirname "$0")/.."

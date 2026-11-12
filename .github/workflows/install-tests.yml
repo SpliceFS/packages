@@ -1,0 +1,48 @@
+name: Install tests
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+  schedule:
+    # Weekly, because the systems under test change underneath an unchanged script.
+    - cron: "33 4 * * 3"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: install-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  install:
+    name: Install tests (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            arch: amd64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+    steps:
+      # The three repositories sit side by side, as the tests expect them.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: packages
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: SpliceFS/server
+          path: server
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: SpliceFS/client
+          path: client
+      - name: Build both package repositories with one set of test keys and the test site
+        working-directory: packages
+        run: make e2e-prepare
+      - name: Run the install script on every supported system
+        working-directory: packages
+        run: make e2e
