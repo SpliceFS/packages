@@ -1,0 +1,49 @@
+name: Security
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    # Weekly, so new analyzer rules are applied without a code change.
+    - cron: "41 6 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  shellcheck:
+    name: Shell analysis (ShellCheck)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      # The install script runs as root on other people's systems, so every warning counts.
+      - name: Analyze the install script, the manual steps and the build scripts
+        run: make lint
+
+  codeql:
+    name: Static analysis (CodeQL)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v7
+      # The page carries its own script; CodeQL reads it out of the HTML.
+      - uses: github/codeql-action/init@v4
+        with:
+          languages: javascript-typescript
+          queries: security-and-quality
+      - uses: github/codeql-action/analyze@v4
+        with:
+          category: /language:javascript-typescript
+
+  dependency-review:
+    name: Dependency review
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/dependency-review-action@v5
+        with:
+          fail-on-severity: moderate
