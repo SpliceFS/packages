@@ -31,6 +31,19 @@ sha256sum ~/splicefs-install.sh
 
 Compare the output with the hash in the release.
 
+The script is also signed. Download the signature and verify it with the public key:
+
+```
+curl -fsSLo ~/splicefs-install.sh.asc https://packages.splicefs.org/install.sh.asc
+curl -fsSLo ~/splicefs.asc https://packages.splicefs.org/keys/splicefs.asc
+gpg --show-keys --fingerprint ~/splicefs.asc
+gpg --import ~/splicefs.asc
+gpg --verify ~/splicefs-install.sh.asc ~/splicefs-install.sh
+```
+
+The fingerprint printed by `--show-keys` must be the one below. `gpg --verify` must report a
+good signature from that key.
+
 The OpenPGP key that signs the apt and rpm packages has this fingerprint. It is the second place to check the key the script installs:
 
 ```
@@ -56,7 +69,7 @@ make e2e      # runs the install script in a container of every supported system
 - `site/`: the install page (`index.html`).
 - `steps/`: the manual repository setup for each package manager, shown on the page.
 - `keys/`: the public signing keys.
-- `scripts/`: `build-site.sh` and `check.sh`.
+- `scripts/`: `build-site.sh`, `sign-site.sh`, `publish.sh` and `check.sh`.
 - `install.sh.in`: the install script template, with the keys and base URL filled in at build.
 - `dist/`: build output, not committed.
 

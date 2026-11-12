@@ -18,3 +18,5 @@ All notable changes to this project are recorded here. The format follows
   twice to prove a second run changes nothing, and once after damage to prove it repairs it.
 - On RHEL-family systems the signing key is imported into the rpm database when the
   repository is added.
+- Release workflow: a version tag signs `install.sh` with OpenPGP, publishes the site by rsync
+  and creates the GitHub release; `make sign`, `make publish` and `make publish-check`.

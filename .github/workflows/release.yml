@@ -1,0 +1,66 @@
+name: Release
+
+# A version tag signs the install script, publishes the site and creates the GitHub release.
+# Only version tags can use the publish environment, which holds the signing and upload keys.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    name: Sign, publish and release
+    runs-on: ubuntu-latest
+    environment: publish
+    permissions:
+      # Needed to create the release.
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Build the site and run every check
+        run: make check
+      - name: Write the keys and the known hosts line to files
+        env:
+          UPLOAD_SSH_KEY: ${{ secrets.UPLOAD_SSH_KEY }}
+          SIGNING_OPENPGP_SUBKEY: ${{ secrets.SIGNING_OPENPGP_SUBKEY }}
+          UPLOAD_KNOWN_HOSTS: ${{ vars.UPLOAD_KNOWN_HOSTS }}
+        run: |
+          umask 077
+          printf '%s\n' "$UPLOAD_SSH_KEY" > "$RUNNER_TEMP/upload_key"
+          printf '%s\n' "$SIGNING_OPENPGP_SUBKEY" > "$RUNNER_TEMP/signing_key.asc"
+          printf '%s\n' "$UPLOAD_KNOWN_HOSTS" > "$RUNNER_TEMP/known_hosts"
+      - name: Sign the install script and verify it with the public key
+        env:
+          SIGNING_KEY_FILE: ${{ runner.temp }}/signing_key.asc
+        run: make sign
+      # make publish rebuilds the site first, which removes the signature, so it signs again.
+      - name: Publish the site
+        env:
+          SIGNING_KEY_FILE: ${{ runner.temp }}/signing_key.asc
+          UPLOAD_KEY_FILE: ${{ runner.temp }}/upload_key
+          UPLOAD_KNOWN_HOSTS_FILE: ${{ runner.temp }}/known_hosts
+        run: make publish
+      - name: Create the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          SUM=$(cut -d ' ' -f 1 dist/site/install.sh.sha256)
+          {
+            echo "Install script for $GITHUB_REF_NAME."
+            echo
+            echo "SHA-256 of install.sh: \`$SUM\`"
+            echo
+            echo "Verify the signature with the SpliceFS key (fingerprint in the README):"
+            echo
+            echo '    curl -fsSLO https://packages.splicefs.org/keys/splicefs.asc'
+            echo '    gpg --import splicefs.asc'
+            echo '    gpg --verify install.sh.asc install.sh'
+          } > "$RUNNER_TEMP/notes.md"
+          gh release create "$GITHUB_REF_NAME" --verify-tag --title "$GITHUB_REF_NAME" \
+            --notes-file "$RUNNER_TEMP/notes.md" \
+            dist/site/install.sh dist/site/install.sh.sha256 dist/site/install.sh.asc
+      - name: Remove the secret files
+        if: always()
+        run: rm -f "$RUNNER_TEMP/upload_key" "$RUNNER_TEMP/signing_key.asc" "$RUNNER_TEMP/known_hosts"
