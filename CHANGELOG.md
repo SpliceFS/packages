@@ -14,3 +14,9 @@ All notable changes to this project are recorded here. The format follows
 - The manual setup steps for apt, dnf, zypper and apk, and the page that shows them.
 - The public keys the packages are checked against.
 - Checks, ShellCheck, CodeQL, SonarQube and OpenSSF Scorecard on every push.
+- Install tests: the script runs on every supported system against a signed test repository,
+  twice to prove a second run changes nothing, and once after damage to prove it repairs it.
+- On RHEL-family systems the signing key is imported into the rpm database when the
+  repository is added.
+- Release workflow: a version tag signs `install.sh` with OpenPGP, publishes the site by rsync
+  and creates the GitHub release; `make sign`, `make publish` and `make publish-check`.

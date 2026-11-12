@@ -1,10 +1,11 @@
 # SpliceFS packages
 
 [![CI](https://github.com/SpliceFS/packages/actions/workflows/ci.yml/badge.svg)](https://github.com/SpliceFS/packages/actions/workflows/ci.yml)
+[![Install tests](https://github.com/SpliceFS/packages/actions/workflows/install-tests.yml/badge.svg)](https://github.com/SpliceFS/packages/actions/workflows/install-tests.yml)
 [![Security](https://github.com/SpliceFS/packages/actions/workflows/security.yml/badge.svg)](https://github.com/SpliceFS/packages/actions/workflows/security.yml)
+[![Quality gate](https://sonarcloud.io/api/project_badges/measure?project=SpliceFS_packages&metric=alert_status)](https://sonarcloud.io/summary/overall?id=SpliceFS_packages)
 [![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/SpliceFS/packages/badge)](https://scorecard.dev/viewer/?uri=github.com/SpliceFS/packages)
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/16609/badge)](https://www.bestpractices.dev/projects/16609)
-[![Quality gate](https://sonarcloud.io/api/project_badges/measure?project=SpliceFS_packages&metric=alert_status)](https://sonarcloud.io/summary/overall?id=SpliceFS_packages)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 The package site for SpliceFS: the install page, the install script and the public signing
@@ -31,6 +32,19 @@ sha256sum ~/splicefs-install.sh
 
 Compare the output with the hash in the release.
 
+The script is also signed. Download the signature and verify it with the public key:
+
+```
+curl -fsSLo ~/splicefs-install.sh.asc https://packages.splicefs.org/install.sh.asc
+curl -fsSLo ~/splicefs.asc https://packages.splicefs.org/keys/splicefs.asc
+gpg --show-keys --fingerprint ~/splicefs.asc
+gpg --import ~/splicefs.asc
+gpg --verify ~/splicefs-install.sh.asc ~/splicefs-install.sh
+```
+
+The fingerprint printed by `--show-keys` must be the one below. `gpg --verify` must report a
+good signature from that key.
+
 The OpenPGP key that signs the apt and rpm packages has this fingerprint. It is the second place to check the key the script installs:
 
 ```
@@ -45,6 +59,8 @@ Alpine) and at https://packages.splicefs.org/keys/.
 ```
 make site     # writes dist/site
 make check    # builds, then runs every check
+make e2e-prepare  # builds ../server and ../client with throwaway keys into dist/e2e/site
+make e2e      # runs the install script in a container of every supported system
 ```
 
 `make check` needs `python3`. It also uses `node`, `dash` and `bash` when they are installed.
@@ -54,7 +70,7 @@ make check    # builds, then runs every check
 - `site/`: the install page (`index.html`).
 - `steps/`: the manual repository setup for each package manager, shown on the page.
 - `keys/`: the public signing keys.
-- `scripts/`: `build-site.sh` and `check.sh`.
+- `scripts/`: `build-site.sh`, `sign-site.sh`, `publish.sh` and `check.sh`.
 - `install.sh.in`: the install script template, with the keys and base URL filled in at build.
 - `dist/`: build output, not committed.
 

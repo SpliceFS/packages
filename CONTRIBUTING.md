@@ -69,13 +69,29 @@ must pass before a merge.
 | CI | builds the site and runs every check in `scripts/check.sh` |
 | Security | ShellCheck on all shell files, CodeQL on the page's script, dependency review on pull requests |
 | SonarQube | quality and security rating on SonarQube Cloud |
+| Install tests | runs the install script on every supported system, on x86-64 and arm64, weekly as well |
+| Release | on a version tag: signs the script, publishes the site, creates the release |
 | Scorecard | OpenSSF Scorecard, published weekly and on every push |
 
 ## Versioning and releases
 
 SpliceFS follows [Semantic Versioning](https://semver.org). The site is published from
-`main`, which only receives release merges; the hash of each published install script is
-recorded in this repository's releases.
+`main`, which only receives release merges.
+
+To release version `X.Y.Z`:
+
+1. Create `release/X.Y.Z` from `develop`. Make only fixes and the changelog entry there, and
+   let CI pass.
+2. Merge the release branch into `main`.
+3. Tag the merge commit on `main` as `vX.Y.Z` and push the tag.
+4. The tag runs the Release workflow. It runs the checks, signs `install.sh` with the signing
+   subkey, publishes the site over rsync and creates the GitHub release with `install.sh`,
+   `install.sh.sha256` and `install.sh.asc`. The keys live in the `publish` environment, which
+   only version tags can use.
+5. Merge `main` back into `develop` and delete the release branch.
+
+The Upload check workflow, started by hand, lists the remote site folder to prove the upload
+credentials work without publishing.
 
 ## License
 

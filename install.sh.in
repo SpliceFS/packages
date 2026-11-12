@@ -191,6 +191,9 @@ EOF
 setup_dnf() {
   install -m 0755 -d /etc/pki/rpm-gpg
   write_openpgp_key /etc/pki/rpm-gpg/RPM-GPG-KEY-splicefs
+  # The key is known to rpm from the moment the repository is added, not from the first
+  # install. Importing a key that is already known is harmless.
+  rpm --import /etc/pki/rpm-gpg/RPM-GPG-KEY-splicefs
   write_rpm_repo /etc/yum.repos.d/splicefs.repo 'gpgcheck=1
 repo_gpgcheck=1'
 }
@@ -268,15 +271,18 @@ main() {
 
   echo
   echo "Installed: $PACKAGES"
-  echo "The service starts once its configuration file exists:"
+  echo "The service starts by itself. Nothing has to be configured first."
   case "$1" in
     server | both)
-      echo "  /etc/splicefs/server/config.yaml  (see $DOC_SERVER)"
+      echo "  Server: add one file per share in /etc/splicefs/server/shares.d"
+      echo "          (see $DOC_SERVER)"
       ;;
   esac
   case "$1" in
     client | both)
-      echo "  /etc/splicefs/client/config.yaml  (see $DOC_CLIENT)"
+      echo "  Client: add one file per cluster in /etc/splicefs/client/clusters.d"
+      echo "          and one per mount in /etc/splicefs/client/mounts.d"
+      echo "          (see $DOC_CLIENT)"
       ;;
   esac
 }
