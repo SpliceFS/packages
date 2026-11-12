@@ -217,7 +217,7 @@ footer a:first-of-type { margin-left: 4px; }
 sudo apt-get update
 sudo apt-get install -y ca-certificates curl
 sudo install -m 0755 -d /etc/apt/keyrings
-sudo curl -fsSL https://packages.splicefs.org/keys/splicefs.asc -o /etc/apt/keyrings/splicefs.asc
+sudo curl --proto '=https' --tlsv1.2 -fsSL https://packages.splicefs.org/keys/splicefs.asc -o /etc/apt/keyrings/splicefs.asc
 sudo chmod a+r /etc/apt/keyrings/splicefs.asc
 
 # Add the repository to apt sources:
@@ -250,7 +250,7 @@ sudo apt-get update
         <h4 class="step-head">Add the SpliceFS repository</h4>
         <div class="block"><div class="bar"><span class="label">Shell</span></div><pre><code># Add the SpliceFS signing key:
 sudo install -m 0755 -d /etc/pki/rpm-gpg
-sudo curl -fsSL https://packages.splicefs.org/keys/splicefs.asc -o /etc/pki/rpm-gpg/RPM-GPG-KEY-splicefs
+sudo curl --proto '=https' --tlsv1.2 -fsSL https://packages.splicefs.org/keys/splicefs.asc -o /etc/pki/rpm-gpg/RPM-GPG-KEY-splicefs
 sudo chmod a+r /etc/pki/rpm-gpg/RPM-GPG-KEY-splicefs
 
 # Add the repository:
@@ -291,7 +291,7 @@ EOF
         <h4 class="step-head">Add the SpliceFS repository</h4>
         <div class="block"><div class="bar"><span class="label">Shell</span></div><pre><code># Add the SpliceFS signing key:
 sudo install -m 0755 -d /etc/pki/rpm-gpg
-sudo curl -fsSL https://packages.splicefs.org/keys/splicefs.asc -o /etc/pki/rpm-gpg/RPM-GPG-KEY-splicefs
+sudo curl --proto '=https' --tlsv1.2 -fsSL https://packages.splicefs.org/keys/splicefs.asc -o /etc/pki/rpm-gpg/RPM-GPG-KEY-splicefs
 sudo chmod a+r /etc/pki/rpm-gpg/RPM-GPG-KEY-splicefs
 sudo rpm --import /etc/pki/rpm-gpg/RPM-GPG-KEY-splicefs
 
@@ -339,7 +339,9 @@ sudo zypper --non-interactive refresh splicefs-server splicefs-client
       <li>
         <h4 class="step-head">Add the SpliceFS repository</h4>
         <div class="block"><div class="bar"><span class="label">Shell</span></div><pre><code># Add the SpliceFS signing key:
-wget -q https://packages.splicefs.org/keys/splicefs.rsa.pub -O /etc/apk/keys/splicefs.rsa.pub
+apk add curl
+curl --proto '=https' --tlsv1.2 -fsSL https://packages.splicefs.org/keys/splicefs.rsa.pub \
+  -o /etc/apk/keys/splicefs.rsa.pub
 
 # Add the repositories:
 mkdir -p /etc/apk/repositories.d

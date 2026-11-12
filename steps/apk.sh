@@ -1,5 +1,7 @@
 # Add the SpliceFS signing key:
-wget -q https://packages.splicefs.org/keys/splicefs.rsa.pub -O /etc/apk/keys/splicefs.rsa.pub
+apk add curl
+curl --proto '=https' --tlsv1.2 -fsSL https://packages.splicefs.org/keys/splicefs.rsa.pub \
+  -o /etc/apk/keys/splicefs.rsa.pub
 
 # Add the repositories:
 mkdir -p /etc/apk/repositories.d
