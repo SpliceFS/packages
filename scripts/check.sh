@@ -174,6 +174,123 @@ sys.exit(1 if bad else 0)
 PYEOF
 run "7. built install.sh: PATH and umask first, no /tmp, no arm64, zypper lines" python3 -I "$TMP/text.py"
 
+# 8. Signing and publishing with throwaway keys. Nothing here touches a real key or host;
+# the site is built in the temporary folder, so dist/site stays the normal build.
+if ! command -v gpg >/dev/null 2>&1; then
+  skip "8. gpg is not on the PATH, signing and publishing not checked"
+elif ! command -v rsync >/dev/null 2>&1; then
+  skip "8. rsync is not on the PATH, signing and publishing not checked"
+else
+  mkdir -p "$TMP/gk" "$TMP/ka" "$TMP/kb"
+  chmod 700 "$TMP/gk"
+  for k in a b; do
+    GNUPGHOME=$TMP/gk gpg --batch --quiet --pinentry-mode loopback --passphrase '' \
+      --quick-generate-key "check-$k <check-$k@example.invalid>" rsa3072 sign never 2>/dev/null
+    GNUPGHOME=$TMP/gk gpg --batch --armor --export "check-$k@example.invalid" \
+      > "$TMP/k$k/splicefs.asc"
+    GNUPGHOME=$TMP/gk gpg --batch --pinentry-mode loopback --passphrase '' --armor \
+      --export-secret-keys "check-$k@example.invalid" > "$TMP/k$k/secret.asc" 2>/dev/null
+    cp keys/splicefs.rsa.pub "$TMP/k$k/"
+  done
+  SIGNSITE=$TMP/sitesign
+  # ls is the one listing format that is the same on macOS and Linux; stat is not.
+  # shellcheck disable=SC2012
+  perms() { ls -ld "$1" | cut -c1-10; }
+  if SITE_DIR=$SIGNSITE KEYS_DIR=$TMP/ka sh scripts/build-site.sh > "$TMP/out" 2>&1; then
+    pass "8. site builds with a throwaway public key"
+  else
+    fail "8. site builds with a throwaway public key"
+    sed 's/^/        /' "$TMP/out"
+  fi
+  sign() { SITE_DIR=$SIGNSITE KEYS_DIR=$TMP/ka SIGNING_KEY_FILE=$1 sh scripts/sign-site.sh; }
+
+  run "8. sign-site.sh signs with the matching key" sign "$TMP/ka/secret.asc"
+  verify_home=$TMP/vh
+  mkdir "$verify_home"
+  chmod 700 "$verify_home"
+  GNUPGHOME=$verify_home gpg --batch --quiet --import "$TMP/ka/splicefs.asc" 2>/dev/null
+  run "8. install.sh.asc verifies" env GNUPGHOME="$verify_home" gpg --batch --verify \
+    "$SIGNSITE/install.sh.asc" "$SIGNSITE/install.sh"
+
+  cp "$SIGNSITE/install.sh" "$TMP/install.sh.orig"
+  echo "# tampered" >> "$SIGNSITE/install.sh"
+  if GNUPGHOME=$verify_home gpg --batch --verify "$SIGNSITE/install.sh.asc" \
+    "$SIGNSITE/install.sh" > "$TMP/out" 2>&1; then
+    fail "8. a tampered install.sh fails verification"
+  else
+    pass "8. a tampered install.sh fails verification"
+  fi
+  cp "$TMP/install.sh.orig" "$SIGNSITE/install.sh"
+
+  if sign "$TMP/kb/secret.asc" > "$TMP/out" 2>&1; then
+    fail "8. sign-site.sh fails for a secret key that does not match keys/"
+  else
+    pass "8. sign-site.sh fails for a secret key that does not match keys/"
+  fi
+  if env -u SIGNING_KEY_FILE SITE_DIR="$SIGNSITE" KEYS_DIR="$TMP/ka" sh scripts/sign-site.sh \
+    > "$TMP/out" 2>&1; then
+    fail "8. sign-site.sh fails without SIGNING_KEY_FILE"
+  else
+    pass "8. sign-site.sh fails without SIGNING_KEY_FILE"
+  fi
+
+  # openrsync, the rsync on macOS, has no --chmod; the GNU rsync on Linux and the runners does.
+  RSYNC_OK=1
+  rsync --chmod=F644 --list-only "$TMP" > /dev/null 2>&1 || RSYNC_OK=0
+  # The target already holds a folder that other pipelines own; it must survive untouched.
+  if [ "$RSYNC_OK" -eq 0 ]; then
+    skip "8. rsync has no --chmod here (openrsync), publish.sh send not run"
+  else
+    mkdir -p "$TMP/remote/server"
+    echo keep > "$TMP/remote/server/keep.txt"
+    chmod 600 "$TMP/remote/server/keep.txt"
+    pub() { SITE_DIR=$SIGNSITE UPLOAD_TARGET=$TMP/remote sh scripts/publish.sh send; }
+    run "8. publish.sh send to a local folder" pub
+    modes_ok=1
+    for f in index.html install.sh install.sh.sha256 install.sh.asc keys/splicefs.asc \
+      keys/splicefs.rsa.pub; do
+      [ "$(perms "$TMP/remote/$f")" = '-rw-r--r--' ] || modes_ok=0
+      cmp -s "$SIGNSITE/$f" "$TMP/remote/$f" || modes_ok=0
+    done
+    [ "$(perms "$TMP/remote/keys")" = 'drwxr-xr-x' ] || modes_ok=0
+    if [ "$modes_ok" -eq 1 ]; then
+      pass "8. the six files arrived with modes 644 and folder 755"
+    else
+      fail "8. the six files arrived with modes 644 and folder 755"
+    fi
+    if [ "$(cat "$TMP/remote/server/keep.txt")" = keep ] &&
+      [ "$(cd "$TMP/remote" && echo *)" = \
+        'index.html install.sh install.sh.asc install.sh.sha256 keys server' ] &&
+      [ "$(perms "$TMP/remote/server/keep.txt")" = '-rw-------' ]; then
+      pass "8. server/keep.txt is untouched and nothing else appeared"
+    else
+      fail "8. server/keep.txt is untouched and nothing else appeared"
+    fi
+  fi
+
+  mv "$SIGNSITE/install.sh.asc" "$TMP/asc.saved"
+  if SITE_DIR=$SIGNSITE UPLOAD_TARGET=$TMP/remote2 sh scripts/publish.sh send > "$TMP/out" 2>&1 ||
+    [ -e "$TMP/remote2" ]; then
+    fail "8. publish.sh send refuses when install.sh.asc is missing"
+  else
+    pass "8. publish.sh send refuses when install.sh.asc is missing"
+  fi
+  mv "$TMP/asc.saved" "$SIGNSITE/install.sh.asc"
+
+  cp "$TMP/ka/secret.asc" "$TMP/loose.key"
+  chmod 644 "$TMP/loose.key"
+  echo 'x' > "$TMP/known_hosts"
+  if SITE_DIR=$SIGNSITE UPLOAD_KEY_FILE=$TMP/loose.key UPLOAD_KNOWN_HOSTS_FILE=$TMP/known_hosts \
+    sh scripts/publish.sh send > "$TMP/out" 2>&1; then
+    fail "8. publish.sh send refuses a key file with mode 644"
+  elif grep -q 'mode 600' "$TMP/out"; then
+    pass "8. publish.sh send refuses a key file with mode 644"
+  else
+    fail "8. publish.sh send refuses a key file with mode 644 (wrong reason)"
+    sed 's/^/        /' "$TMP/out"
+  fi
+fi
+
 if [ "$FAILS" -eq 0 ]; then
   echo "all checks passed"
 else
