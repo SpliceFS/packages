@@ -2,7 +2,7 @@ name: Install tests
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main]
   pull_request:
   schedule:
     # Weekly, because the systems under test change underneath an unchanged script.

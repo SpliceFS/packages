@@ -20,3 +20,4 @@ All notable changes to this project are recorded here. The format follows
   repository is added.
 - Release workflow: a version tag signs `install.sh` with OpenPGP, publishes the site by rsync
   and creates the GitHub release; `make sign`, `make publish` and `make publish-check`.
+- Trunk development: one branch, `main`, and one version per change.
