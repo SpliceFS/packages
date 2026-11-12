@@ -6,8 +6,8 @@ keys. It is served at https://packages.splicefs.org.
 ## Install
 
 ```
-curl -fsSL https://packages.splicefs.org/install.sh -o /tmp/splicefs-install.sh &&
-  sudo sh /tmp/splicefs-install.sh server
+curl -fsSL https://packages.splicefs.org/install.sh -o splicefs-install.sh &&
+  sudo sh splicefs-install.sh server
 ```
 
 Use `client` or `both` instead of `server` for the other packages. The script is safe to run
@@ -19,7 +19,7 @@ The SHA-256 of the published script for each release is listed in this repositor
 To check a download before running it:
 
 ```
-sha256sum /tmp/splicefs-install.sh
+sha256sum splicefs-install.sh
 ```
 
 Compare the output with the hash in the release.

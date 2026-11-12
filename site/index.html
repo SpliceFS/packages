@@ -177,16 +177,16 @@ footer a:first-of-type { margin-left: 4px; }
         <button type="button" class="seg" data-what="both" aria-pressed="false">both</button>
       </div>
     </div>
-    <div class="block" id="oneblock"><div class="bar"><span class="label">curl</span></div><pre><code>curl -fsSL https://packages.splicefs.org/install.sh -o /tmp/splicefs-install.sh &amp;&amp;
-  sudo sh /tmp/splicefs-install.sh server
+    <div class="block" id="oneblock"><div class="bar"><span class="label">curl</span></div><pre><code>curl -fsSL https://packages.splicefs.org/install.sh -o splicefs-install.sh &amp;&amp;
+  sudo sh splicefs-install.sh server
 </code></pre></div>
-    <div class="block nojs"><div class="bar"><span class="label">wget</span></div><pre><code>wget -qO /tmp/splicefs-install.sh https://packages.splicefs.org/install.sh &amp;&amp;
-  sudo sh /tmp/splicefs-install.sh server
+    <div class="block nojs"><div class="bar"><span class="label">wget</span></div><pre><code>wget -qO splicefs-install.sh https://packages.splicefs.org/install.sh &amp;&amp;
+  sudo sh splicefs-install.sh server
 </code></pre></div>
     <p class="nojs">Replace server with client or both.</p>
     <p>The script sets up the SpliceFS package source for your system and installs the package. It is safe to run again.</p>
     <p>It is downloaded completely before it runs. To check it first, compare its SHA-256 with the one in the <a href="https://github.com/SpliceFS/packages#verify-the-install-script">packages repository on GitHub</a>:</p>
-    <div class="block"><div class="bar"><span class="label">Shell</span></div><pre><code>sha256sum /tmp/splicefs-install.sh
+    <div class="block"><div class="bar"><span class="label">Shell</span></div><pre><code>sha256sum splicefs-install.sh
 </code></pre></div>
     <p class="small">Works on Debian, Ubuntu, RHEL, Rocky Linux, AlmaLinux, Amazon Linux, openSUSE and Alpine, on x86-64 and arm64.</p>
   </section>
@@ -540,9 +540,9 @@ if (typeof module !== 'undefined' && module.exports) module.exports = { tokenize
   function oneText() {
     var base = 'https://packages.splicefs.org/install.sh';
     var get = tool === 'curl'
-      ? 'curl -fsSL ' + base + ' -o /tmp/splicefs-install.sh &&\n'
-      : 'wget -qO /tmp/splicefs-install.sh ' + base + ' &&\n';
-    return get + '  sudo sh /tmp/splicefs-install.sh ' + what + '\n';
+      ? 'curl -fsSL ' + base + ' -o splicefs-install.sh &&\n'
+      : 'wget -qO splicefs-install.sh ' + base + ' &&\n';
+    return get + '  sudo sh splicefs-install.sh ' + what + '\n';
   }
   function chooseOne() {
     oneBlock.setText(oneText());

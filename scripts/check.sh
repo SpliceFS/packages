@@ -68,9 +68,9 @@ blocks = [html.unescape(b) for b in re.findall(r"<pre><code>(.*?)</code></pre>",
 json.dump(blocks, open(sys.argv[1], "w"))
 step = {k: open("steps/%s.sh" % k).read() for k in ("apt", "dnf", "zypper", "apk")}
 base = "https://packages.splicefs.org"
-curl = "curl -fsSL %s/install.sh -o /tmp/splicefs-install.sh &&\n  sudo sh /tmp/splicefs-install.sh server\n" % base
-wget = "wget -qO /tmp/splicefs-install.sh %s/install.sh &&\n  sudo sh /tmp/splicefs-install.sh server\n" % base
-expected = [curl, wget, "sha256sum /tmp/splicefs-install.sh\n"]
+curl = "curl -fsSL %s/install.sh -o splicefs-install.sh &&\n  sudo sh splicefs-install.sh server\n" % base
+wget = "wget -qO splicefs-install.sh %s/install.sh &&\n  sudo sh splicefs-install.sh server\n" % base
+expected = [curl, wget, "sha256sum splicefs-install.sh\n"]
 for k, cmd in (("apt", "sudo apt-get install -y splicefs-%s\n"), ("dnf", "sudo dnf install -y splicefs-%s\n"),
                ("zypper", "sudo zypper --non-interactive install splicefs-%s\n"), ("apk", "apk add splicefs-%s\n")):
     expected += [step[k], cmd % "server", cmd % "client"]
