@@ -1,0 +1,598 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SpliceFS packages</title>
+<meta name="description" content="Install SpliceFS on Debian, Ubuntu, RHEL, Rocky Linux, AlmaLinux, Amazon Linux, openSUSE and Alpine.">
+<style>
+:root {
+  --bg: #ffffff;
+  --fg: #1f2328;
+  --muted: #59636e;
+  --border: #d1d9e0;
+  --accent: #0b6b85;
+  --accent-tint: #e6f4f8;
+  --code-bg: #f6f8fa;
+  --hover-bg: #f6f8fa;
+  --c-cmd: #0550ae;
+  --c-kw: #8250df;
+  --c-flag: #953800;
+  --c-str: #116329;
+  --c-url: #0a6678;
+  --c-path: #1f2328;
+  --c-var: #a0236f;
+  --c-op: #59636e;
+  --c-here: #59636e;
+  --c-cmt: #59636e;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0d1117;
+    --fg: #e6edf3;
+    --muted: #9198a1;
+    --border: #30363d;
+    --accent: #4fc3dc;
+    --accent-tint: #0e2a33;
+    --code-bg: #161b22;
+    --hover-bg: #161b22;
+    --c-cmd: #79c0ff;
+    --c-kw: #d2a8ff;
+    --c-flag: #ffa657;
+    --c-str: #7ee787;
+    --c-url: #56d4dd;
+    --c-path: #e6edf3;
+    --c-var: #ff9bce;
+    --c-op: #9198a1;
+    --c-here: #9198a1;
+    --c-cmt: #9198a1;
+  }
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font: 16px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+a { color: var(--accent); }
+a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.wrap { max-width: 760px; margin: 0 auto; padding: 0 16px; }
+header.top { border-bottom: 1px solid var(--border); }
+header.top .wrap { display: flex; align-items: baseline; justify-content: space-between; padding-top: 16px; padding-bottom: 16px; }
+.mark { font-size: 20px; font-weight: 600; letter-spacing: -0.01em; }
+header.top a { font-size: 14px; }
+main { padding: 48px 0 24px; }
+h1 { font-size: 32px; line-height: 1.2; margin: 0 0 16px; letter-spacing: -0.02em; }
+.lead { margin: 0 0 8px; }
+.small { font-size: 14px; color: var(--muted); margin: 0; }
+h2 { font-size: 22px; line-height: 1.3; margin: 0 0 16px; }
+h3.panel-title { font-size: 20px; line-height: 1.3; margin: 0 0 16px; }
+section.one { margin-top: 40px; }
+section.manual { border-top: 1px solid var(--border); margin-top: 48px; padding-top: 32px; }
+.chooser { display: none; flex-wrap: wrap; gap: 8px 24px; margin: 0 0 16px; }
+html.js .chooser { display: flex; }
+.seg-group { display: flex; gap: 6px; }
+.seg {
+  font: inherit; font-size: 14px; line-height: 1; padding: 8px 12px; color: var(--fg); background: var(--bg);
+  border: 1px solid var(--border); border-radius: 6px; cursor: pointer;
+  transition: border-color .15s, background-color .15s;
+}
+.seg:hover { border-color: var(--accent); }
+.seg[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-tint); box-shadow: inset 0 0 0 1px var(--accent); }
+html.js .nojs { display: none; }
+section.one p { margin: 0 0 12px; }
+.picker { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 16px 0 0; padding: 0; list-style: none; }
+.card {
+  display: block; height: 100%; padding: 16px; text-decoration: none; color: var(--fg);
+  border: 1px solid var(--border); border-radius: 8px; background: var(--bg);
+  transition: border-color .15s, background-color .15s;
+}
+.card:hover { border-color: var(--accent); background: var(--hover-bg); }
+.card[aria-current="true"] { border-color: var(--accent); background: var(--accent-tint); box-shadow: inset 0 0 0 1px var(--accent); }
+.card .name { display: block; font-weight: 500; font-size: 17px; }
+.card .versions { display: block; font-size: 14px; color: var(--muted); margin-top: 2px; }
+.hint { margin: 16px 0 0; color: var(--muted); }
+.panel { margin-top: 32px; }
+.panel[hidden] { display: none; }
+html.js .panel { display: none; margin-top: 32px; }
+html.js .panel.active { display: block; }
+.panel .small { margin: -8px 0 16px; }
+ol.steps { list-style: none; margin: 0; padding: 0; counter-reset: step; }
+ol.steps > li { counter-increment: step; margin: 0 0 28px; min-width: 0; }
+.step-head { display: flex; align-items: center; gap: 10px; margin: 0 0 12px; font-size: 17px; font-weight: 600; }
+.step-head::before {
+  content: counter(step); flex: none; width: 26px; height: 26px; border-radius: 50%;
+  background: var(--accent-tint); color: var(--accent); border: 1px solid var(--accent);
+  font-size: 14px; font-weight: 600; display: grid; place-items: center;
+}
+.block { border: 1px solid var(--border); border-radius: 8px; background: var(--code-bg); margin: 0 0 12px; min-width: 0; overflow: hidden; }
+.bar { display: flex; align-items: center; justify-content: space-between; min-height: 38px; padding: 4px 8px 4px 16px; border-bottom: 1px solid var(--border); }
+.label { font-size: 13px; color: var(--muted); }
+.copy {
+  display: inline-flex; align-items: center; gap: 6px; font: inherit; font-size: 13px; line-height: 1;
+  padding: 6px 10px; color: var(--muted); background: transparent; border: 1px solid var(--border);
+  border-radius: 6px; cursor: pointer; transition: color .15s, border-color .15s, background-color .15s;
+}
+.copy:hover { color: var(--fg); border-color: var(--accent); }
+.copy.done { color: var(--accent); border-color: var(--accent); }
+.copy svg { width: 14px; height: 14px; flex: none; }
+pre { margin: 0; padding: 14px 16px; overflow-x: auto; font: 14px/1.6 ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; color: var(--fg); tab-size: 2; }
+pre code { font: inherit; }
+.t-cmd { color: var(--c-cmd); }
+.t-kw { color: var(--c-kw); font-weight: 600; }
+.t-flag { color: var(--c-flag); }
+.t-str { color: var(--c-str); }
+.t-url { color: var(--c-url); }
+.t-path { color: var(--c-path); }
+.t-var { color: var(--c-var); }
+.t-op { color: var(--c-op); }
+.t-here { color: var(--c-here); }
+.t-cmt { color: var(--c-cmt); }
+section.after { border-top: 1px solid var(--border); margin-top: 48px; padding-top: 32px; }
+section.after p { margin: 0 0 8px; }
+section.after ul { margin: 0; padding-left: 20px; }
+section.after li { margin: 4px 0; }
+code.inline { font: 14px ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; background: var(--code-bg); border: 1px solid var(--border); border-radius: 4px; padding: 1px 5px; overflow-wrap: anywhere; }
+footer { border-top: 1px solid var(--border); margin-top: 48px; }
+footer .wrap { padding-top: 24px; padding-bottom: 40px; font-size: 14px; color: var(--muted); }
+footer p { margin: 0 0 4px; }
+footer a { margin-left: 8px; }
+footer a:first-of-type { margin-left: 4px; }
+.sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+@media (max-width: 520px) {
+  .picker { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  h1 { font-size: 28px; }
+  main { padding-top: 32px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .card, .copy, .seg { transition: none; }
+}
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="wrap">
+    <span class="mark">SpliceFS</span>
+    <a href="https://github.com/SpliceFS">GitHub</a>
+  </div>
+</header>
+<main class="wrap">
+  <h1>Install SpliceFS</h1>
+  <p class="lead">Run one command, or add the repository yourself.</p>
+  <p class="lead">Every command is safe to run again. A second run repairs what is broken and changes nothing that works.</p>
+  <p class="small">Packages are built for x86-64 and arm64.</p>
+
+  <section class="one" id="one">
+    <h2>Install with one command</h2>
+    <div class="chooser">
+      <div class="seg-group" role="group" aria-label="Download tool">
+        <button type="button" class="seg" data-tool="curl" aria-pressed="true">curl</button>
+        <button type="button" class="seg" data-tool="wget" aria-pressed="false">wget</button>
+      </div>
+      <div class="seg-group" role="group" aria-label="Package">
+        <button type="button" class="seg" data-what="server" aria-pressed="true">server</button>
+        <button type="button" class="seg" data-what="client" aria-pressed="false">client</button>
+        <button type="button" class="seg" data-what="both" aria-pressed="false">both</button>
+      </div>
+    </div>
+    <div class="block" id="oneblock"><div class="bar"><span class="label">curl</span></div><pre><code>curl -fsSL https://packages.splicefs.org/install.sh -o /tmp/splicefs-install.sh &amp;&amp;
+  sudo sh /tmp/splicefs-install.sh server
+</code></pre></div>
+    <div class="block nojs"><div class="bar"><span class="label">wget</span></div><pre><code>wget -qO /tmp/splicefs-install.sh https://packages.splicefs.org/install.sh &amp;&amp;
+  sudo sh /tmp/splicefs-install.sh server
+</code></pre></div>
+    <p class="nojs">Replace server with client or both.</p>
+    <p>The script sets up the SpliceFS package source for your system and installs the package. It is safe to run again.</p>
+    <p>It is downloaded completely before it runs. To check it first, compare its SHA-256 with the one in the <a href="https://github.com/SpliceFS/packages#verify-the-install-script">packages repository on GitHub</a>:</p>
+    <div class="block"><div class="bar"><span class="label">Shell</span></div><pre><code>sha256sum /tmp/splicefs-install.sh
+</code></pre></div>
+    <p class="small">Works on Debian, Ubuntu, RHEL, Rocky Linux, AlmaLinux, Amazon Linux, openSUSE and Alpine, on x86-64 and arm64.</p>
+  </section>
+
+  <section class="manual">
+  <h2>Manual setup</h2>
+  <ul class="picker" id="picker">
+    <li><a class="card" href="#debian" data-panel="panel-apt"><span class="name">Debian</span><span class="versions">12, 13</span></a></li>
+    <li><a class="card" href="#ubuntu" data-panel="panel-apt"><span class="name">Ubuntu</span><span class="versions">22.04, 24.04, 26.04</span></a></li>
+    <li><a class="card" href="#rhel" data-panel="panel-dnf"><span class="name">RHEL</span><span class="versions">8, 9, 10</span></a></li>
+    <li><a class="card" href="#rocky" data-panel="panel-dnf"><span class="name">Rocky Linux</span><span class="versions">8, 9, 10</span></a></li>
+    <li><a class="card" href="#almalinux" data-panel="panel-dnf"><span class="name">AlmaLinux</span><span class="versions">8, 9, 10</span></a></li>
+    <li><a class="card" href="#amazon" data-panel="panel-dnf"><span class="name">Amazon Linux</span><span class="versions">2023</span></a></li>
+    <li><a class="card" href="#opensuse" data-panel="panel-zypper"><span class="name">openSUSE Leap</span><span class="versions">15.6, 16.0</span></a></li>
+    <li><a class="card" href="#alpine" data-panel="panel-apk"><span class="name">Alpine</span><span class="versions">3.22, 3.23, 3.24</span></a></li>
+  </ul>
+
+  <p class="hint" id="hint" hidden>Pick a system above.</p>
+
+  <section class="panel" id="panel-apt">
+    <a id="debian"></a><a id="ubuntu"></a>
+    <h3 class="panel-title">Debian and Ubuntu</h3>
+    <ol class="steps">
+      <li>
+        <h4 class="step-head">Add the SpliceFS repository</h4>
+        <div class="block"><div class="bar"><span class="label">Shell</span></div><pre><code># Add the SpliceFS signing key:
+sudo apt-get update
+sudo apt-get install -y ca-certificates curl
+sudo install -m 0755 -d /etc/apt/keyrings
+sudo curl -fsSL https://packages.splicefs.org/keys/splicefs.asc -o /etc/apt/keyrings/splicefs.asc
+sudo chmod a+r /etc/apt/keyrings/splicefs.asc
+
+# Add the repository to apt sources:
+sudo tee /etc/apt/sources.list.d/splicefs.sources &gt;/dev/null &lt;&lt;'EOF'
+Types: deb
+URIs: https://packages.splicefs.org/server/apt https://packages.splicefs.org/client/apt
+Suites: stable
+Components: main
+Signed-By: /etc/apt/keyrings/splicefs.asc
+EOF
+
+sudo apt-get update
+</code></pre></div>
+      </li>
+      <li>
+        <h4 class="step-head">Install</h4>
+        <div class="block"><div class="bar"><span class="label">Server</span></div><pre><code>sudo apt-get install -y splicefs-server
+</code></pre></div>
+        <div class="block"><div class="bar"><span class="label">Client</span></div><pre><code>sudo apt-get install -y splicefs-client
+</code></pre></div>
+      </li>
+    </ol>
+  </section>
+
+  <section class="panel" id="panel-dnf">
+    <a id="rhel"></a><a id="rocky"></a><a id="almalinux"></a><a id="amazon"></a>
+    <h3 class="panel-title">RHEL, Rocky Linux, AlmaLinux and Amazon Linux</h3>
+    <ol class="steps">
+      <li>
+        <h4 class="step-head">Add the SpliceFS repository</h4>
+        <div class="block"><div class="bar"><span class="label">Shell</span></div><pre><code># Add the SpliceFS signing key:
+sudo install -m 0755 -d /etc/pki/rpm-gpg
+sudo curl -fsSL https://packages.splicefs.org/keys/splicefs.asc -o /etc/pki/rpm-gpg/RPM-GPG-KEY-splicefs
+
+# Add the repository:
+sudo tee /etc/yum.repos.d/splicefs.repo &gt;/dev/null &lt;&lt;'EOF'
+[splicefs-server]
+name=SpliceFS server
+baseurl=https://packages.splicefs.org/server/rpm/$basearch
+enabled=1
+gpgcheck=1
+repo_gpgcheck=1
+gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-splicefs
+
+[splicefs-client]
+name=SpliceFS client
+baseurl=https://packages.splicefs.org/client/rpm/$basearch
+enabled=1
+gpgcheck=1
+repo_gpgcheck=1
+gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-splicefs
+EOF
+</code></pre></div>
+      </li>
+      <li>
+        <h4 class="step-head">Install</h4>
+        <div class="block"><div class="bar"><span class="label">Server</span></div><pre><code>sudo dnf install -y splicefs-server
+</code></pre></div>
+        <div class="block"><div class="bar"><span class="label">Client</span></div><pre><code>sudo dnf install -y splicefs-client
+</code></pre></div>
+      </li>
+    </ol>
+  </section>
+
+  <section class="panel" id="panel-zypper">
+    <a id="opensuse"></a>
+    <h3 class="panel-title">openSUSE Leap</h3>
+    <ol class="steps">
+      <li>
+        <h4 class="step-head">Add the SpliceFS repository</h4>
+        <div class="block"><div class="bar"><span class="label">Shell</span></div><pre><code># Add the SpliceFS signing key:
+sudo install -m 0755 -d /etc/pki/rpm-gpg
+sudo curl -fsSL https://packages.splicefs.org/keys/splicefs.asc -o /etc/pki/rpm-gpg/RPM-GPG-KEY-splicefs
+sudo rpm --import /etc/pki/rpm-gpg/RPM-GPG-KEY-splicefs
+
+# Add the repository:
+sudo tee /etc/zypp/repos.d/splicefs.repo &gt;/dev/null &lt;&lt;'EOF'
+[splicefs-server]
+name=SpliceFS server
+baseurl=https://packages.splicefs.org/server/rpm/$basearch
+enabled=1
+autorefresh=1
+gpgcheck=1
+gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-splicefs
+
+[splicefs-client]
+name=SpliceFS client
+baseurl=https://packages.splicefs.org/client/rpm/$basearch
+enabled=1
+autorefresh=1
+gpgcheck=1
+gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-splicefs
+EOF
+
+sudo zypper --non-interactive refresh splicefs-server splicefs-client
+</code></pre></div>
+      </li>
+      <li>
+        <h4 class="step-head">Install</h4>
+        <div class="block"><div class="bar"><span class="label">Server</span></div><pre><code>sudo zypper --non-interactive install splicefs-server
+</code></pre></div>
+        <div class="block"><div class="bar"><span class="label">Client</span></div><pre><code>sudo zypper --non-interactive install splicefs-client
+</code></pre></div>
+      </li>
+    </ol>
+  </section>
+
+  <section class="panel" id="panel-apk">
+    <a id="alpine"></a>
+    <h3 class="panel-title">Alpine</h3>
+    <p class="small">Run these as root.</p>
+    <ol class="steps">
+      <li>
+        <h4 class="step-head">Add the SpliceFS repository</h4>
+        <div class="block"><div class="bar"><span class="label">Shell</span></div><pre><code># Add the SpliceFS signing key:
+wget -q https://packages.splicefs.org/keys/splicefs.rsa.pub -O /etc/apk/keys/splicefs.rsa.pub
+
+# Add the repositories:
+mkdir -p /etc/apk/repositories.d
+printf '%s\n' https://packages.splicefs.org/server/alpine https://packages.splicefs.org/client/alpine \
+  &gt; /etc/apk/repositories.d/splicefs.list
+apk update
+</code></pre></div>
+      </li>
+      <li>
+        <h4 class="step-head">Install</h4>
+        <div class="block"><div class="bar"><span class="label">Server</span></div><pre><code>apk add splicefs-server
+</code></pre></div>
+        <div class="block"><div class="bar"><span class="label">Client</span></div><pre><code>apk add splicefs-client
+</code></pre></div>
+      </li>
+    </ol>
+  </section>
+  </section>
+
+  <section class="after">
+    <h2>After the install</h2>
+    <p>The service is registered when the package is installed. It starts once its configuration file exists:</p>
+    <ul>
+      <li>Server: <code class="inline">/etc/splicefs/server/config.yaml</code> <a href="https://github.com/SpliceFS/server/blob/main/docs/configuration.md">Server configuration</a></li>
+      <li>Client: <code class="inline">/etc/splicefs/client/config.yaml</code> <a href="https://github.com/SpliceFS/client/blob/main/docs/configuration.md">Client configuration</a></li>
+    </ul>
+  </section>
+</main>
+<footer>
+  <div class="wrap">
+    <p>Signing keys: <a href="https://packages.splicefs.org/keys/splicefs.asc">apt and rpm</a> <a href="https://packages.splicefs.org/keys/splicefs.rsa.pub">Alpine</a></p>
+    <p>Source: <a href="https://github.com/SpliceFS">https://github.com/SpliceFS</a></p>
+  </div>
+</footer>
+<script>
+/* Pure function so it can be tested outside a browser. Output tokens always
+   concatenate back to the exact input. */
+function tokenize(text) {
+  var out = [];
+  var lines = text.match(/[^\n]*\n|[^\n]+/g) || [];
+  var heredoc = null;
+  var expectCmd = true;
+  var cont = false;
+  function push(kind, s) { if (s) out.push({ t: kind, s: s }); }
+
+  for (var li = 0; li < lines.length; li++) {
+    var line = lines[li];
+    var body = line.replace(/\n$/, '');
+    var nl = line.slice(body.length);
+
+    if (heredoc !== null) {
+      if (body === heredoc) {
+        push('op', body);
+        push('', nl);
+        heredoc = null;
+        expectCmd = true;
+        cont = false;
+        continue;
+      }
+      var re = /https:\/\/\S+/g, last = 0, hm;
+      while ((hm = re.exec(body)) !== null) {
+        push('here', body.slice(last, hm.index));
+        push('url', hm[0]);
+        last = re.lastIndex;
+      }
+      push('here', body.slice(last) + nl);
+      continue;
+    }
+
+    if (body === '') { push('', nl); continue; }
+    if (!cont && /^\s*#/.test(body)) {
+      push('cmt', body);
+      push('', nl);
+      expectCmd = true;
+      continue;
+    }
+    if (!cont) expectCmd = true;
+    cont = false;
+    var pendingHeredoc = null;
+    var i = 0, n = body.length, m;
+    while (i < n) {
+      var rest = body.slice(i);
+      var c = rest.charAt(0);
+      if ((m = /^\s+/.exec(rest))) {
+        push('', m[0]); i += m[0].length; continue;
+      }
+      if (c === '\\' && /^\\\s*$/.test(rest)) {
+        push('op', c); i += 1; cont = true; continue;
+      }
+      if ((m = /^(&&|\|\||>>|<<|\||>)/.exec(rest))) {
+        push('op', m[0]); i += m[0].length;
+        if (m[0] === '&&' || m[0] === '||' || m[0] === '|') expectCmd = true;
+        if (m[0] === '<<') {
+          var hd = /^<<\s*(['"]?)(\w+)\1/.exec(rest);
+          if (hd) pendingHeredoc = hd[2];
+        }
+        continue;
+      }
+      if ((m = /^(?:'[^']*'|"[^"]*")/.exec(rest))) {
+        push('str', m[0]); i += m[0].length; expectCmd = false; continue;
+      }
+      if ((m = /^[^\s'"|&<>\\]+/.exec(rest))) {
+        var w = m[0], kind = '';
+        if (expectCmd) {
+          if (w === 'sudo') { kind = 'kw'; }
+          else { kind = 'cmd'; expectCmd = false; }
+        } else if (w.indexOf('https://') === 0) kind = 'url';
+        else if (w.charAt(0) === '-') kind = 'flag';
+        else if (w.charAt(0) === '/') kind = 'path';
+        else if (w.charAt(0) === '$') kind = 'var';
+        push(kind, w); i += w.length; continue;
+      }
+      push('', c); i += 1;
+    }
+    push('', nl);
+    if (pendingHeredoc !== null) heredoc = pendingHeredoc;
+  }
+  return out;
+}
+
+if (typeof module !== 'undefined' && module.exports) module.exports = { tokenize: tokenize };
+
+(function () {
+  if (typeof document === 'undefined') return;
+  var root = document.documentElement;
+  root.className += ' js';
+
+  var ICON_COPY = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 3.5v-1a1 1 0 0 0-1-1h-6a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h1"/></svg>';
+  var ICON_CHECK = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8.5l3.2 3.2L13 4.8"/></svg>';
+
+  var live = document.createElement('div');
+  live.className = 'sr-only';
+  live.setAttribute('aria-live', 'polite');
+  document.body.appendChild(live);
+
+  function fallbackCopy(text) {
+    var ta = document.createElement('textarea');
+    ta.value = text;
+    ta.setAttribute('readonly', '');
+    ta.style.cssText = 'position:fixed;top:0;left:0;opacity:0;';
+    document.body.appendChild(ta);
+    ta.select();
+    var ok = false;
+    try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+    document.body.removeChild(ta);
+    return ok;
+  }
+
+  function copyText(text) {
+    if (navigator.clipboard && window.isSecureContext) {
+      return navigator.clipboard.writeText(text).then(function () { return true; }, function () { return fallbackCopy(text); });
+    }
+    return Promise.resolve(fallbackCopy(text));
+  }
+
+  function highlight(code) {
+    var toks = tokenize(code.textContent);
+    var frag = document.createDocumentFragment();
+    toks.forEach(function (tk) {
+      if (!tk.t) { frag.appendChild(document.createTextNode(tk.s)); return; }
+      var sp = document.createElement('span');
+      sp.className = 't-' + tk.t;
+      sp.textContent = tk.s;
+      frag.appendChild(sp);
+    });
+    code.textContent = '';
+    code.appendChild(frag);
+  }
+
+  Array.prototype.forEach.call(document.querySelectorAll('.block'), function (block) {
+    var code = block.querySelector('code');
+    var original = code.textContent;
+    highlight(code);
+    block.setText = function (text) {
+      original = text;
+      code.textContent = text;
+      highlight(code);
+    };
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'copy';
+    btn.innerHTML = ICON_COPY + '<span>Copy</span>';
+    var timer = null;
+    btn.addEventListener('click', function () {
+      copyText(original).then(function (ok) {
+        if (!ok) { live.textContent = 'Copy failed'; return; }
+        btn.className = 'copy done';
+        btn.innerHTML = ICON_CHECK + '<span>Copied</span>';
+        live.textContent = 'Copied';
+        clearTimeout(timer);
+        timer = setTimeout(function () {
+          btn.className = 'copy';
+          btn.innerHTML = ICON_COPY + '<span>Copy</span>';
+          live.textContent = '';
+        }, 1500);
+      });
+    });
+    block.querySelector('.bar').appendChild(btn);
+  });
+
+  var tool = 'curl', what = 'server';
+  var oneBlock = document.getElementById('oneblock');
+  var nojs = document.querySelector('.block.nojs');
+  if (nojs) nojs.parentNode.removeChild(nojs);
+  function oneText() {
+    var base = 'https://packages.splicefs.org/install.sh';
+    var get = tool === 'curl'
+      ? 'curl -fsSL ' + base + ' -o /tmp/splicefs-install.sh &&\n'
+      : 'wget -qO /tmp/splicefs-install.sh ' + base + ' &&\n';
+    return get + '  sudo sh /tmp/splicefs-install.sh ' + what + '\n';
+  }
+  function chooseOne() {
+    oneBlock.setText(oneText());
+    oneBlock.querySelector('.label').textContent = tool;
+    Array.prototype.forEach.call(document.querySelectorAll('.seg'), function (b) {
+      var on = b.getAttribute('data-tool') === tool || b.getAttribute('data-what') === what;
+      b.setAttribute('aria-pressed', on ? 'true' : 'false');
+    });
+  }
+  Array.prototype.forEach.call(document.querySelectorAll('.seg'), function (b) {
+    b.addEventListener('click', function () {
+      if (b.getAttribute('data-tool')) tool = b.getAttribute('data-tool');
+      else what = b.getAttribute('data-what');
+      chooseOne();
+    });
+  });
+
+  var cards = Array.prototype.slice.call(document.querySelectorAll('.card'));
+  var panels = Array.prototype.slice.call(document.querySelectorAll('.panel'));
+  var hint = document.getElementById('hint');
+
+  function select(id) {
+    var chosen = null;
+    cards.forEach(function (card) {
+      var on = card.getAttribute('href') === '#' + id;
+      if (on) { chosen = card; card.setAttribute('aria-current', 'true'); }
+      else card.removeAttribute('aria-current');
+    });
+    panels.forEach(function (p) {
+      var on = !!chosen && p.id === chosen.getAttribute('data-panel');
+      p.className = on ? 'panel active' : 'panel';
+      if (on) {
+        p.querySelector('.panel-title').textContent =
+          chosen.querySelector('.name').textContent + ' ' + chosen.querySelector('.versions').textContent;
+      }
+    });
+    hint.hidden = !!chosen;
+  }
+
+  cards.forEach(function (card) {
+    card.addEventListener('click', function (e) {
+      e.preventDefault();
+      var id = card.getAttribute('href').slice(1);
+      select(id);
+      try { history.replaceState(null, '', '#' + id); } catch (err) { location.hash = id; }
+    });
+  });
+  window.addEventListener('hashchange', function () { select(location.hash.slice(1)); });
+  select(location.hash.slice(1));
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,204 @@
+#!/bin/sh
+# Everything below is a function and the last line calls main, so a download that is cut
+# short runs nothing at all.
+#
+# Usage: sh install.sh server|client|both
+#
+# Sets up the SpliceFS package sources for this system and installs the packages. Safe to
+# run again: it rewrites only files whose content is wrong and installs only what is missing.
+set -eu
+
+BASE_URL='@BASE_URL@'
+DOC_SERVER='https://github.com/SpliceFS/server/blob/main/docs/configuration.md'
+DOC_CLIENT='https://github.com/SpliceFS/client/blob/main/docs/configuration.md'
+
+usage() {
+  echo "usage: sh install.sh server|client|both" >&2
+}
+
+die() {
+  echo "error: $*" >&2
+  exit 1
+}
+
+# The new content goes to a sibling file first, so an interrupted run never leaves a
+# half-written PATH, and an unchanged file keeps its timestamp.
+write_file() {
+  wf_path=$1
+  wf_mode=$2
+  cat > "$wf_path.new"
+  # Compared in the shell: cmp and diff are missing on some minimal systems.
+  if [ -f "$wf_path" ] && [ "$(cat "$wf_path.new")" = "$(cat "$wf_path")" ]; then
+    rm -f "$wf_path.new"
+    chmod "$wf_mode" "$wf_path"
+    return 0
+  fi
+  chmod "$wf_mode" "$wf_path.new"
+  mv "$wf_path.new" "$wf_path"
+  echo "updated $wf_path"
+}
+
+# The family decides which package manager and which repository format to use.
+detect_family() {
+  ID=
+  ID_LIKE=
+  if [ -r /etc/os-release ]; then
+    # shellcheck disable=SC1091
+    . /etc/os-release
+  fi
+  case "$ID" in
+    debian | ubuntu) FAMILY=apt ;;
+    rhel | rocky | almalinux | centos | fedora | amzn | ol) FAMILY=dnf ;;
+    opensuse* | sles | sled) FAMILY=zypper ;;
+    alpine) FAMILY=apk ;;
+    *)
+      case " $ID_LIKE " in
+        *" debian "*) FAMILY=apt ;;
+        *" rhel "* | *" fedora "*) FAMILY=dnf ;;
+        *suse*) FAMILY=zypper ;;
+        *) die "unsupported system '${ID:-unknown}'; see $BASE_URL/ for the manual steps" ;;
+      esac
+      ;;
+  esac
+}
+
+# Packages are static binaries, but the repositories are split per CPU type.
+check_cpu() {
+  case "$(uname -m)" in
+    x86_64 | aarch64 | arm64) ;;
+    *) die "unsupported CPU type '$(uname -m)'; SpliceFS is built for x86_64 and aarch64" ;;
+  esac
+}
+
+# The key is embedded so the trust anchor never depends on the network.
+write_openpgp_key() {
+  write_file "$1" 0644 <<'KEY_EOF'
+@OPENPGP_KEY@
+KEY_EOF
+}
+
+write_alpine_key() {
+  write_file "$1" 0644 <<'KEY_EOF'
+@ALPINE_KEY@
+KEY_EOF
+}
+
+setup_apt() {
+  if [ ! -f /etc/ssl/certs/ca-certificates.crt ]; then
+    apt-get update
+    DEBIAN_FRONTEND=noninteractive apt-get install -y ca-certificates
+  fi
+  install -m 0755 -d /etc/apt/keyrings
+  write_openpgp_key /etc/apt/keyrings/splicefs.asc
+  write_file /etc/apt/sources.list.d/splicefs.sources 0644 <<EOF
+Types: deb
+URIs: $BASE_URL/server/apt $BASE_URL/client/apt
+Suites: stable
+Components: main
+Signed-By: /etc/apt/keyrings/splicefs.asc
+EOF
+  apt-get update
+}
+
+install_apt() {
+  DEBIAN_FRONTEND=noninteractive apt-get install -y "$@"
+}
+
+# The backslash keeps $basearch literal, because dnf and zypper expand it themselves.
+write_rpm_repo() {
+  wr_path=$1
+  wr_extra=$2
+  write_file "$wr_path" 0644 <<EOF
+[splicefs-server]
+name=SpliceFS server
+baseurl=$BASE_URL/server/rpm/\$basearch
+enabled=1
+$wr_extra
+gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-splicefs
+
+[splicefs-client]
+name=SpliceFS client
+baseurl=$BASE_URL/client/rpm/\$basearch
+enabled=1
+$wr_extra
+gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-splicefs
+EOF
+}
+
+setup_dnf() {
+  install -m 0755 -d /etc/pki/rpm-gpg
+  write_openpgp_key /etc/pki/rpm-gpg/RPM-GPG-KEY-splicefs
+  write_rpm_repo /etc/yum.repos.d/splicefs.repo 'gpgcheck=1
+repo_gpgcheck=1'
+}
+
+install_dnf() {
+  dnf install -y "$@"
+}
+
+setup_zypper() {
+  install -m 0755 -d /etc/pki/rpm-gpg
+  write_openpgp_key /etc/pki/rpm-gpg/RPM-GPG-KEY-splicefs
+  # Importing a key that is already known is harmless, so no check is needed first.
+  rpm --import /etc/pki/rpm-gpg/RPM-GPG-KEY-splicefs
+  write_rpm_repo /etc/zypp/repos.d/splicefs.repo 'autorefresh=1
+gpgcheck=1'
+  zypper --non-interactive refresh splicefs-server splicefs-client
+}
+
+install_zypper() {
+  zypper --non-interactive install "$@"
+}
+
+setup_apk() {
+  write_alpine_key /etc/apk/keys/splicefs.rsa.pub
+  mkdir -p /etc/apk/repositories.d
+  write_file /etc/apk/repositories.d/splicefs.list 0644 <<EOF
+$BASE_URL/server/alpine
+$BASE_URL/client/alpine
+EOF
+}
+
+install_apk() {
+  apk add --update-cache "$@"
+}
+
+main() {
+  case "${1:-}" in
+    server) PACKAGES=splicefs-server ;;
+    client) PACKAGES=splicefs-client ;;
+    both) PACKAGES='splicefs-server splicefs-client' ;;
+    *)
+      usage
+      exit 2
+      ;;
+  esac
+  if [ "$(id -u)" -ne 0 ]; then
+    die "run this script as root, for example with sudo"
+  fi
+  detect_family
+  check_cpu
+
+  # Both sources are always set up so the other package can be added later with the
+  # system's own command.
+  "setup_$FAMILY"
+  # PACKAGES is split on purpose, one word per package.
+  # shellcheck disable=SC2086
+  "install_$FAMILY" $PACKAGES
+
+  echo
+  echo "Installed: $PACKAGES"
+  echo "The service starts once its configuration file exists:"
+  case "$1" in
+    server | both)
+      echo "  /etc/splicefs/server/config.yaml  (see $DOC_SERVER)"
+      ;;
+  esac
+  case "$1" in
+    client | both)
+      echo "  /etc/splicefs/client/config.yaml  (see $DOC_CLIENT)"
+      ;;
+  esac
+}
+
+main "$@"
