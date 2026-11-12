@@ -19,6 +19,21 @@ make lint     # ShellCheck on the built script, the manual steps and the build s
 `make check` needs `python3`. It also uses `node`, `dash` and `bash` when they are installed.
 `make lint` needs `shellcheck`.
 
+## Branches
+
+SpliceFS uses the gitflow branching model.
+
+- `main` holds released code only. Every commit on it is a release and carries a version tag.
+- `develop` is where work comes together. It is the default branch, and pull requests target it.
+- `feature/<name>` branches start from `develop` and merge back into it by pull request.
+- `release/<version>` branches start from `develop` when a release is prepared. They take only
+  fixes and the changelog, and merge into `main` and back into `develop`.
+- `hotfix/<version>` branches start from `main` for urgent fixes and merge into `main` and
+  `develop`.
+
+`main` and `develop` are protected: no direct pushes, no force pushes, no deletion, and CI
+must pass before a merge.
+
 ## Standards
 
 ### The install script and the manual steps
@@ -44,7 +59,8 @@ make lint     # ShellCheck on the built script, the manual steps and the build s
 ### Commits and pull requests
 
 - One purpose per commit. The message says what changed and why.
-- CI must pass: the checks, ShellCheck, CodeQL and the SonarQube quality gate.
+- A pull request targets `develop`. CI must pass: the checks, ShellCheck, CodeQL and the
+  SonarQube quality gate.
 
 ## What CI checks
 
@@ -58,7 +74,8 @@ make lint     # ShellCheck on the built script, the manual steps and the build s
 ## Versioning and releases
 
 SpliceFS follows [Semantic Versioning](https://semver.org). The site is published from
-`main`; the hash of each published install script is recorded in this repository's releases.
+`main`, which only receives release merges; the hash of each published install script is
+recorded in this repository's releases.
 
 ## License
 
