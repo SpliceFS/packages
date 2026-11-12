@@ -191,6 +191,9 @@ EOF
 setup_dnf() {
   install -m 0755 -d /etc/pki/rpm-gpg
   write_openpgp_key /etc/pki/rpm-gpg/RPM-GPG-KEY-splicefs
+  # The key is known to rpm from the moment the repository is added, not from the first
+  # install. Importing a key that is already known is harmless.
+  rpm --import /etc/pki/rpm-gpg/RPM-GPG-KEY-splicefs
   write_rpm_repo /etc/yum.repos.d/splicefs.repo 'gpgcheck=1
 repo_gpgcheck=1'
 }

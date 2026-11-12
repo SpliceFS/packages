@@ -45,6 +45,8 @@ Alpine) and at https://packages.splicefs.org/keys/.
 ```
 make site     # writes dist/site
 make check    # builds, then runs every check
+make e2e-prepare  # builds ../server and ../client with throwaway keys into dist/e2e/site
+make e2e      # runs the install script in a container of every supported system
 ```
 
 `make check` needs `python3`. It also uses `node`, `dash` and `bash` when they are installed.

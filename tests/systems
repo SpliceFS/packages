@@ -1,0 +1,18 @@
+# The systems the install script is tested on: one line per system, "<format> <image>".
+# This list must match the packages' own test list (the server repository's
+# packaging/test-systems); change both together.
+deb debian:12
+# golang:1.27 is Debian 13 and is the image the packages are built in.
+deb golang:1.27
+deb ubuntu:22.04
+deb ubuntu:24.04
+deb ubuntu:26.04
+rpm rockylinux/rockylinux:8
+rpm rockylinux/rockylinux:9
+rpm rockylinux/rockylinux:10
+rpm amazonlinux:2023
+rpm opensuse/leap:15.6
+rpm opensuse/leap:16.0
+apk alpine:3.22
+apk alpine:3.23
+apk alpine:3.24
