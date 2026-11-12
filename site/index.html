@@ -364,10 +364,10 @@ apk update
 
   <section class="after">
     <h2>After the install</h2>
-    <p>The service is registered when the package is installed. It starts once its configuration file exists:</p>
+    <p>The service starts when the package is installed. Nothing has to be configured first: a server runs with no shares and a client with no mounts. Add yours as files, then reload the service:</p>
     <ul>
-      <li>Server: <code class="inline">/etc/splicefs/server/config.yaml</code> <a href="https://github.com/SpliceFS/server/blob/main/docs/configuration.md">Server configuration</a></li>
-      <li>Client: <code class="inline">/etc/splicefs/client/config.yaml</code> <a href="https://github.com/SpliceFS/client/blob/main/docs/configuration.md">Client configuration</a></li>
+      <li>Server: one file per share in <code class="inline">/etc/splicefs/server/shares.d</code> <a href="https://github.com/SpliceFS/server/blob/main/docs/configuration.md">Server configuration</a></li>
+      <li>Client: one file per cluster in <code class="inline">/etc/splicefs/client/clusters.d</code> and one per mount in <code class="inline">/etc/splicefs/client/mounts.d</code> <a href="https://github.com/SpliceFS/client/blob/main/docs/configuration.md">Client configuration</a></li>
     </ul>
   </section>
 </main>
