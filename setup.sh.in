@@ -50,7 +50,9 @@ write_file() {
       cmp -s "$WF_TMP" "$wf_path" || wf_same=1
     else
       wf_same=0
-      [ "$(cat "$WF_TMP")" = "$(cat "$wf_path")" ] || wf_same=1
+      wf_new=$(cat "$WF_TMP")
+      wf_old=$(cat "$wf_path")
+      [ "$wf_new" = "$wf_old" ] || wf_same=1
     fi
     if [ "$wf_same" -eq 0 ]; then
       rm -f "$WF_TMP"
@@ -128,14 +130,18 @@ check_tools() {
     apk)
       command -v apk >/dev/null 2>&1 || die "apk not found"
       ;;
+    *)
+      # detect_family sets FAMILY to one of the four values above, so nothing is left to check.
+      ;;
   esac
 }
 
 # Packages are static binaries, but the repositories are split per CPU type.
 check_cpu() {
-  case "$(uname -m)" in
+  cc_cpu=$(uname -m)
+  case "$cc_cpu" in
     x86_64 | aarch64) ;;
-    *) die "unsupported CPU type '$(uname -m)'; SpliceFS is built for x86_64 and aarch64" ;;
+    *) die "unsupported CPU type '$cc_cpu'; SpliceFS is built for x86_64 and aarch64" ;;
   esac
 }
 
@@ -242,6 +248,9 @@ next_steps() {
       ns_update=update
       ns_add=add
       ;;
+    *)
+      # detect_family sets FAMILY to one of the four values above, so every value is handled.
+      ;;
   esac
   echo "The SpliceFS package repository is set up. Next:"
   echo
@@ -267,7 +276,8 @@ main() {
     usage
     exit 2
   fi
-  if [ "$(id -u)" -ne 0 ]; then
+  main_uid=$(id -u)
+  if [ "$main_uid" -ne 0 ]; then
     die "run this script as root, for example with sudo"
   fi
   detect_family

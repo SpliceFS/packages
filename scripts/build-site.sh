@@ -101,7 +101,8 @@ chmod 644 "$OUT/setup.sh"
 
 # A cut or mangled script would be run as root by users, so it fails here instead.
 sh -n "$OUT/setup.sh" || { echo "setup.sh has a syntax error" >&2; exit 1; }
-if [ "$(tail -n 1 "$OUT/setup.sh")" != 'main "$@"' ]; then
+last_line=$(tail -n 1 "$OUT/setup.sh")
+if [ "$last_line" != 'main "$@"' ]; then
   echo 'last line of setup.sh is not: main "$@"' >&2
   exit 1
 fi
