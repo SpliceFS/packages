@@ -329,7 +329,7 @@ else
     fi
     if [ "$(cat "$TMP/remote/server/keep.txt")" = keep ] &&
       [ "$(cd "$TMP/remote" && echo *)" = \
-        'index.html setup.sh setup.sh.asc setup.sh.sha256 keys server' ] &&
+        'index.html keys server setup.sh setup.sh.asc setup.sh.sha256' ] &&
       [ "$(perms "$TMP/remote/server/keep.txt")" = '-rw-------' ]; then
       pass "8. server/keep.txt is untouched and nothing else appeared"
     else
