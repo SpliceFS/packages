@@ -12,6 +12,6 @@ permissions:
 
 jobs:
   rules:
-    uses: SpliceFS/.github/.github/workflows/pull-request.yml@main
+    uses: SpliceFS/.github/.github/workflows/pull-request-rules-v1.yml@main
     secrets:
       bot-private-key: ${{ secrets.RELEASE_BOT_PRIVATE_KEY }}
