@@ -36,8 +36,11 @@ files = []
 for root, dirs, fs in os.walk("."):
     dirs[:] = [d for d in dirs if d not in skip_dirs]
     for f in fs:
-        if f != "LICENSE" or root != ".":
-            files.append(os.path.join(root, f))
+        # In a second working copy of the repository .git is a file that holds a folder
+        # path of the machine; like the .git folder it is not part of the project.
+        if root == "." and f in ("LICENSE", ".git"):
+            continue
+        files.append(os.path.join(root, f))
 files += ["dist/site/setup.sh", "dist/site/index.html", "dist/site/setup.sh.sha256"]
 bad = 0
 for path in sorted(files):
@@ -66,12 +69,13 @@ import html, json, re, sys
 page = open("site/index.html", encoding="ascii").read()
 blocks = [html.unescape(b) for b in re.findall(r"<pre><code>(.*?)</code></pre>", page, re.S)]
 json.dump(blocks, open(sys.argv[1], "w"))
-step = {k: open("steps/%s.sh" % k).read() for k in ("apt", "dnf", "zypper", "apk")}
+step = {k: open("steps/%s.sh" % k).read() for k in ("apt", "dnf", "zypper", "apk", "pkg")}
 base = "https://packages.splicefs.org"
 curl = "curl --proto '=https' --tlsv1.2 -fsSL %s/setup.sh -o ~/splicefs-setup.sh &&\n  sudo sh ~/splicefs-setup.sh\n" % base
 wget = "wget -qO ~/splicefs-setup.sh %s/setup.sh &&\n  sudo sh ~/splicefs-setup.sh\n" % base
+fetch = "fetch -qo - %s/setup.sh | sh\n" % base
 # Each step file already ends with the update and install commands, so a family is one block.
-expected = [curl, wget, "sha256sum ~/splicefs-setup.sh\n"] + [step[k] for k in ("apt", "dnf", "zypper", "apk")]
+expected = [curl, wget, fetch, "sha256sum ~/splicefs-setup.sh\n"] + [step[k] for k in ("apt", "dnf", "zypper", "apk", "pkg")]
 bad = 0
 if len(blocks) != len(expected):
     print("page has %d code blocks, expected %d" % (len(blocks), len(expected))); bad += 1
@@ -93,6 +97,12 @@ for key in ("keys/splicefs.asc", "keys/splicefs.rsa.pub"):
         print("%s is not embedded byte for byte" % key); bad += 1
 if re.search(r"@[A-Z_]+@", s):
     print("placeholder left in setup.sh"); bad += 1
+# pkg expands the ABI variable itself, so it must reach the file unexpanded: once per repository.
+if s.count("${ABI}") != 2:
+    print("setup.sh holds the text ${ABI} %d times, expected 2" % s.count("${ABI}")); bad += 1
+for name in ("splicefs-server: {", "splicefs-client: {"):
+    if name not in s:
+        print("setup.sh does not write the repository %s" % name); bad += 1
 if not s.endswith('\nmain "$@"\n'):
     print('last line is not main "$@"'); bad += 1
 want = hashlib.sha256(open("dist/site/setup.sh", "rb").read()).hexdigest() + "  setup.sh\n"
@@ -188,6 +198,7 @@ expect_next dnf dnf 'sudo dnf' makecache install dnf
 expect_next dnf yum 'sudo yum' makecache install
 expect_next zypper '' 'sudo zypper' refresh install zypper
 expect_next apk '' apk update add apk
+expect_next pkg '' pkg update install pkg
 
 # 7. Properties of the built script that can be read from its text.
 cat > "$TMP/text.py" <<'PYEOF'
@@ -201,14 +212,16 @@ if cmds[:3] != ["PATH=/usr/sbin:/usr/bin:/sbin:/bin", "export PATH", "umask 022"
     print("PATH, export PATH and umask 022 do not follow set -eu directly"); bad += 1
 if "/tmp" in s:
     print("setup.sh mentions /tmp"); bad += 1
-if "arm64" in s:
-    print("setup.sh still accepts arm64"); bad += 1
+# Only FreeBSD names its CPU arm64, and the line that accepts it starts with the pkg family.
+for l in lines:
+    if "arm64" in l and "pkg:" not in l and not l.lstrip().startswith("#"):
+        print("setup.sh accepts arm64 outside the pkg family: %s" % l.strip()); bad += 1
 m = re.search(r"write_rpm_repo /etc/zypp/repos.d/splicefs.repo '([^']*)'", s)
 if not m or m.group(1).split("\n") != ["autorefresh=1", "gpgcheck=1", "repo_gpgcheck=1", "pkg_gpgcheck=1"]:
     print("zypper repo lines are not autorefresh, gpgcheck, repo_gpgcheck, pkg_gpgcheck"); bad += 1
 sys.exit(1 if bad else 0)
 PYEOF
-run "7. built setup.sh: PATH and umask first, no /tmp, no arm64, zypper lines" python3 -I "$TMP/text.py"
+run "7. built setup.sh: PATH and umask first, no /tmp, arm64 only for pkg, zypper lines" python3 -I "$TMP/text.py"
 
 # The script only sets up the repository. No package manager command that installs, upgrades or
 # refreshes anything may be run, and the install_ functions are gone. Text inside quotes is
@@ -217,7 +230,7 @@ run "7. built setup.sh: PATH and umask first, no /tmp, no arm64, zypper lines" p
 cat > "$TMP/noinstall.py" <<'PYEOF'
 import re, sys
 lines = open("dist/site/setup.sh", encoding="ascii").read().split("\n")
-mgr = r'(?:\b(?:apt-get|apt|dnf|yum|zypper|apk|dpkg)\b|\$\{?RPM_TOOL\}?"?)'
+mgr = r'(?:\b(?:apt-get|apt|dnf|yum|zypper|apk|pkg|dpkg)\b|\$\{?RPM_TOOL\}?"?)'
 verbs = (r'install|add|upgrade|dist-upgrade|update|refresh|makecache|remove|in|'
          r'-i|--install|--upgrade')
 manager_re = re.compile(mgr + r'\s+(?:-\S+\s+)*(?:' + verbs + r')\b')
