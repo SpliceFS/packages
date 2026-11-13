@@ -30,8 +30,8 @@ sudo apt-get install splicefs-server    # the server
 sudo apt-get install splicefs-client    # the client
 ```
 
-The commands for dnf, zypper and apk are on the page. The script is safe to run again. Manual
-steps for each system are on the page as well.
+The commands for dnf, zypper, apk and pkg (FreeBSD) are on the page. The script is safe to run
+again. Manual steps for each system are on the page as well.
 
 ## Verify the setup script
 
@@ -64,7 +64,7 @@ The OpenPGP key that signs the apt and rpm packages has this fingerprint. It is 
 ```
 
 The public keys are in `keys/` (`splicefs.asc` for apt and rpm, `splicefs.rsa.pub` for
-Alpine) and at https://packages.splicefs.org/keys/.
+Alpine and FreeBSD) and at https://packages.splicefs.org/keys/.
 
 ## Build and check
 

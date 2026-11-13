@@ -71,6 +71,13 @@ write_file() {
 # shellcheck disable=SC1090
 # The family decides which package manager and which repository format to use.
 detect_family() {
+  # FreeBSD is asked for by name first, so the Linux logic below, which reads the os-release
+  # file, is never reached on FreeBSD and stays as it was.
+  df_os=$(uname -s)
+  if [ "$df_os" = FreeBSD ]; then
+    FAMILY=pkg
+    return 0
+  fi
   if [ -r /etc/os-release ]; then
     OS_RELEASE=/etc/os-release
   elif [ -r /usr/lib/os-release ]; then
@@ -130,17 +137,24 @@ check_tools() {
     apk)
       command -v apk >/dev/null 2>&1 || die "apk not found"
       ;;
+    pkg)
+      # /usr/sbin/pkg is in the FreeBSD base system, so a missing pkg means a damaged system.
+      command -v pkg >/dev/null 2>&1 || die "pkg not found"
+      ;;
     *)
-      # detect_family sets FAMILY to one of the four values above, so nothing is left to check.
+      # detect_family sets FAMILY to one of the five values above, so nothing is left to check.
       ;;
   esac
 }
 
-# Packages are static binaries, but the repositories are split per CPU type.
+# Packages are static binaries, but the repositories are split per CPU type. FreeBSD names the
+# same two CPU types amd64 and arm64 in uname -m, and Linux names them x86_64 and aarch64.
 check_cpu() {
   cc_cpu=$(uname -m)
-  case "$cc_cpu" in
-    x86_64 | aarch64) ;;
+  case "$FAMILY:$cc_cpu" in
+    pkg:amd64 | pkg:arm64) ;;
+    pkg:*) die "unsupported CPU type '$cc_cpu'; SpliceFS is built for amd64 and arm64" ;;
+    *:x86_64 | *:aarch64) ;;
     *) die "unsupported CPU type '$cc_cpu'; SpliceFS is built for x86_64 and aarch64" ;;
   esac
 }
@@ -152,7 +166,8 @@ write_openpgp_key() {
 KEY_EOF
 }
 
-write_alpine_key() {
+# The same RSA key is checked by Alpine's apk and by FreeBSD's pkg.
+write_rsa_key() {
   write_file "$1" 0644 "$2" <<'KEY_EOF'
 @ALPINE_KEY@
 KEY_EOF
@@ -215,7 +230,7 @@ pkg_gpgcheck=1'
 setup_apk() {
   # The temporary file stays out of the keys folder, because apk reads every file in it.
   mkdir -p /etc/apk/keys
-  write_alpine_key /etc/apk/keys/splicefs.rsa.pub /etc/apk/splicefs.rsa.pub.new
+  write_rsa_key /etc/apk/keys/splicefs.rsa.pub /etc/apk/splicefs.rsa.pub.new
   mkdir -p /etc/apk/repositories.d
   write_file /etc/apk/repositories.d/splicefs.list 0644 <<EOF
 $BASE_URL/server/alpine
@@ -223,9 +238,38 @@ $BASE_URL/client/alpine
 EOF
 }
 
+# The backslash keeps the ABI variable literal in the file, because pkg replaces it itself with
+# the ABI of the system it runs on. The key's path is named in the repository file, so the
+# keys folder holds nothing but the key.
+write_pkg_repo() {
+  write_file /usr/local/etc/pkg/repos/splicefs.conf 0644 <<EOF
+splicefs-server: {
+  url: "$BASE_URL/server/freebsd/\${ABI}",
+  mirror_type: "none",
+  signature_type: "pubkey",
+  pubkey: "/usr/local/etc/pkg/keys/splicefs.rsa.pub",
+  enabled: yes
+}
+splicefs-client: {
+  url: "$BASE_URL/client/freebsd/\${ABI}",
+  mirror_type: "none",
+  signature_type: "pubkey",
+  pubkey: "/usr/local/etc/pkg/keys/splicefs.rsa.pub",
+  enabled: yes
+}
+EOF
+}
+
+setup_pkg() {
+  mkdir -p /usr/local/etc/pkg/keys
+  write_rsa_key /usr/local/etc/pkg/keys/splicefs.rsa.pub
+  mkdir -p /usr/local/etc/pkg/repos
+  write_pkg_repo
+}
+
 # The commands are the system's own, so the person can run them again later, for example to
-# add the other package. Alpine has no sudo by default, and its manual steps are written for
-# root, so apk is printed without it.
+# add the other package. Alpine and FreeBSD have no sudo by default, and their manual steps are
+# written for root, so apk and pkg are printed without it.
 next_steps() {
   case "$FAMILY" in
     apt)
@@ -248,8 +292,13 @@ next_steps() {
       ns_update=update
       ns_add=add
       ;;
+    pkg)
+      ns_pm=pkg
+      ns_update=update
+      ns_add=install
+      ;;
     *)
-      # detect_family sets FAMILY to one of the four values above, so every value is handled.
+      # detect_family sets FAMILY to one of the five values above, so every value is handled.
       ;;
   esac
   echo "The SpliceFS package repository is set up. Next:"

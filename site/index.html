@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>SpliceFS packages</title>
-<meta name="description" content="Install SpliceFS on Debian, Ubuntu, RHEL, Rocky Linux, AlmaLinux, Amazon Linux, openSUSE and Alpine.">
+<meta name="description" content="Install SpliceFS on Debian, Ubuntu, RHEL, Rocky Linux, AlmaLinux, Amazon Linux, openSUSE, Alpine and FreeBSD.">
 <style>
 :root {
   --bg: #ffffff;
@@ -162,6 +162,7 @@ footer a:first-of-type { margin-left: 4px; }
       <div class="seg-group" role="group" aria-label="Download tool">
         <button type="button" class="seg" data-tool="curl" aria-pressed="true">curl</button>
         <button type="button" class="seg" data-tool="wget" aria-pressed="false">wget</button>
+        <button type="button" class="seg" data-tool="fetch" aria-pressed="false">fetch</button>
       </div>
     </div>
     <div class="block" id="oneblock"><div class="bar"><span class="label">curl</span></div><pre><code>curl --proto '=https' --tlsv1.2 -fsSL https://packages.splicefs.org/setup.sh -o ~/splicefs-setup.sh &amp;&amp;
@@ -170,12 +171,14 @@ footer a:first-of-type { margin-left: 4px; }
     <div class="block nojs"><div class="bar"><span class="label">wget</span></div><pre><code>wget -qO ~/splicefs-setup.sh https://packages.splicefs.org/setup.sh &amp;&amp;
   sudo sh ~/splicefs-setup.sh
 </code></pre></div>
-    <p class="small">Already root? Leave out sudo.</p>
+    <div class="block nojs"><div class="bar"><span class="label">fetch (FreeBSD, as root)</span></div><pre><code>fetch -qo - https://packages.splicefs.org/setup.sh | sh
+</code></pre></div>
+    <p class="small">Already root? Leave out sudo. FreeBSD has no sudo by default: run fetch as root.</p>
     <p>The script registers the SpliceFS package repository and its signing key on your system. It installs no package and takes no arguments. It is safe to run again.</p>
     <p>It is downloaded completely before it runs. To check it first, compare its SHA-256 with the one in the <a href="https://github.com/SpliceFS/packages#verify-the-setup-script">packages repository on GitHub</a>:</p>
     <div class="block"><div class="bar"><span class="label">Shell</span></div><pre><code>sha256sum ~/splicefs-setup.sh
 </code></pre></div>
-    <p class="small">Works on Debian, Ubuntu, RHEL, Rocky Linux, AlmaLinux, Amazon Linux, openSUSE and Alpine, on x86-64 and arm64.</p>
+    <p class="small">Works on Debian, Ubuntu, RHEL, Rocky Linux, AlmaLinux, Amazon Linux, openSUSE, Alpine and FreeBSD, on x86-64 and arm64.</p>
   </section>
 
   <section class="one" id="two">
@@ -187,11 +190,12 @@ footer a:first-of-type { margin-left: 4px; }
         <button type="button" class="seg" data-family="dnf" aria-pressed="false">RHEL, Rocky, AlmaLinux, Amazon</button>
         <button type="button" class="seg" data-family="zypper" aria-pressed="false">openSUSE</button>
         <button type="button" class="seg" data-family="apk" aria-pressed="false">Alpine</button>
+        <button type="button" class="seg" data-family="pkg" aria-pressed="false">FreeBSD</button>
       </div>
     </div>
     <div id="twohost"></div>
     <p class="nojs">The commands are the last three lines of your system's block under Manual setup below.</p>
-    <p class="small">On Alpine, run them as root.</p>
+    <p class="small">On Alpine and FreeBSD, run them as root.</p>
   </section>
 
   <section class="manual">
@@ -206,6 +210,7 @@ footer a:first-of-type { margin-left: 4px; }
     <li><a class="card" href="#amazon" data-panel="panel-dnf"><span class="name">Amazon Linux</span><span class="versions">2023</span></a></li>
     <li><a class="card" href="#opensuse" data-panel="panel-zypper"><span class="name">openSUSE Leap</span><span class="versions">16.0</span></a></li>
     <li><a class="card" href="#alpine" data-panel="panel-apk"><span class="name">Alpine</span><span class="versions">3.22, 3.23, 3.24</span></a></li>
+    <li><a class="card" href="#freebsd" data-panel="panel-pkg"><span class="name">FreeBSD</span><span class="versions">14, 15</span></a></li>
   </ul>
 
   <p class="hint" id="hint" hidden>Pick a system above.</p>
@@ -330,6 +335,40 @@ apk add splicefs-server    # the server
 apk add splicefs-client    # the client
 </code></pre></div>
   </section>
+
+  <section class="panel" id="panel-pkg">
+    <a id="freebsd"></a>
+    <h3 class="panel-title">FreeBSD</h3>
+    <p class="small">Run these as root.</p>
+    <div class="block"><div class="bar"><span class="label">Shell</span></div><pre><code># Add the SpliceFS signing key:
+mkdir -p /usr/local/etc/pkg/keys
+fetch -o /usr/local/etc/pkg/keys/splicefs.rsa.pub https://packages.splicefs.org/keys/splicefs.rsa.pub
+
+# Add the repositories:
+mkdir -p /usr/local/etc/pkg/repos
+cat &gt; /usr/local/etc/pkg/repos/splicefs.conf &lt;&lt;'EOF'
+splicefs-server: {
+  url: "https://packages.splicefs.org/server/freebsd/${ABI}",
+  mirror_type: "none",
+  signature_type: "pubkey",
+  pubkey: "/usr/local/etc/pkg/keys/splicefs.rsa.pub",
+  enabled: yes
+}
+splicefs-client: {
+  url: "https://packages.splicefs.org/client/freebsd/${ABI}",
+  mirror_type: "none",
+  signature_type: "pubkey",
+  pubkey: "/usr/local/etc/pkg/keys/splicefs.rsa.pub",
+  enabled: yes
+}
+EOF
+
+# Update the package index, then install the server, the client, or both:
+pkg update
+pkg install splicefs-server    # the server
+pkg install splicefs-client    # the client
+</code></pre></div>
+  </section>
   </section>
 
   <section class="after">
@@ -343,7 +382,7 @@ apk add splicefs-client    # the client
 </main>
 <footer>
   <div class="wrap">
-    <p>Signing keys: <a href="https://packages.splicefs.org/keys/splicefs.asc">apt and rpm</a> <a href="https://packages.splicefs.org/keys/splicefs.rsa.pub">Alpine</a></p>
+    <p>Signing keys: <a href="https://packages.splicefs.org/keys/splicefs.asc">apt and rpm</a> <a href="https://packages.splicefs.org/keys/splicefs.rsa.pub">Alpine and FreeBSD</a></p>
     <p>Source: <a href="https://github.com/SpliceFS">https://github.com/SpliceFS</a></p>
   </div>
 </footer>
@@ -530,11 +569,13 @@ if (typeof module !== 'undefined' && module.exports) module.exports = { tokenize
 
   var tool = 'curl';
   var oneBlock = document.getElementById('oneblock');
-  var nojs = document.querySelector('.block.nojs');
-  if (nojs) nojs.parentNode.removeChild(nojs);
+  Array.prototype.forEach.call(document.querySelectorAll('.block.nojs'), function (nojs) {
+    nojs.parentNode.removeChild(nojs);
+  });
   var toolButtons = Array.prototype.slice.call(document.querySelectorAll('[data-tool]'));
   function oneText() {
     var base = 'https://packages.splicefs.org/setup.sh';
+    if (tool === 'fetch') return 'fetch -qo - ' + base + ' | sh\n';
     var get = tool === 'curl'
       ? 'curl --proto \'=https\' --tlsv1.2 -fsSL ' + base + ' -o ~/splicefs-setup.sh &&\n'
       : 'wget -qO ~/splicefs-setup.sh ' + base + ' &&\n';

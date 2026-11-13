@@ -9,6 +9,7 @@ notable ones.
 
 ### Added
 
+- FreeBSD: the setup script writes the package repository configuration for pkg.
 - The install script `install.sh` for Debian, Ubuntu, RHEL, Rocky Linux, AlmaLinux, Amazon
   Linux, openSUSE Leap and Alpine, on x86-64 and arm64. It sets up the SpliceFS package
   sources with signature checks on and installs `splicefs-server`, `splicefs-client` or both.
