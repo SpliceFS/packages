@@ -63,25 +63,49 @@ trap 'rm -f "$out" "$first"' EXIT
 DEBIAN_FRONTEND=noninteractive
 export DEBIAN_FRONTEND
 
-# One line per file: checksum, modification time (seconds) and mode.
+# Runs a command that asks a question: a non-zero status is an answer, not an error, so it
+# is left in $status and the script goes on. set -e is off while the command runs, as it is
+# for a command in an if or after ||, but ShellCheck cannot accept a function there.
+try() {
+  set +e
+  "$@"
+  status=$?
+  set -e
+}
+
+# One line per file: checksum, modification time (seconds) and mode. With the argument
+# content the modification time is left out, because a restored file is new on purpose.
 state() {
   for f in $files; do
     [ -f "$f" ] || { echo "$f missing"; continue; }
-    echo "$f $(sha256sum "$f" | cut -d' ' -f1) $(stat -c %Y "$f") $(stat -c %a "$f")"
+    st_sum=$(sha256sum "$f")
+    st_sum=${st_sum%% *}
+    st_mode=$(stat -c %a "$f")
+    if [ "${1:-}" = content ]; then
+      echo "$f $st_sum $st_mode"
+    else
+      st_time=$(stat -c %Y "$f")
+      echo "$f $st_sum $st_time $st_mode"
+    fi
   done
 }
 
 no_temp_files() {
   for d in $tmpdirs; do
-    if [ -n "$(find "$d" -maxdepth 1 -name '*.new' 2>/dev/null)" ]; then
+    # find fails when the folder does not exist, and then there is no temporary file in it.
+    st_found=$(find "$d" -maxdepth 1 -name '*.new' 2>/dev/null) || st_found=
+    if [ -n "$st_found" ]; then
       fail "temporary file left in $d"
     fi
   done
 }
 
-# cmp is missing on some minimal images, so files are compared by checksum.
-same_file() {
-  [ "$(sha256sum < "$1")" = "$(sha256sum < "$2")" ]
+# cmp is missing on some minimal images, so files are compared by checksum. The third
+# argument is the failure message.
+expect_same_file() {
+  sf_first=$(sha256sum < "$1") || fail "$3"
+  sf_second=$(sha256sum < "$2") || fail "$3"
+  [ "$sf_first" = "$sf_second" ] || fail "$3"
 }
 
 # Runs the setup script, keeps its output in $out and echoes it, and returns its status.
@@ -128,9 +152,8 @@ if [ "$format" = deb ]; then
     mv "$bundle" "$bundle.aside"
     moved=1
   fi
-  rc=0
-  run_script || rc=$?
-  [ "$rc" -eq 1 ] || fail "setup.sh without ca-certificates exited $rc, expected 1"
+  try run_script
+  [ "$status" -eq 1 ] || fail "setup.sh without ca-certificates exited $status, expected 1"
   grep -q 'ca-certificates' "$out" || fail "the refusal does not name ca-certificates"
   [ ! -e "$keyfile" ] && [ ! -e "$srcfile" ] || fail "the refusal wrote a file"
   if [ "$moved" -eq 1 ]; then
@@ -144,9 +167,8 @@ fi
 
 # b. argument errors exit 2 and touch nothing, before the first setup and after it
 for arg in both nonsense; do
-  rc=0
-  run_script "$arg" || rc=$?
-  [ "$rc" -eq 2 ] || fail "setup.sh $arg exited $rc, expected 2"
+  try run_script "$arg"
+  [ "$status" -eq 2 ] || fail "setup.sh $arg exited $status, expected 2"
   grep -q '^usage: sh setup.sh$' "$out" || fail "setup.sh $arg did not print the usage line"
 done
 for f in $files; do
@@ -154,7 +176,8 @@ for f in $files; do
 done
 
 # c. the script succeeds and prints the next steps
-run_script || fail "setup.sh exited $?"
+try run_script
+[ "$status" -eq 0 ] || fail "setup.sh exited $status"
 cp "$out" "$first"
 grep -q '^The SpliceFS package repository is set up\. Next:$' "$first" ||
   fail "setup.sh did not print the next steps"
@@ -162,15 +185,18 @@ grep -q '^The SpliceFS package repository is set up\. Next:$' "$first" ||
 # d. files, modes, no temporary files
 for f in $files; do
   [ -f "$f" ] || fail "$f was not written"
-  [ "$(stat -c %a "$f")" = 644 ] || fail "$f has mode $(stat -c %a "$f"), expected 644"
+  mode=$(stat -c %a "$f")
+  [ "$mode" = 644 ] || fail "$f has mode $mode, expected 644"
 done
-same_file "$keyfile" "$sitekey" || fail "$keyfile differs from the published key"
+expect_same_file "$keyfile" "$sitekey" "$keyfile differs from the published key"
 no_temp_files
 before=$(state)
+before_content=$(state content)
 
 # e. the script installed nothing
 for p in splicefs-server splicefs-client; do
-  if is_installed "$p"; then fail "setup.sh installed $p"; fi
+  try is_installed "$p"
+  [ "$status" -ne 0 ] || fail "setup.sh installed $p"
 done
 if command -v splicefsd >/dev/null 2>&1 || command -v splicefs >/dev/null 2>&1; then
   fail "a SpliceFS program is on the system after setup.sh"
@@ -179,60 +205,75 @@ fi
 # f. argument errors after setup change nothing
 sleep 1
 for arg in both nonsense; do
-  rc=0
-  run_script "$arg" || rc=$?
-  [ "$rc" -eq 2 ] || fail "setup.sh $arg exited $rc after setup, expected 2"
+  try run_script "$arg"
+  [ "$status" -eq 2 ] || fail "setup.sh $arg exited $status after setup, expected 2"
 done
-[ "$(state)" = "$before" ] || fail "an argument error changed a file"
+now=$(state)
+[ "$now" = "$before" ] || fail "an argument error changed a file"
 
 # g. a second run changes nothing, not even a modification time. The sleep makes a rewrite
 # visible, because mtime has one second resolution on some filesystems.
 sleep 2
-run_script || fail "second setup.sh exited $?"
+try run_script
+[ "$status" -eq 0 ] || fail "second setup.sh exited $status"
 if grep -q '^updated ' "$out"; then fail "second run printed an updated line"; fi
-[ "$(state)" = "$before" ] || fail "second run changed a file (checksum, mtime or mode)"
+now=$(state)
+[ "$now" = "$before" ] || fail "second run changed a file (checksum, mtime or mode)"
 no_temp_files
-[ "$(next_commands "$out")" = "$(next_commands "$first")" ] ||
+cmds_again=$(next_commands "$out")
+cmds_first=$(next_commands "$first")
+[ "$cmds_again" = "$cmds_first" ] ||
   fail "second run printed other next steps than the first"
 
 # h. repair: a deleted key and a damaged source file come back, and only those two are
 # reported
 rm -f "$keyfile"
 echo "junk line" >>"$srcfile"
-run_script || fail "repair run exited $?"
-[ "$(grep -c '^updated ' "$out")" -eq 2 ] || fail "repair run did not print exactly two updated lines"
+try run_script
+[ "$status" -eq 0 ] || fail "repair run exited $status"
+# grep -c exits 1 when it counts zero lines, and the count it prints is the answer.
+updated_count=$(grep -c '^updated ' "$out") || true
+[ "$updated_count" -eq 2 ] || fail "repair run did not print exactly two updated lines"
 grep -q "^updated $keyfile\$" "$out" || fail "repair run did not report $keyfile"
 grep -q "^updated $srcfile\$" "$out" || fail "repair run did not report $srcfile"
-same_file "$keyfile" "$sitekey" || fail "$keyfile was not restored"
+expect_same_file "$keyfile" "$sitekey" "$keyfile was not restored"
 # Checksum and mode only: the restored files are new, so their mtime differs on purpose.
-[ "$(state | cut -d' ' -f1,2,4)" = "$(echo "$before" | cut -d' ' -f1,2,4)" ] ||
+restored=$(state content)
+[ "$restored" = "$before_content" ] ||
   fail "files are not back to their original content and mode"
 no_temp_files
 
 # i. the commands the script printed: first the index refresh, then the server, then the client
 cmds=$(next_commands "$first")
-[ "$(printf '%s\n' "$cmds" | wc -l | tr -d ' ')" = 3 ] ||
+cmd_count=$(printf '%s\n' "$cmds" | wc -l | tr -d ' ')
+[ "$cmd_count" = 3 ] ||
   fail "expected 3 printed commands (refresh, server, client), got: $cmds"
 refresh_cmd=$(printf '%s\n' "$cmds" | sed -n 1p)
 server_cmd=$(printf '%s\n' "$cmds" | sed -n 2p)
 client_cmd=$(printf '%s\n' "$cmds" | sed -n 3p)
 case "$server_cmd" in *" splicefs-server") ;; *) fail "second printed command is not the server install: $server_cmd" ;; esac
 case "$client_cmd" in *" splicefs-client") ;; *) fail "third printed command is not the client install: $client_cmd" ;; esac
-run_printed "$refresh_cmd" || fail "printed refresh command failed: $refresh_cmd"
-run_printed "$server_cmd" || fail "printed server command failed: $server_cmd"
-run_printed "$client_cmd" || fail "printed client command failed: $client_cmd"
+try run_printed "$refresh_cmd"
+[ "$status" -eq 0 ] || fail "printed refresh command failed: $refresh_cmd"
+try run_printed "$server_cmd"
+[ "$status" -eq 0 ] || fail "printed server command failed: $server_cmd"
+try run_printed "$client_cmd"
+[ "$status" -eq 0 ] || fail "printed client command failed: $client_cmd"
 
 # j. both packages are installed and both programs report a version
 for p in splicefs-server splicefs-client; do
-  is_installed "$p" || fail "$p is not installed according to the package manager"
+  try is_installed "$p"
+  [ "$status" -eq 0 ] || fail "$p is not installed according to the package manager"
 done
 splicefsd --version | grep -q . || fail "splicefsd --version printed nothing"
 splicefs --version | grep -q . || fail "splicefs --version printed nothing"
 
 # k. the package manager can remove what the printed commands installed
-remove_pkgs splicefs-server splicefs-client || fail "removing the packages failed"
+try remove_pkgs splicefs-server splicefs-client
+[ "$status" -eq 0 ] || fail "removing the packages failed"
 for p in splicefs-server splicefs-client; do
-  if is_installed "$p"; then fail "$p is still installed after removal"; fi
+  try is_installed "$p"
+  [ "$status" -ne 0 ] || fail "$p is still installed after removal"
 done
 
 echo "setup test passed on $pretty"

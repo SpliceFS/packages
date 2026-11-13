@@ -42,10 +42,12 @@ done
 
 passed=0
 failed=0
+systems=$(cat "$root/tests/systems")
 
 # A here-document keeps the counters in this shell; a pipe would run the loop in a subshell.
 while read -r format image; do
-  case "$format" in "" | "#"*) continue ;; esac
+  # Every other line is a system to test.
+  case "$format" in "" | "#"*) continue ;; *) ;; esac
   if [ -n "${ONLY:-}" ] && [ "$ONLY" != "$format" ] && [ "$ONLY" != "$image" ]; then
     continue
   fi
@@ -60,7 +62,7 @@ while read -r format image; do
     failed=$((failed + 1))
   fi
 done <<LIST
-$(cat "$root/tests/systems")
+$systems
 LIST
 
 echo "passed: $passed  failed: $failed"

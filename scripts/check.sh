@@ -318,19 +318,23 @@ else
     modes_ok=1
     for f in index.html setup.sh setup.sh.sha256 setup.sh.asc keys/splicefs.asc \
       keys/splicefs.rsa.pub; do
-      [ "$(perms "$TMP/remote/$f")" = '-rw-r--r--' ] || modes_ok=0
+      perm_file=$(perms "$TMP/remote/$f")
+      [ "$perm_file" = '-rw-r--r--' ] || modes_ok=0
       cmp -s "$SIGNSITE/$f" "$TMP/remote/$f" || modes_ok=0
     done
-    [ "$(perms "$TMP/remote/keys")" = 'drwxr-xr-x' ] || modes_ok=0
+    perm_dir=$(perms "$TMP/remote/keys")
+    [ "$perm_dir" = 'drwxr-xr-x' ] || modes_ok=0
     if [ "$modes_ok" -eq 1 ]; then
       pass "8. the six files arrived with modes 644 and folder 755"
     else
       fail "8. the six files arrived with modes 644 and folder 755"
     fi
-    if [ "$(cat "$TMP/remote/server/keep.txt")" = keep ] &&
-      [ "$(cd "$TMP/remote" && echo *)" = \
-        'index.html keys server setup.sh setup.sh.asc setup.sh.sha256' ] &&
-      [ "$(perms "$TMP/remote/server/keep.txt")" = '-rw-------' ]; then
+    keep_text=$(cat "$TMP/remote/server/keep.txt")
+    remote_names=$(cd "$TMP/remote" && echo *)
+    perm_keep=$(perms "$TMP/remote/server/keep.txt")
+    if [ "$keep_text" = keep ] &&
+      [ "$remote_names" = 'index.html keys server setup.sh setup.sh.asc setup.sh.sha256' ] &&
+      [ "$perm_keep" = '-rw-------' ]; then
       pass "8. server/keep.txt is untouched and nothing else appeared"
     else
       fail "8. server/keep.txt is untouched and nothing else appeared"

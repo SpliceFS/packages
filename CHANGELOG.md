@@ -27,3 +27,6 @@ notable ones.
   commands the script prints.
 - openSUSE Leap 15.6 is no longer supported: its vendor ended its support on 2026-04-30. A
   system is supported only while its own vendor supports it.
+- ShellCheck runs with every optional check on; the two that are off say why in
+  `.shellcheckrc`. The scripts no longer hide the failure of a command inside `$(...)`.
+
