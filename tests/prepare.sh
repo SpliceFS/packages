@@ -1,6 +1,6 @@
 #!/bin/sh
 # Builds the site the end to end test serves (make e2e-prepare). Runs on the host. Both
-# sibling repositories are built with ONE set of throwaway keys, so a single install script
+# sibling repositories are built with ONE set of throwaway keys, so a single setup script
 # can trust the server and the client packages. Result: dist/e2e/site, laid out like the
 # published site. Variables: SERVER_DIR and CLIENT_DIR (default ../server and ../client, since
 # CI checks them out elsewhere), E2E_PORT (default 18080, part of the base URL).
@@ -23,7 +23,7 @@ keys=$SERVER_DIR/dist/keys
 # The client signs with the server's keys; only the folder, never a key's content, is passed.
 (cd "$CLIENT_DIR" && make clean && SIGNING_DIR=$keys make package repo)
 
-# One install script trusts one key pair, so both repositories must carry the same public keys.
+# One setup script trusts one key pair, so both repositories must carry the same public keys.
 for k in splicefs.asc splicefs.rsa.pub; do
   cmp -s "$SERVER_DIR/dist/keys/$k" "$CLIENT_DIR/dist/keys/$k" || {
     echo "FAIL: server and client were signed with different $k" >&2

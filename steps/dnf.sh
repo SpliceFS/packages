@@ -22,3 +22,8 @@ gpgcheck=1
 repo_gpgcheck=1
 gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-splicefs
 EOF
+
+# Update the package index, then install the server, the client, or both:
+sudo dnf makecache
+sudo dnf install splicefs-server    # the server
+sudo dnf install splicefs-client    # the client

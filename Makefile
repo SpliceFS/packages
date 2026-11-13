@@ -9,7 +9,7 @@ check: site
 # Static analysis of every shell file. The built script is analyzed, not the template,
 # because the template still holds the key placeholders.
 lint: site
-	shellcheck --shell=sh dist/site/install.sh steps/*.sh scripts/*.sh tests/*.sh
+	shellcheck --shell=sh dist/site/setup.sh steps/*.sh scripts/*.sh tests/*.sh
 
 # Signs the built script with the key file named by SIGNING_KEY_FILE and proves the signature
 # with the public key in keys/ only. Needs gpg.
@@ -31,7 +31,7 @@ publish-check:
 e2e-prepare:
 	sh tests/prepare.sh
 
-# Runs the install script in a container of every system in tests/systems, against the site
+# Runs the setup script in a container of every system in tests/systems, against the site
 # from e2e-prepare, served over local HTTP. Needs docker.
 e2e:
 	sh tests/run.sh

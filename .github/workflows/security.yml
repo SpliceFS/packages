@@ -17,8 +17,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      # The install script runs as root on other people's systems, so every warning counts.
-      - name: Analyze the install script, the manual steps and the build scripts
+      # The setup script runs as root on other people's systems, so every warning counts.
+      - name: Analyze the setup script, the manual steps and the build scripts
         run: make lint
 
   codeql:

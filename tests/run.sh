@@ -1,6 +1,7 @@
 #!/bin/sh
-# Runs the install script on every system in tests/systems, each in its own throwaway
-# container, and keeps going after a failure so one run shows every broken system (make e2e).
+# Runs the setup script, and then the commands it prints, on every system in tests/systems,
+# each in its own throwaway container, and keeps going after a failure so one run shows every
+# broken system (make e2e).
 # Runs on the host and needs the site from tests/prepare.sh. A local web server stands in for
 # the published site; containers reach it as host.docker.internal. Environment: PLATFORM
 # (linux/amd64 or linux/arm64, empty means this machine's own CPU type), ONLY (one format or
@@ -10,7 +11,7 @@ set -eu
 root=$(cd "$(dirname "$0")/.." && pwd)
 port=${E2E_PORT:-18080}
 site=$root/dist/e2e/site
-[ -f "$site/install.sh" ] || { echo "no site: run make e2e-prepare first" >&2; exit 1; }
+[ -f "$site/setup.sh" ] || { echo "no site: run make e2e-prepare first" >&2; exit 1; }
 # Named explicitly because after a run with another platform the local image tag can point
 # at the other CPU type, and an empty setting would then silently test the wrong one.
 platform=${PLATFORM:-$(docker version --format '{{.Server.Os}}/{{.Server.Arch}}')}

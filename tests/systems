@@ -1,4 +1,4 @@
-# The systems the install script is tested on: one line per system, "<format> <image>".
+# The systems the setup script is tested on: one line per system, "<format> <image>".
 # This list must match the packages' own test list (the server repository's
 # packaging/test-systems); change both together.
 deb debian:12

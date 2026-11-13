@@ -2,11 +2,12 @@
 # Everything below is a function and the last line calls main, so a download that is cut
 # short runs nothing at all.
 #
-# Usage: sh install.sh server|client|both
+# Usage: sh setup.sh
 #
-# Sets up the SpliceFS package sources for this system and installs the packages, or updates
-# them when the repository has a newer version. Safe to run again: a file is rewritten only
-# when its content differs.
+# Sets up the SpliceFS package repository for this system: the signing key and the package
+# sources. It installs no package and refreshes no package index. When it is done it prints the
+# system's own commands to run next. Safe to run again: a file is rewritten only when its
+# content differs.
 set -eu
 
 # Root may inherit the caller's PATH and umask through sudo or su, and either could make this
@@ -15,16 +16,15 @@ PATH=/usr/sbin:/usr/bin:/sbin:/bin
 export PATH
 umask 022
 
-# The setup_ and install_ functions are called only as "setup_$FAMILY" and "install_$FAMILY",
-# which ShellCheck cannot follow, so it reports them as unreachable or unused. Only those two
-# codes are silenced, and no other check is turned off for the file.
+# The setup_ functions are called only as "setup_$FAMILY", which ShellCheck cannot follow, so
+# it reports them as unreachable or unused. Only those two codes are silenced, and no other
+# check is turned off for the file.
 # shellcheck disable=SC2317,SC2329
 BASE_URL='@BASE_URL@'
-DOC_SERVER='https://github.com/SpliceFS/server/blob/main/docs/configuration.md'
-DOC_CLIENT='https://github.com/SpliceFS/client/blob/main/docs/configuration.md'
 
 usage() {
-  echo "usage: sh install.sh server|client|both" >&2
+  echo "usage: sh setup.sh" >&2
+  echo "This script only sets up the package repository; the packages are installed with the system's own package manager." >&2
 }
 
 die() {
@@ -101,6 +101,12 @@ check_tools() {
   case "$FAMILY" in
     apt)
       command -v apt-get >/dev/null 2>&1 || die "apt-get not found"
+      # The repository is https. This script installs no package, so the missing bundle is
+      # reported here, before anything is written, instead of as a failed apt-get update later.
+      if [ ! -f /etc/ssl/certs/ca-certificates.crt ]; then
+        die "/etc/ssl/certs/ca-certificates.crt is missing, and apt needs it for https sources;" \
+          "install the ca-certificates package, then run this script again"
+      fi
       ;;
     dnf)
       # yum takes the same repository file and the same install arguments.
@@ -147,10 +153,6 @@ KEY_EOF
 }
 
 setup_apt() {
-  if [ ! -f /etc/ssl/certs/ca-certificates.crt ]; then
-    apt-get update
-    DEBIAN_FRONTEND=noninteractive apt-get install -y ca-certificates
-  fi
   install -m 0755 -d /etc/apt/keyrings
   write_openpgp_key /etc/apt/keyrings/splicefs.asc
   write_file /etc/apt/sources.list.d/splicefs.sources 0644 <<EOF
@@ -160,11 +162,6 @@ Suites: stable
 Components: main
 Signed-By: /etc/apt/keyrings/splicefs.asc
 EOF
-  apt-get update
-}
-
-install_apt() {
-  DEBIAN_FRONTEND=noninteractive apt-get install -y "$@"
 }
 
 # The backslash keeps $basearch literal, because dnf and zypper expand it themselves.
@@ -198,10 +195,6 @@ setup_dnf() {
 repo_gpgcheck=1'
 }
 
-install_dnf() {
-  "$RPM_TOOL" install -y "$@"
-}
-
 setup_zypper() {
   install -m 0755 -d /etc/pki/rpm-gpg
   write_openpgp_key /etc/pki/rpm-gpg/RPM-GPG-KEY-splicefs
@@ -211,11 +204,6 @@ setup_zypper() {
 gpgcheck=1
 repo_gpgcheck=1
 pkg_gpgcheck=1'
-  zypper --non-interactive refresh splicefs-server splicefs-client
-}
-
-install_zypper() {
-  zypper --non-interactive install "$@"
 }
 
 setup_apk() {
@@ -229,8 +217,37 @@ $BASE_URL/client/alpine
 EOF
 }
 
-install_apk() {
-  apk add --update-cache "$@"
+# The commands are the system's own, so the person can run them again later, for example to
+# add the other package. Alpine has no sudo by default, and its manual steps are written for
+# root, so apk is printed without it.
+next_steps() {
+  case "$FAMILY" in
+    apt)
+      ns_pm='sudo apt-get'
+      ns_update=update
+      ns_add=install
+      ;;
+    dnf)
+      ns_pm="sudo $RPM_TOOL"
+      ns_update=makecache
+      ns_add=install
+      ;;
+    zypper)
+      ns_pm='sudo zypper'
+      ns_update=refresh
+      ns_add=install
+      ;;
+    apk)
+      ns_pm=apk
+      ns_update=update
+      ns_add=add
+      ;;
+  esac
+  echo "The SpliceFS package repository is set up. Next:"
+  echo
+  echo "  $ns_pm $ns_update"
+  echo "  $ns_pm $ns_add splicefs-server    # the server"
+  echo "  $ns_pm $ns_add splicefs-client    # the client"
 }
 
 # Removes the file write_file is working on when the script is interrupted. The EXIT trap
@@ -246,15 +263,10 @@ main() {
   trap cleanup EXIT
   trap 'exit 130' INT
   trap 'exit 143' TERM
-  case "${1:-}" in
-    server) PACKAGES=splicefs-server ;;
-    client) PACKAGES=splicefs-client ;;
-    both) PACKAGES='splicefs-server splicefs-client' ;;
-    *)
-      usage
-      exit 2
-      ;;
-  esac
+  if [ "$#" -ne 0 ]; then
+    usage
+    exit 2
+  fi
   if [ "$(id -u)" -ne 0 ]; then
     die "run this script as root, for example with sudo"
   fi
@@ -262,29 +274,12 @@ main() {
   check_tools
   check_cpu
 
-  # Both sources are always set up so the other package can be added later with the
-  # system's own command.
+  # Both sources are always set up so either package can be installed with the system's own
+  # command.
   "setup_$FAMILY"
-  # PACKAGES is split on purpose, one word per package.
-  # shellcheck disable=SC2086
-  "install_$FAMILY" $PACKAGES
 
   echo
-  echo "Installed: $PACKAGES"
-  echo "The service starts by itself. Nothing has to be configured first."
-  case "$1" in
-    server | both)
-      echo "  Server: add one file per share in /etc/splicefs/server/shares.d"
-      echo "          (see $DOC_SERVER)"
-      ;;
-  esac
-  case "$1" in
-    client | both)
-      echo "  Client: add one file per cluster in /etc/splicefs/client/clusters.d"
-      echo "          and one per mount in /etc/splicefs/client/mounts.d"
-      echo "          (see $DOC_CLIENT)"
-      ;;
-  esac
+  next_steps
 }
 
 main "$@"

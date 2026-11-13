@@ -1,6 +1,7 @@
 #!/bin/sh
-# Runs as root inside the system under test (started by tests/run.sh). Tests the script path
-# only: sh /site/install.sh, then idempotency, repair, bad arguments and removal.
+# Runs as root inside the system under test (started by tests/run.sh). Tests the setup script
+# and then the commands it prints: sh /site/setup.sh must only register the repository, and
+# the printed index refresh and installs must then really install both packages.
 # Usage: in-container.sh deb|rpm|apk. The site is mounted read-only at /site.
 set -eu
 
@@ -56,7 +57,11 @@ case "$format" in
 esac
 files="$keyfile $srcfile"
 out=$(mktemp)
-trap 'rm -f "$out"' EXIT
+first=$(mktemp)
+trap 'rm -f "$out" "$first"' EXIT
+# The printed apt-get commands must not stop to ask about debconf questions.
+DEBIAN_FRONTEND=noninteractive
+export DEBIAN_FRONTEND
 
 # One line per file: checksum, modification time (seconds) and mode.
 state() {
@@ -79,10 +84,10 @@ same_file() {
   [ "$(sha256sum < "$1")" = "$(sha256sum < "$2")" ]
 }
 
-# Runs the install script, keeps its output in $out and echoes it, and returns its status.
+# Runs the setup script, keeps its output in $out and echoes it, and returns its status.
 run_script() {
   rc=0
-  sh /site/install.sh "$@" >"$out" 2>&1 || rc=$?
+  sh /site/setup.sh "$@" >"$out" 2>&1 || rc=$?
   cat "$out"
   return "$rc"
 }
@@ -91,17 +96,70 @@ run_script() {
 # shellcheck disable=SC1091
 pretty=$( . /etc/os-release >/dev/null 2>&1; printf %s "${PRETTY_NAME:-$format}" )
 
-# a. the script succeeds
-run_script both || fail "install.sh both exited $?"
+# The commands the script printed under "Next:", one per line: sudo removed because this
+# container runs as root, the trailing comment removed, blank lines dropped. The test runs
+# these lines instead of its own copy, so it proves that what people are told to run works.
+next_commands() {
+  sed -n '/^The SpliceFS package repository is set up\. Next:$/,$p' "$1" | sed '1d' |
+    sed -e 's/#.*$//' -e 's/^ *//' -e 's/ *$//' -e 's/^sudo //' -e '/^$/d'
+}
 
-# b. both programs and both packages are there
-splicefsd --version | grep -q . || fail "splicefsd --version printed nothing"
-splicefs --version | grep -q . || fail "splicefs --version printed nothing"
-for p in splicefs-server splicefs-client; do
-  is_installed "$p" || fail "$p is not installed according to the package manager"
+# Answers the one question the printed commands ask (continue? import a key?), as a person
+# would at the prompt. The commands carry no -y flag on purpose. Three tools refuse to take
+# answers from anything but a terminal, which a test does not have: zypper always, and dnf
+# and yum on the oldest supported systems when a key has to be imported. Those get their own
+# switch for running without a terminal, which gives the answers a person would give.
+run_printed() {
+  echo "+ $1"
+  case "$1" in
+    "zypper "*) sh -c "zypper --non-interactive ${1#zypper }" ;;
+    "dnf "* | "yum "*) sh -c "${1%% *} -y ${1#* }" ;;
+    *) yes | sh -c "$1" ;;
+  esac
+}
+
+# a. apt needs the certificate bundle for https sources, and the script refuses before it
+# writes anything when it is missing. The bundle is moved away on systems that have it, so
+# every apt system proves the refusal.
+if [ "$format" = deb ]; then
+  bundle=/etc/ssl/certs/ca-certificates.crt
+  moved=0
+  if [ -f "$bundle" ]; then
+    mv "$bundle" "$bundle.aside"
+    moved=1
+  fi
+  rc=0
+  run_script || rc=$?
+  [ "$rc" -eq 1 ] || fail "setup.sh without ca-certificates exited $rc, expected 1"
+  grep -q 'ca-certificates' "$out" || fail "the refusal does not name ca-certificates"
+  [ ! -e "$keyfile" ] && [ ! -e "$srcfile" ] || fail "the refusal wrote a file"
+  if [ "$moved" -eq 1 ]; then
+    mv "$bundle.aside" "$bundle"
+  else
+    # A bare image has no bundle. This is the step the refusal tells a person to take.
+    apt-get update
+    apt-get install -y --no-install-recommends ca-certificates
+  fi
+fi
+
+# b. argument errors exit 2 and touch nothing, before the first setup and after it
+for arg in both nonsense; do
+  rc=0
+  run_script "$arg" || rc=$?
+  [ "$rc" -eq 2 ] || fail "setup.sh $arg exited $rc, expected 2"
+  grep -q '^usage: sh setup.sh$' "$out" || fail "setup.sh $arg did not print the usage line"
+done
+for f in $files; do
+  [ ! -e "$f" ] || fail "an argument error wrote $f"
 done
 
-# c. files, modes, no temporary files
+# c. the script succeeds and prints the next steps
+run_script || fail "setup.sh exited $?"
+cp "$out" "$first"
+grep -q '^The SpliceFS package repository is set up\. Next:$' "$first" ||
+  fail "setup.sh did not print the next steps"
+
+# d. files, modes, no temporary files
 for f in $files; do
   [ -f "$f" ] || fail "$f was not written"
   [ "$(stat -c %a "$f")" = 644 ] || fail "$f has mode $(stat -c %a "$f"), expected 644"
@@ -110,19 +168,38 @@ same_file "$keyfile" "$sitekey" || fail "$keyfile differs from the published key
 no_temp_files
 before=$(state)
 
-# d. a second run changes nothing, not even a modification time. The sleep makes a rewrite
+# e. the script installed nothing
+for p in splicefs-server splicefs-client; do
+  if is_installed "$p"; then fail "setup.sh installed $p"; fi
+done
+if command -v splicefsd >/dev/null 2>&1 || command -v splicefs >/dev/null 2>&1; then
+  fail "a SpliceFS program is on the system after setup.sh"
+fi
+
+# f. argument errors after setup change nothing
+sleep 1
+for arg in both nonsense; do
+  rc=0
+  run_script "$arg" || rc=$?
+  [ "$rc" -eq 2 ] || fail "setup.sh $arg exited $rc after setup, expected 2"
+done
+[ "$(state)" = "$before" ] || fail "an argument error changed a file"
+
+# g. a second run changes nothing, not even a modification time. The sleep makes a rewrite
 # visible, because mtime has one second resolution on some filesystems.
 sleep 2
-run_script both || fail "second install.sh both exited $?"
+run_script || fail "second setup.sh exited $?"
 if grep -q '^updated ' "$out"; then fail "second run printed an updated line"; fi
 [ "$(state)" = "$before" ] || fail "second run changed a file (checksum, mtime or mode)"
 no_temp_files
+[ "$(next_commands "$out")" = "$(next_commands "$first")" ] ||
+  fail "second run printed other next steps than the first"
 
-# e. repair: a deleted key and a damaged source file come back, and only those two are
+# h. repair: a deleted key and a damaged source file come back, and only those two are
 # reported
 rm -f "$keyfile"
 echo "junk line" >>"$srcfile"
-run_script server || fail "repair run exited $?"
+run_script || fail "repair run exited $?"
 [ "$(grep -c '^updated ' "$out")" -eq 2 ] || fail "repair run did not print exactly two updated lines"
 grep -q "^updated $keyfile\$" "$out" || fail "repair run did not report $keyfile"
 grep -q "^updated $srcfile\$" "$out" || fail "repair run did not report $srcfile"
@@ -132,21 +209,30 @@ same_file "$keyfile" "$sitekey" || fail "$keyfile was not restored"
   fail "files are not back to their original content and mode"
 no_temp_files
 
-# f. argument errors exit 2 and touch nothing
-before=$(state)
-sleep 1
-rc=0
-sh /site/install.sh >/dev/null 2>&1 || rc=$?
-[ "$rc" -eq 2 ] || fail "install.sh without argument exited $rc, expected 2"
-rc=0
-sh /site/install.sh nonsense >/dev/null 2>&1 || rc=$?
-[ "$rc" -eq 2 ] || fail "install.sh nonsense exited $rc, expected 2"
-[ "$(state)" = "$before" ] || fail "an argument error changed a file"
+# i. the commands the script printed: first the index refresh, then the server, then the client
+cmds=$(next_commands "$first")
+[ "$(printf '%s\n' "$cmds" | wc -l | tr -d ' ')" = 3 ] ||
+  fail "expected 3 printed commands (refresh, server, client), got: $cmds"
+refresh_cmd=$(printf '%s\n' "$cmds" | sed -n 1p)
+server_cmd=$(printf '%s\n' "$cmds" | sed -n 2p)
+client_cmd=$(printf '%s\n' "$cmds" | sed -n 3p)
+case "$server_cmd" in *" splicefs-server") ;; *) fail "second printed command is not the server install: $server_cmd" ;; esac
+case "$client_cmd" in *" splicefs-client") ;; *) fail "third printed command is not the client install: $client_cmd" ;; esac
+run_printed "$refresh_cmd" || fail "printed refresh command failed: $refresh_cmd"
+run_printed "$server_cmd" || fail "printed server command failed: $server_cmd"
+run_printed "$client_cmd" || fail "printed client command failed: $client_cmd"
 
-# g. the package manager can remove what the script installed
+# j. both packages are installed and both programs report a version
+for p in splicefs-server splicefs-client; do
+  is_installed "$p" || fail "$p is not installed according to the package manager"
+done
+splicefsd --version | grep -q . || fail "splicefsd --version printed nothing"
+splicefs --version | grep -q . || fail "splicefs --version printed nothing"
+
+# k. the package manager can remove what the printed commands installed
 remove_pkgs splicefs-server splicefs-client || fail "removing the packages failed"
 for p in splicefs-server splicefs-client; do
   if is_installed "$p"; then fail "$p is still installed after removal"; fi
 done
 
-echo "install test passed on $pretty"
+echo "setup test passed on $pretty"

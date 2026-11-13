@@ -1,6 +1,6 @@
 name: Release
 
-# A version tag signs the install script, publishes the site and creates the GitHub release.
+# A version tag signs the setup script, publishes the site and creates the GitHub release.
 # Only version tags can use the publish environment, which holds the signing and upload keys.
 on:
   push:
@@ -31,7 +31,7 @@ jobs:
           printf '%s\n' "$UPLOAD_SSH_KEY" > "$RUNNER_TEMP/upload_key"
           printf '%s\n' "$SIGNING_OPENPGP_SUBKEY" > "$RUNNER_TEMP/signing_key.asc"
           printf '%s\n' "$UPLOAD_KNOWN_HOSTS" > "$RUNNER_TEMP/known_hosts"
-      - name: Sign the install script and verify it with the public key
+      - name: Sign the setup script and verify it with the public key
         env:
           SIGNING_KEY_FILE: ${{ runner.temp }}/signing_key.asc
         run: make sign
@@ -46,21 +46,21 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          SUM=$(cut -d ' ' -f 1 dist/site/install.sh.sha256)
+          SUM=$(cut -d ' ' -f 1 dist/site/setup.sh.sha256)
           {
-            echo "Install script for $GITHUB_REF_NAME."
+            echo "Setup script for $GITHUB_REF_NAME."
             echo
-            echo "SHA-256 of install.sh: \`$SUM\`"
+            echo "SHA-256 of setup.sh: \`$SUM\`"
             echo
             echo "Verify the signature with the SpliceFS key (fingerprint in the README):"
             echo
             echo '    curl -fsSLO https://packages.splicefs.org/keys/splicefs.asc'
             echo '    gpg --import splicefs.asc'
-            echo '    gpg --verify install.sh.asc install.sh'
+            echo '    gpg --verify setup.sh.asc setup.sh'
           } > "$RUNNER_TEMP/notes.md"
           gh release create "$GITHUB_REF_NAME" --verify-tag --title "$GITHUB_REF_NAME" \
             --notes-file "$RUNNER_TEMP/notes.md" \
-            dist/site/install.sh dist/site/install.sh.sha256 dist/site/install.sh.asc
+            dist/site/setup.sh dist/site/setup.sh.sha256 dist/site/setup.sh.asc
       - name: Remove the secret files
         if: always()
         run: rm -f "$RUNNER_TEMP/upload_key" "$RUNNER_TEMP/signing_key.asc" "$RUNNER_TEMP/known_hosts"

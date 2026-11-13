@@ -1,6 +1,6 @@
 # Security policy
 
-This repository holds the SpliceFS install script, which runs as root on other people's
+This repository holds the SpliceFS setup script, which runs as root on other people's
 systems, and the public keys that packages are checked against. Problems here are treated
 as urgent.
 
@@ -16,9 +16,10 @@ advisory is published and the reporter is credited unless they ask not to be.
 
 ## Scope
 
-In scope: anything that lets the install script or the manual steps install a package that
-is not signed by the SpliceFS key, run code other than the published script, or leave a
-system less protected than it was (weakened signature checks, wrong file permissions).
+In scope: anything that lets the setup script or the manual steps make a system accept a
+package that is not signed by the SpliceFS key, run code other than the published script, or
+leave a system less protected than it was (weakened signature checks, wrong file
+permissions).
 
 Problems in the programs themselves are reported in the
 [server](https://github.com/SpliceFS/server) and
@@ -27,4 +28,4 @@ Problems in the programs themselves are reported in the
 ## Checking what you run
 
 The published script's SHA-256 and the fingerprint of the signing key are in
-[README.md](README.md#verify-the-install-script).
+[README.md](README.md#verify-the-setup-script).
