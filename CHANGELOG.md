@@ -1,10 +1,11 @@
 # Changelog
 
-All notable changes to this project are recorded here. The format follows
-[Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project follows
-[Semantic Versioning](https://semver.org).
+All notable changes to this project are recorded here. Every merge into `main` is a
+release with its own version, so there are no version headings: the
+[release page](../../releases) of a version names its change, and this file collects the
+notable ones.
 
-## [Unreleased]
+## Changes
 
 ### Added
 
@@ -20,3 +21,4 @@ All notable changes to this project are recorded here. The format follows
   repository is added.
 - Release workflow: a version tag signs `install.sh` with OpenPGP, publishes the site by rsync
   and creates the GitHub release; `make sign`, `make publish` and `make publish-check`.
+- Trunk development: one branch, `main`, and one version per change.
