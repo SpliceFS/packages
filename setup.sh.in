@@ -166,9 +166,12 @@ write_openpgp_key() {
 KEY_EOF
 }
 
-# The same RSA key is checked by Alpine's apk and by FreeBSD's pkg.
+# The same RSA key is checked by Alpine's apk and by FreeBSD's pkg. The second argument is
+# where the file is written before it is moved into place. Alpine gives one, because apk
+# reads every file in its keys folder as a key; without it the file is written next to its
+# final place.
 write_rsa_key() {
-  write_file "$1" 0644 "$2" <<'KEY_EOF'
+  write_file "$1" 0644 "${2:-$1.new}" <<'KEY_EOF'
 @ALPINE_KEY@
 KEY_EOF
 }
