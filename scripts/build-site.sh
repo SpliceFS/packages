@@ -86,7 +86,7 @@ else
   exit 1
 fi
 
-for f in "$KEYS_DIR/splicefs.asc" "$KEYS_DIR/splicefs.rsa.pub" install.sh.in site/index.html; do
+for f in "$KEYS_DIR/splicefs.asc" "$KEYS_DIR/splicefs.rsa.pub" setup.sh.in site/index.html; do
   [ -f "$f" ] || { echo "missing $f" >&2; exit 1; }
 done
 
@@ -94,26 +94,26 @@ rm -rf "$OUT"
 mkdir -p "$OUT/keys"
 
 # The URL goes in first, so nothing inside a key can ever be taken for a placeholder.
-replace_text '@BASE_URL@' "$BASE_URL" < install.sh.in |
+replace_text '@BASE_URL@' "$BASE_URL" < setup.sh.in |
   insert_file '@OPENPGP_KEY@' "$KEYS_DIR/splicefs.asc" |
-  insert_file '@ALPINE_KEY@' "$KEYS_DIR/splicefs.rsa.pub" > "$OUT/install.sh"
-chmod 644 "$OUT/install.sh"
+  insert_file '@ALPINE_KEY@' "$KEYS_DIR/splicefs.rsa.pub" > "$OUT/setup.sh"
+chmod 644 "$OUT/setup.sh"
 
 # A cut or mangled script would be run as root by users, so it fails here instead.
-sh -n "$OUT/install.sh" || { echo "install.sh has a syntax error" >&2; exit 1; }
-if [ "$(tail -n 1 "$OUT/install.sh")" != 'main "$@"' ]; then
-  echo 'last line of install.sh is not: main "$@"' >&2
+sh -n "$OUT/setup.sh" || { echo "setup.sh has a syntax error" >&2; exit 1; }
+if [ "$(tail -n 1 "$OUT/setup.sh")" != 'main "$@"' ]; then
+  echo 'last line of setup.sh is not: main "$@"' >&2
   exit 1
 fi
 
 replace_text "$DEFAULT_URL" "$BASE_URL" < site/index.html > "$OUT/index.html"
 cp "$KEYS_DIR/splicefs.asc" "$KEYS_DIR/splicefs.rsa.pub" "$OUT/keys/"
 
-# The sha256 file names install.sh without a folder, so it verifies from inside the
+# The sha256 file names setup.sh without a folder, so it verifies from inside the
 # download folder. The hash is taken first, so a failure never leaves an empty file behind.
-SUM=$(cd "$OUT" && hash_file install.sh | awk '{ print $1 }')
-[ -n "$SUM" ] || { echo "could not compute the sha256 of install.sh" >&2; exit 1; }
-printf '%s  install.sh\n' "$SUM" > "$OUT/install.sh.sha256"
+SUM=$(cd "$OUT" && hash_file setup.sh | awk '{ print $1 }')
+[ -n "$SUM" ] || { echo "could not compute the sha256 of setup.sh" >&2; exit 1; }
+printf '%s  setup.sh\n' "$SUM" > "$OUT/setup.sh.sha256"
 
 # Pull each embedded key block back out of the built script and compare it with its source,
 # so a broken replacement fails the build instead of shipping a bad key. The extracts are
@@ -122,7 +122,7 @@ awk -v out="$OUT" '
   /<<.KEY_EOF.$/ { n++; on = 1; next }
   /^KEY_EOF$/ { on = 0 }
   on { print > (out "/.key" n) }
-' "$OUT/install.sh"
+' "$OUT/setup.sh"
 KEYS_OK=1
 cmp "$OUT/.key1" "$KEYS_DIR/splicefs.asc" || KEYS_OK=0
 cmp "$OUT/.key2" "$KEYS_DIR/splicefs.rsa.pub" || KEYS_OK=0

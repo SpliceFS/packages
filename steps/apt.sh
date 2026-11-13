@@ -14,4 +14,7 @@ Components: main
 Signed-By: /etc/apt/keyrings/splicefs.asc
 EOF
 
+# Update the package index, then install the server, the client, or both:
 sudo apt-get update
+sudo apt-get install splicefs-server    # the server
+sudo apt-get install splicefs-client    # the client

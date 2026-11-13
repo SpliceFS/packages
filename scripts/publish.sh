@@ -22,7 +22,7 @@ USER_NAME=${UPLOAD_USER:-site-splicefs-packages}
 
 # The only files this repository owns on the site. The server and client folders next to
 # them belong to other pipelines, so nothing else is ever sent and nothing is ever deleted.
-FILES='index.html install.sh install.sh.sha256 install.sh.asc'
+FILES='index.html setup.sh setup.sh.sha256 setup.sh.asc'
 FILES="$FILES keys/splicefs.asc keys/splicefs.rsa.pub"
 
 if [ "$MODE" = send ]; then

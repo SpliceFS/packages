@@ -73,7 +73,7 @@ section.one { margin-top: 40px; }
 section.manual { border-top: 1px solid var(--border); margin-top: 48px; padding-top: 32px; }
 .chooser { display: none; flex-wrap: wrap; gap: 8px 24px; margin: 0 0 16px; }
 html.js .chooser { display: flex; }
-.seg-group { display: flex; gap: 6px; }
+.seg-group { display: flex; flex-wrap: wrap; gap: 6px; }
 .seg {
   font: inherit; font-size: 14px; line-height: 1; padding: 8px 12px; color: var(--fg); background: var(--bg);
   border: 1px solid var(--border); border-radius: 6px; cursor: pointer;
@@ -99,14 +99,6 @@ section.one p { margin: 0 0 12px; }
 html.js .panel { display: none; margin-top: 32px; }
 html.js .panel.active { display: block; }
 .panel .small { margin: -8px 0 16px; }
-ol.steps { list-style: none; margin: 0; padding: 0; counter-reset: step; }
-ol.steps > li { counter-increment: step; margin: 0 0 28px; min-width: 0; }
-.step-head { display: flex; align-items: center; gap: 10px; margin: 0 0 12px; font-size: 17px; font-weight: 600; }
-.step-head::before {
-  content: counter(step); flex: none; width: 26px; height: 26px; border-radius: 50%;
-  background: var(--accent-tint); color: var(--accent); border: 1px solid var(--accent);
-  font-size: 14px; font-weight: 600; display: grid; place-items: center;
-}
 .block { border: 1px solid var(--border); border-radius: 8px; background: var(--code-bg); margin: 0 0 12px; min-width: 0; overflow: hidden; }
 .bar { display: flex; align-items: center; justify-content: space-between; min-height: 38px; padding: 4px 8px 4px 16px; border-bottom: 1px solid var(--border); }
 .label { font-size: 13px; color: var(--muted); }
@@ -160,40 +152,51 @@ footer a:first-of-type { margin-left: 4px; }
 </header>
 <main class="wrap">
   <h1>Install SpliceFS</h1>
-  <p class="lead">Run one command, or add the repository yourself.</p>
+  <p class="lead">Set up the package repository with one command, then install with your package manager.</p>
   <p class="lead">Every command is safe to run again. A second run repairs what is broken and changes nothing that works.</p>
   <p class="small">Packages are built for x86-64 and arm64.</p>
 
   <section class="one" id="one">
-    <h2>Install with one command</h2>
+    <h2>Step 1: Set up the repository</h2>
     <div class="chooser">
       <div class="seg-group" role="group" aria-label="Download tool">
         <button type="button" class="seg" data-tool="curl" aria-pressed="true">curl</button>
         <button type="button" class="seg" data-tool="wget" aria-pressed="false">wget</button>
       </div>
-      <div class="seg-group" role="group" aria-label="Package">
-        <button type="button" class="seg" data-what="server" aria-pressed="true">server</button>
-        <button type="button" class="seg" data-what="client" aria-pressed="false">client</button>
-        <button type="button" class="seg" data-what="both" aria-pressed="false">both</button>
-      </div>
     </div>
-    <div class="block" id="oneblock"><div class="bar"><span class="label">curl</span></div><pre><code>curl --proto '=https' --tlsv1.2 -fsSL https://packages.splicefs.org/install.sh -o ~/splicefs-install.sh &amp;&amp;
-  sudo sh ~/splicefs-install.sh server
+    <div class="block" id="oneblock"><div class="bar"><span class="label">curl</span></div><pre><code>curl --proto '=https' --tlsv1.2 -fsSL https://packages.splicefs.org/setup.sh -o ~/splicefs-setup.sh &amp;&amp;
+  sudo sh ~/splicefs-setup.sh
 </code></pre></div>
-    <div class="block nojs"><div class="bar"><span class="label">wget</span></div><pre><code>wget -qO ~/splicefs-install.sh https://packages.splicefs.org/install.sh &amp;&amp;
-  sudo sh ~/splicefs-install.sh server
+    <div class="block nojs"><div class="bar"><span class="label">wget</span></div><pre><code>wget -qO ~/splicefs-setup.sh https://packages.splicefs.org/setup.sh &amp;&amp;
+  sudo sh ~/splicefs-setup.sh
 </code></pre></div>
-    <p class="nojs">Replace server with client or both.</p>
     <p class="small">Already root? Leave out sudo.</p>
-    <p>The script sets up the SpliceFS package source for your system and installs the package. It is safe to run again.</p>
-    <p>It is downloaded completely before it runs. To check it first, compare its SHA-256 with the one in the <a href="https://github.com/SpliceFS/packages#verify-the-install-script">packages repository on GitHub</a>:</p>
-    <div class="block"><div class="bar"><span class="label">Shell</span></div><pre><code>sha256sum ~/splicefs-install.sh
+    <p>The script registers the SpliceFS package repository and its signing key on your system. It installs no package and takes no arguments. It is safe to run again.</p>
+    <p>It is downloaded completely before it runs. To check it first, compare its SHA-256 with the one in the <a href="https://github.com/SpliceFS/packages#verify-the-setup-script">packages repository on GitHub</a>:</p>
+    <div class="block"><div class="bar"><span class="label">Shell</span></div><pre><code>sha256sum ~/splicefs-setup.sh
 </code></pre></div>
     <p class="small">Works on Debian, Ubuntu, RHEL, Rocky Linux, AlmaLinux, Amazon Linux, openSUSE and Alpine, on x86-64 and arm64.</p>
   </section>
 
+  <section class="one" id="two">
+    <h2>Step 2: Install</h2>
+    <p>When the script is done, it prints the commands for your system. They refresh the package index, then install the server and the client, one line each. Run the line you need, or both.</p>
+    <div class="chooser">
+      <div class="seg-group" role="group" aria-label="System">
+        <button type="button" class="seg" data-family="apt" aria-pressed="true">Debian, Ubuntu</button>
+        <button type="button" class="seg" data-family="dnf" aria-pressed="false">RHEL, Rocky, AlmaLinux, Amazon</button>
+        <button type="button" class="seg" data-family="zypper" aria-pressed="false">openSUSE</button>
+        <button type="button" class="seg" data-family="apk" aria-pressed="false">Alpine</button>
+      </div>
+    </div>
+    <div id="twohost"></div>
+    <p class="nojs">The commands are the last three lines of your system's block under Manual setup below.</p>
+    <p class="small">On Alpine, run them as root.</p>
+  </section>
+
   <section class="manual">
   <h2>Manual setup</h2>
+  <p class="lead">Instead of step 1, add the repository yourself. Each block sets it up and ends with the commands of step 2.</p>
   <ul class="picker" id="picker">
     <li><a class="card" href="#debian" data-panel="panel-apt"><span class="name">Debian</span><span class="versions">12, 13</span></a></li>
     <li><a class="card" href="#ubuntu" data-panel="panel-apt"><span class="name">Ubuntu</span><span class="versions">22.04, 24.04, 26.04</span></a></li>
@@ -210,10 +213,7 @@ footer a:first-of-type { margin-left: 4px; }
   <section class="panel" id="panel-apt">
     <a id="debian"></a><a id="ubuntu"></a>
     <h3 class="panel-title">Debian and Ubuntu</h3>
-    <ol class="steps">
-      <li>
-        <h4 class="step-head">Add the SpliceFS repository</h4>
-        <div class="block"><div class="bar"><span class="label">Shell</span></div><pre><code># Add the SpliceFS signing key:
+    <div class="block"><div class="bar"><span class="label">Shell</span></div><pre><code># Add the SpliceFS signing key:
 sudo apt-get update
 sudo apt-get install -y ca-certificates curl
 sudo install -m 0755 -d /etc/apt/keyrings
@@ -229,26 +229,17 @@ Components: main
 Signed-By: /etc/apt/keyrings/splicefs.asc
 EOF
 
+# Update the package index, then install the server, the client, or both:
 sudo apt-get update
+sudo apt-get install splicefs-server    # the server
+sudo apt-get install splicefs-client    # the client
 </code></pre></div>
-      </li>
-      <li>
-        <h4 class="step-head">Install</h4>
-        <div class="block"><div class="bar"><span class="label">Server</span></div><pre><code>sudo apt-get install -y splicefs-server
-</code></pre></div>
-        <div class="block"><div class="bar"><span class="label">Client</span></div><pre><code>sudo apt-get install -y splicefs-client
-</code></pre></div>
-      </li>
-    </ol>
   </section>
 
   <section class="panel" id="panel-dnf">
     <a id="rhel"></a><a id="rocky"></a><a id="almalinux"></a><a id="amazon"></a>
     <h3 class="panel-title">RHEL, Rocky Linux, AlmaLinux and Amazon Linux</h3>
-    <ol class="steps">
-      <li>
-        <h4 class="step-head">Add the SpliceFS repository</h4>
-        <div class="block"><div class="bar"><span class="label">Shell</span></div><pre><code># Add the SpliceFS signing key:
+    <div class="block"><div class="bar"><span class="label">Shell</span></div><pre><code># Add the SpliceFS signing key:
 sudo install -m 0755 -d /etc/pki/rpm-gpg
 sudo curl --proto '=https' --tlsv1.2 -fsSL https://packages.splicefs.org/keys/splicefs.asc -o /etc/pki/rpm-gpg/RPM-GPG-KEY-splicefs
 sudo chmod a+r /etc/pki/rpm-gpg/RPM-GPG-KEY-splicefs
@@ -272,25 +263,18 @@ gpgcheck=1
 repo_gpgcheck=1
 gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-splicefs
 EOF
+
+# Update the package index, then install the server, the client, or both:
+sudo dnf makecache
+sudo dnf install splicefs-server    # the server
+sudo dnf install splicefs-client    # the client
 </code></pre></div>
-      </li>
-      <li>
-        <h4 class="step-head">Install</h4>
-        <div class="block"><div class="bar"><span class="label">Server</span></div><pre><code>sudo dnf install -y splicefs-server
-</code></pre></div>
-        <div class="block"><div class="bar"><span class="label">Client</span></div><pre><code>sudo dnf install -y splicefs-client
-</code></pre></div>
-      </li>
-    </ol>
   </section>
 
   <section class="panel" id="panel-zypper">
     <a id="opensuse"></a>
     <h3 class="panel-title">openSUSE Leap</h3>
-    <ol class="steps">
-      <li>
-        <h4 class="step-head">Add the SpliceFS repository</h4>
-        <div class="block"><div class="bar"><span class="label">Shell</span></div><pre><code># Add the SpliceFS signing key:
+    <div class="block"><div class="bar"><span class="label">Shell</span></div><pre><code># Add the SpliceFS signing key:
 sudo install -m 0755 -d /etc/pki/rpm-gpg
 sudo curl --proto '=https' --tlsv1.2 -fsSL https://packages.splicefs.org/keys/splicefs.asc -o /etc/pki/rpm-gpg/RPM-GPG-KEY-splicefs
 sudo chmod a+r /etc/pki/rpm-gpg/RPM-GPG-KEY-splicefs
@@ -319,27 +303,18 @@ pkg_gpgcheck=1
 gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-splicefs
 EOF
 
-sudo zypper --non-interactive refresh splicefs-server splicefs-client
+# Update the package index, then install the server, the client, or both:
+sudo zypper refresh
+sudo zypper install splicefs-server    # the server
+sudo zypper install splicefs-client    # the client
 </code></pre></div>
-      </li>
-      <li>
-        <h4 class="step-head">Install</h4>
-        <div class="block"><div class="bar"><span class="label">Server</span></div><pre><code>sudo zypper --non-interactive install splicefs-server
-</code></pre></div>
-        <div class="block"><div class="bar"><span class="label">Client</span></div><pre><code>sudo zypper --non-interactive install splicefs-client
-</code></pre></div>
-      </li>
-    </ol>
   </section>
 
   <section class="panel" id="panel-apk">
     <a id="alpine"></a>
     <h3 class="panel-title">Alpine</h3>
     <p class="small">Run these as root.</p>
-    <ol class="steps">
-      <li>
-        <h4 class="step-head">Add the SpliceFS repository</h4>
-        <div class="block"><div class="bar"><span class="label">Shell</span></div><pre><code># Add the SpliceFS signing key:
+    <div class="block"><div class="bar"><span class="label">Shell</span></div><pre><code># Add the SpliceFS signing key:
 apk add curl
 curl --proto '=https' --tlsv1.2 -fsSL https://packages.splicefs.org/keys/splicefs.rsa.pub \
   -o /etc/apk/keys/splicefs.rsa.pub
@@ -348,17 +323,12 @@ curl --proto '=https' --tlsv1.2 -fsSL https://packages.splicefs.org/keys/splicef
 mkdir -p /etc/apk/repositories.d
 printf '%s\n' https://packages.splicefs.org/server/alpine https://packages.splicefs.org/client/alpine \
   &gt; /etc/apk/repositories.d/splicefs.list
+
+# Update the package index, then install the server, the client, or both:
 apk update
+apk add splicefs-server    # the server
+apk add splicefs-client    # the client
 </code></pre></div>
-      </li>
-      <li>
-        <h4 class="step-head">Install</h4>
-        <div class="block"><div class="bar"><span class="label">Server</span></div><pre><code>apk add splicefs-server
-</code></pre></div>
-        <div class="block"><div class="bar"><span class="label">Client</span></div><pre><code>apk add splicefs-client
-</code></pre></div>
-      </li>
-    </ol>
   </section>
   </section>
 
@@ -512,6 +482,21 @@ if (typeof module !== 'undefined' && module.exports) module.exports = { tokenize
     code.appendChild(frag);
   }
 
+  /* The block of step 2 is made here, before the blocks are wired, and not written in the
+     page: it shows the last three lines of the manual block of the chosen system, so the
+     commands exist once and make check proves them against steps/. */
+  var twoBlock = document.createElement('div');
+  twoBlock.className = 'block';
+  var twoBar = document.createElement('div');
+  twoBar.className = 'bar';
+  var twoLabel = document.createElement('span');
+  twoLabel.className = 'label';
+  twoLabel.textContent = 'Shell';
+  twoBar.appendChild(twoLabel);
+  twoBlock.appendChild(twoBar);
+  twoBlock.appendChild(document.createElement('pre')).appendChild(document.createElement('code'));
+  document.getElementById('twohost').appendChild(twoBlock);
+
   Array.prototype.forEach.call(document.querySelectorAll('.block'), function (block) {
     var code = block.querySelector('code');
     var original = code.textContent;
@@ -543,32 +528,47 @@ if (typeof module !== 'undefined' && module.exports) module.exports = { tokenize
     block.querySelector('.bar').appendChild(btn);
   });
 
-  var tool = 'curl', what = 'server';
+  var tool = 'curl';
   var oneBlock = document.getElementById('oneblock');
   var nojs = document.querySelector('.block.nojs');
   if (nojs) nojs.parentNode.removeChild(nojs);
+  var toolButtons = Array.prototype.slice.call(document.querySelectorAll('[data-tool]'));
   function oneText() {
-    var base = 'https://packages.splicefs.org/install.sh';
+    var base = 'https://packages.splicefs.org/setup.sh';
     var get = tool === 'curl'
-      ? 'curl --proto \'=https\' --tlsv1.2 -fsSL ' + base + ' -o ~/splicefs-install.sh &&\n'
-      : 'wget -qO ~/splicefs-install.sh ' + base + ' &&\n';
-    return get + '  sudo sh ~/splicefs-install.sh ' + what + '\n';
+      ? 'curl --proto \'=https\' --tlsv1.2 -fsSL ' + base + ' -o ~/splicefs-setup.sh &&\n'
+      : 'wget -qO ~/splicefs-setup.sh ' + base + ' &&\n';
+    return get + '  sudo sh ~/splicefs-setup.sh\n';
   }
   function chooseOne() {
     oneBlock.setText(oneText());
     oneBlock.querySelector('.label').textContent = tool;
-    Array.prototype.forEach.call(document.querySelectorAll('.seg'), function (b) {
-      var on = b.getAttribute('data-tool') === tool || b.getAttribute('data-what') === what;
-      b.setAttribute('aria-pressed', on ? 'true' : 'false');
+    toolButtons.forEach(function (b) {
+      b.setAttribute('aria-pressed', b.getAttribute('data-tool') === tool ? 'true' : 'false');
     });
   }
-  Array.prototype.forEach.call(document.querySelectorAll('.seg'), function (b) {
+  toolButtons.forEach(function (b) {
     b.addEventListener('click', function () {
-      if (b.getAttribute('data-tool')) tool = b.getAttribute('data-tool');
-      else what = b.getAttribute('data-what');
+      tool = b.getAttribute('data-tool');
       chooseOne();
     });
   });
+
+  var familyButtons = Array.prototype.slice.call(document.querySelectorAll('[data-family]'));
+  function installLines(family) {
+    var lines = document.querySelector('#panel-' + family + ' code').textContent.replace(/\n$/, '').split('\n');
+    return lines.slice(-3).join('\n') + '\n';
+  }
+  function chooseTwo(family) {
+    twoBlock.setText(installLines(family));
+    familyButtons.forEach(function (b) {
+      b.setAttribute('aria-pressed', b.getAttribute('data-family') === family ? 'true' : 'false');
+    });
+  }
+  familyButtons.forEach(function (b) {
+    b.addEventListener('click', function () { chooseTwo(b.getAttribute('data-family')); });
+  });
+  chooseTwo('apt');
 
   var cards = Array.prototype.slice.call(document.querySelectorAll('.card'));
   var panels = Array.prototype.slice.call(document.querySelectorAll('.panel'));

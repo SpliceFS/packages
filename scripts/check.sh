@@ -23,7 +23,7 @@ run() {
   fi
 }
 
-[ -f dist/site/install.sh ] || { echo "run make site first" >&2; exit 1; }
+[ -f dist/site/setup.sh ] || { echo "run make site first" >&2; exit 1; }
 
 # 1. Plain ASCII everywhere, and no private names. The names are assembled from pieces so
 # this file does not trip its own check.
@@ -38,7 +38,7 @@ for root, dirs, fs in os.walk("."):
     for f in fs:
         if f != "LICENSE" or root != ".":
             files.append(os.path.join(root, f))
-files += ["dist/site/install.sh", "dist/site/index.html", "dist/site/install.sh.sha256"]
+files += ["dist/site/setup.sh", "dist/site/index.html", "dist/site/setup.sh.sha256"]
 bad = 0
 for path in sorted(files):
     data = open(path, "rb").read()
@@ -54,7 +54,7 @@ PYEOF
 run "1. ASCII only and no forbidden names" python3 -I "$TMP/ascii.py"
 
 # 2. Syntax of every shell file with every shell that exists.
-for f in install.sh.in dist/site/install.sh steps/*.sh scripts/*.sh; do
+for f in setup.sh.in dist/site/setup.sh steps/*.sh scripts/*.sh; do
   run "2. sh -n $f" sh -n "$f"
   command -v dash >/dev/null 2>&1 && run "2. dash -n $f" dash -n "$f"
   command -v bash >/dev/null 2>&1 && run "2. bash -n $f" bash -n "$f"
@@ -68,12 +68,10 @@ blocks = [html.unescape(b) for b in re.findall(r"<pre><code>(.*?)</code></pre>",
 json.dump(blocks, open(sys.argv[1], "w"))
 step = {k: open("steps/%s.sh" % k).read() for k in ("apt", "dnf", "zypper", "apk")}
 base = "https://packages.splicefs.org"
-curl = "curl --proto '=https' --tlsv1.2 -fsSL %s/install.sh -o ~/splicefs-install.sh &&\n  sudo sh ~/splicefs-install.sh server\n" % base
-wget = "wget -qO ~/splicefs-install.sh %s/install.sh &&\n  sudo sh ~/splicefs-install.sh server\n" % base
-expected = [curl, wget, "sha256sum ~/splicefs-install.sh\n"]
-for k, cmd in (("apt", "sudo apt-get install -y splicefs-%s\n"), ("dnf", "sudo dnf install -y splicefs-%s\n"),
-               ("zypper", "sudo zypper --non-interactive install splicefs-%s\n"), ("apk", "apk add splicefs-%s\n")):
-    expected += [step[k], cmd % "server", cmd % "client"]
+curl = "curl --proto '=https' --tlsv1.2 -fsSL %s/setup.sh -o ~/splicefs-setup.sh &&\n  sudo sh ~/splicefs-setup.sh\n" % base
+wget = "wget -qO ~/splicefs-setup.sh %s/setup.sh &&\n  sudo sh ~/splicefs-setup.sh\n" % base
+# Each step file already ends with the update and install commands, so a family is one block.
+expected = [curl, wget, "sha256sum ~/splicefs-setup.sh\n"] + [step[k] for k in ("apt", "dnf", "zypper", "apk")]
 bad = 0
 if len(blocks) != len(expected):
     print("page has %d code blocks, expected %d" % (len(blocks), len(expected))); bad += 1
@@ -82,27 +80,27 @@ for i, (got, want) in enumerate(zip(blocks, expected)):
         print("block %d differs from its source" % (i + 1)); bad += 1
 sys.exit(1 if bad else 0)
 PYEOF
-run "3. page code blocks match steps/ and the install lines" python3 -I "$TMP/blocks.py" "$TMP/blocks.json"
+run "3. page code blocks match steps/ and the setup lines" python3 -I "$TMP/blocks.py" "$TMP/blocks.json"
 
 # 4. The built script: keys byte-identical, no placeholder left, last line, checksum.
 cat > "$TMP/built.py" <<'PYEOF'
 import hashlib, re, sys
-s = open("dist/site/install.sh", encoding="ascii").read()
+s = open("dist/site/setup.sh", encoding="ascii").read()
 bad = 0
 for key in ("keys/splicefs.asc", "keys/splicefs.rsa.pub"):
     k = open(key, encoding="ascii").read()
     if ("<<'KEY_EOF'\n" + k + "KEY_EOF\n") not in s:
         print("%s is not embedded byte for byte" % key); bad += 1
 if re.search(r"@[A-Z_]+@", s):
-    print("placeholder left in install.sh"); bad += 1
+    print("placeholder left in setup.sh"); bad += 1
 if not s.endswith('\nmain "$@"\n'):
     print('last line is not main "$@"'); bad += 1
-want = hashlib.sha256(open("dist/site/install.sh", "rb").read()).hexdigest() + "  install.sh\n"
-if open("dist/site/install.sh.sha256").read() != want:
-    print("install.sh.sha256 does not match"); bad += 1
+want = hashlib.sha256(open("dist/site/setup.sh", "rb").read()).hexdigest() + "  setup.sh\n"
+if open("dist/site/setup.sh.sha256").read() != want:
+    print("setup.sh.sha256 does not match"); bad += 1
 sys.exit(1 if bad else 0)
 PYEOF
-run "4. built install.sh: keys, placeholders, last line, sha256" python3 -I "$TMP/built.py"
+run "4. built setup.sh: keys, placeholders, last line, sha256" python3 -I "$TMP/built.py"
 
 # 5. The page script and its tokenizer.
 cat > "$TMP/tok.js" <<'JSEOF'
@@ -148,15 +146,53 @@ expect() {
     sed 's/^/        /' "$TMP/out"
   fi
 }
-expect "6. no argument: usage, exit 2" 2 "usage:" sh dist/site/install.sh
-expect "6. bad argument: usage, exit 2" 2 "usage:" sh dist/site/install.sh nonsense
-expect "6. not root: message, exit 1" 1 "run this script as root, for example with sudo" \
-  sh dist/site/install.sh server
+# No argument gets as far as the root check, and any argument is refused before it.
+expect "6. no argument, not root: message, exit 1" 1 "run this script as root, for example with sudo" \
+  sh dist/site/setup.sh
+expect "6. an argument: usage, exit 2" 2 "usage: sh setup.sh" sh dist/site/setup.sh server
+expect "6. an argument: says it only sets up the repository, exit 2" 2 \
+  "only sets up the package repository" sh dist/site/setup.sh nonsense
+
+# The next-step lines are printed by one function, taken out of the built script and run for
+# each family. The script itself cannot run here, because it writes under /etc as root.
+awk '/^next_steps\(\) \{$/ { on = 1 } on { print } on && /^\}$/ { exit }' dist/site/setup.sh \
+  > "$TMP/next.sh"
+next_text() {
+  printf 'The SpliceFS package repository is set up. Next:\n\n  %s %s\n  %s %s splicefs-server    # the server\n  %s %s splicefs-client    # the client\n' \
+    "$1" "$2" "$1" "$3" "$1" "$3"
+}
+# Arguments: family, rpm tool, the printed manager, update word, install word, step file.
+expect_next() {
+  next_text "$3" "$4" "$5" > "$TMP/want"
+  FAMILY=$1 RPM_TOOL=$2 sh -c '. "$1"; next_steps' sh "$TMP/next.sh" > "$TMP/got" 2>&1
+  if cmp -s "$TMP/want" "$TMP/got"; then
+    pass "6. next steps for $1 ($3 $4)"
+  else
+    fail "6. next steps for $1 ($3 $4)"
+    diff "$TMP/want" "$TMP/got" | sed 's/^/        /'
+  fi
+  # The manual steps on the page must end with the same three command lines.
+  if [ -n "${6:-}" ]; then
+    tail -n 3 "$TMP/want" | sed 's/^  //' > "$TMP/want3"
+    tail -n 3 "steps/$6.sh" > "$TMP/got3"
+    if cmp -s "$TMP/want3" "$TMP/got3"; then
+      pass "6. steps/$6.sh ends with the lines the script prints"
+    else
+      fail "6. steps/$6.sh ends with the lines the script prints"
+      diff "$TMP/want3" "$TMP/got3" | sed 's/^/        /'
+    fi
+  fi
+}
+expect_next apt '' 'sudo apt-get' update install apt
+expect_next dnf dnf 'sudo dnf' makecache install dnf
+expect_next dnf yum 'sudo yum' makecache install
+expect_next zypper '' 'sudo zypper' refresh install zypper
+expect_next apk '' apk update add apk
 
 # 7. Properties of the built script that can be read from its text.
 cat > "$TMP/text.py" <<'PYEOF'
 import re, sys
-lines = open("dist/site/install.sh", encoding="ascii").read().split("\n")
+lines = open("dist/site/setup.sh", encoding="ascii").read().split("\n")
 s = "\n".join(lines)
 bad = 0
 i = lines.index("set -eu")
@@ -164,15 +200,48 @@ cmds = [l for l in lines[i + 1:] if l.strip() and not l.lstrip().startswith("#")
 if cmds[:3] != ["PATH=/usr/sbin:/usr/bin:/sbin:/bin", "export PATH", "umask 022"]:
     print("PATH, export PATH and umask 022 do not follow set -eu directly"); bad += 1
 if "/tmp" in s:
-    print("install.sh mentions /tmp"); bad += 1
+    print("setup.sh mentions /tmp"); bad += 1
 if "arm64" in s:
-    print("install.sh still accepts arm64"); bad += 1
+    print("setup.sh still accepts arm64"); bad += 1
 m = re.search(r"write_rpm_repo /etc/zypp/repos.d/splicefs.repo '([^']*)'", s)
 if not m or m.group(1).split("\n") != ["autorefresh=1", "gpgcheck=1", "repo_gpgcheck=1", "pkg_gpgcheck=1"]:
     print("zypper repo lines are not autorefresh, gpgcheck, repo_gpgcheck, pkg_gpgcheck"); bad += 1
 sys.exit(1 if bad else 0)
 PYEOF
-run "7. built install.sh: PATH and umask first, no /tmp, no arm64, zypper lines" python3 -I "$TMP/text.py"
+run "7. built setup.sh: PATH and umask first, no /tmp, no arm64, zypper lines" python3 -I "$TMP/text.py"
+
+# The script only sets up the repository. No package manager command that installs, upgrades or
+# refreshes anything may be run, and the install_ functions are gone. Text inside quotes is
+# printed text, so quoted strings are removed before the search; the one command that is quoted
+# in a call, the rpm tool variable, is searched before that.
+cat > "$TMP/noinstall.py" <<'PYEOF'
+import re, sys
+lines = open("dist/site/setup.sh", encoding="ascii").read().split("\n")
+mgr = r'(?:\b(?:apt-get|apt|dnf|yum|zypper|apk|dpkg)\b|\$\{?RPM_TOOL\}?"?)'
+verbs = (r'install|add|upgrade|dist-upgrade|update|refresh|makecache|remove|in|'
+         r'-i|--install|--upgrade')
+manager_re = re.compile(mgr + r'\s+(?:-\S+\s+)*(?:' + verbs + r')\b')
+rpm_re = re.compile(r'\brpm\s+(?:-(?!q)[a-zA-Z]*[iUF]|--install|--upgrade|--freshen)')
+bad = 0
+in_key = False
+for n, line in enumerate(lines, 1):
+    if line.endswith("<<'KEY_EOF'"):
+        in_key = True
+        continue
+    if line == "KEY_EOF":
+        in_key = False
+        continue
+    if in_key or line.lstrip().startswith("#"):
+        continue
+    raw = re.search(r'\$\{?RPM_TOOL\}?"?\s+\S', line) and not re.search(r'=', line)
+    stripped = re.sub(r'"[^"]*"|\'[^\']*\'', '""', line)
+    if raw or manager_re.search(stripped) or rpm_re.search(stripped):
+        print("line %d runs a package command: %s" % (n, line.strip())); bad += 1
+    if re.search(r'\binstall_\w+', line):
+        print("line %d still has an install_ function: %s" % (n, line.strip())); bad += 1
+sys.exit(1 if bad else 0)
+PYEOF
+run "7. built setup.sh: no package is installed, upgraded or refreshed" python3 -I "$TMP/noinstall.py"
 
 # 8. Signing and publishing with throwaway keys. Nothing here touches a real key or host;
 # the site is built in the temporary folder, so dist/site stays the normal build.
@@ -209,18 +278,18 @@ else
   mkdir "$verify_home"
   chmod 700 "$verify_home"
   GNUPGHOME=$verify_home gpg --batch --quiet --import "$TMP/ka/splicefs.asc" 2>/dev/null
-  run "8. install.sh.asc verifies" env GNUPGHOME="$verify_home" gpg --batch --verify \
-    "$SIGNSITE/install.sh.asc" "$SIGNSITE/install.sh"
+  run "8. setup.sh.asc verifies" env GNUPGHOME="$verify_home" gpg --batch --verify \
+    "$SIGNSITE/setup.sh.asc" "$SIGNSITE/setup.sh"
 
-  cp "$SIGNSITE/install.sh" "$TMP/install.sh.orig"
-  echo "# tampered" >> "$SIGNSITE/install.sh"
-  if GNUPGHOME=$verify_home gpg --batch --verify "$SIGNSITE/install.sh.asc" \
-    "$SIGNSITE/install.sh" > "$TMP/out" 2>&1; then
-    fail "8. a tampered install.sh fails verification"
+  cp "$SIGNSITE/setup.sh" "$TMP/setup.sh.orig"
+  echo "# tampered" >> "$SIGNSITE/setup.sh"
+  if GNUPGHOME=$verify_home gpg --batch --verify "$SIGNSITE/setup.sh.asc" \
+    "$SIGNSITE/setup.sh" > "$TMP/out" 2>&1; then
+    fail "8. a tampered setup.sh fails verification"
   else
-    pass "8. a tampered install.sh fails verification"
+    pass "8. a tampered setup.sh fails verification"
   fi
-  cp "$TMP/install.sh.orig" "$SIGNSITE/install.sh"
+  cp "$TMP/setup.sh.orig" "$SIGNSITE/setup.sh"
 
   if sign "$TMP/kb/secret.asc" > "$TMP/out" 2>&1; then
     fail "8. sign-site.sh fails for a secret key that does not match keys/"
@@ -247,7 +316,7 @@ else
     pub() { SITE_DIR=$SIGNSITE UPLOAD_TARGET=$TMP/remote sh scripts/publish.sh send; }
     run "8. publish.sh send to a local folder" pub
     modes_ok=1
-    for f in index.html install.sh install.sh.sha256 install.sh.asc keys/splicefs.asc \
+    for f in index.html setup.sh setup.sh.sha256 setup.sh.asc keys/splicefs.asc \
       keys/splicefs.rsa.pub; do
       [ "$(perms "$TMP/remote/$f")" = '-rw-r--r--' ] || modes_ok=0
       cmp -s "$SIGNSITE/$f" "$TMP/remote/$f" || modes_ok=0
@@ -260,7 +329,7 @@ else
     fi
     if [ "$(cat "$TMP/remote/server/keep.txt")" = keep ] &&
       [ "$(cd "$TMP/remote" && echo *)" = \
-        'index.html install.sh install.sh.asc install.sh.sha256 keys server' ] &&
+        'index.html setup.sh setup.sh.asc setup.sh.sha256 keys server' ] &&
       [ "$(perms "$TMP/remote/server/keep.txt")" = '-rw-------' ]; then
       pass "8. server/keep.txt is untouched and nothing else appeared"
     else
@@ -268,14 +337,14 @@ else
     fi
   fi
 
-  mv "$SIGNSITE/install.sh.asc" "$TMP/asc.saved"
+  mv "$SIGNSITE/setup.sh.asc" "$TMP/asc.saved"
   if SITE_DIR=$SIGNSITE UPLOAD_TARGET=$TMP/remote2 sh scripts/publish.sh send > "$TMP/out" 2>&1 ||
     [ -e "$TMP/remote2" ]; then
-    fail "8. publish.sh send refuses when install.sh.asc is missing"
+    fail "8. publish.sh send refuses when setup.sh.asc is missing"
   else
-    pass "8. publish.sh send refuses when install.sh.asc is missing"
+    pass "8. publish.sh send refuses when setup.sh.asc is missing"
   fi
-  mv "$TMP/asc.saved" "$SIGNSITE/install.sh.asc"
+  mv "$TMP/asc.saved" "$SIGNSITE/setup.sh.asc"
 
   cp "$TMP/ka/secret.asc" "$TMP/loose.key"
   chmod 644 "$TMP/loose.key"

@@ -1,6 +1,6 @@
 # Contributing to SpliceFS packages
 
-This repository is small on purpose: the install script, the manual steps the page shows,
+This repository is small on purpose: the setup script, the manual steps the page shows,
 the page, and the public keys. Every change is reviewed as code that runs as root.
 
 ## Before you start
@@ -66,13 +66,14 @@ A pull request merges with one merge commit. Squash and fast-forward merges are 
 
 ## Standards
 
-### The install script and the manual steps
+### The setup script and the manual steps
 
 - POSIX `sh` only. The script runs under dash, BusyBox ash and bash.
 - Idempotent: run again at any point, it repairs what is broken and changes nothing that
   works. A change that breaks this does not merge.
 - Never weaken a signature check, and never add an option that skips one.
-- The script and the manual steps in `steps/` must leave a system in the same state.
+- The script and the manual steps in `steps/` must set up the repository the same way, and
+  the steps end with the commands the script prints. The script installs no package.
 - No temporary files in folders other users can write to.
 - ShellCheck reports nothing. A finding is fixed, or disabled on that line with the reason.
 
@@ -101,7 +102,7 @@ A pull request merges with one merge commit. Squash and fast-forward merges are 
 | Main | on every push to `main`: tags the new version and rebuilds the open pull requests |
 | Security | ShellCheck on all shell files, CodeQL on the page's script, dependency review on pull requests |
 | SonarQube | quality and security rating on SonarQube Cloud |
-| Install tests | runs the install script on every supported system, on x86-64 and arm64, weekly as well |
+| Install tests | runs the setup script on every supported system, on x86-64 and arm64, weekly as well |
 | Release | on a version tag: signs the script, publishes the site, creates the release |
 | Scorecard | OpenSSF Scorecard, published weekly and on every push |
 
@@ -118,9 +119,9 @@ Every merge into `main` is a release. The merge is tagged `v<VERSION>` automatic
 starts the Release workflow. Nobody creates tags or release branches by hand. One change, one
 version.
 
-The Release workflow runs the checks, signs `install.sh` with the signing subkey, publishes the
-site over rsync and creates the GitHub release with `install.sh`, `install.sh.sha256` and
-`install.sh.asc`. The keys live in the `publish` environment, which only version tags can use.
+The Release workflow runs the checks, signs `setup.sh` with the signing subkey, publishes the
+site over rsync and creates the GitHub release with `setup.sh`, `setup.sh.sha256` and
+`setup.sh.asc`. The keys live in the `publish` environment, which only version tags can use.
 
 The Upload check workflow, started by hand, lists the remote site folder to prove the upload
 credentials work without publishing.

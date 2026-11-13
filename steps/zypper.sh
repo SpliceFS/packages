@@ -27,4 +27,7 @@ pkg_gpgcheck=1
 gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-splicefs
 EOF
 
-sudo zypper --non-interactive refresh splicefs-server splicefs-client
+# Update the package index, then install the server, the client, or both:
+sudo zypper refresh
+sudo zypper install splicefs-server    # the server
+sudo zypper install splicefs-client    # the client

@@ -22,3 +22,6 @@ notable ones.
 - Release workflow: a version tag signs `install.sh` with OpenPGP, publishes the site by rsync
   and creates the GitHub release; `make sign`, `make publish` and `make publish-check`.
 - Trunk development: one branch, `main`, and one version per change.
+- The script is now `setup.sh`: it only sets up the package repository and takes no
+  arguments. The packages are installed with the system's own package manager, with the
+  commands the script prints.
