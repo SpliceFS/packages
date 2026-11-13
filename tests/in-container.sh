@@ -105,13 +105,15 @@ next_commands() {
 }
 
 # Answers the one question the printed commands ask (continue? import a key?), as a person
-# would at the prompt. The commands carry no -y flag on purpose. zypper is the exception: it
-# refuses to read answers from anything but a terminal, so the test gives it its own switch
-# for running without one, which takes the default answers a person would give.
+# would at the prompt. The commands carry no -y flag on purpose. Three tools refuse to take
+# answers from anything but a terminal, which a test does not have: zypper always, and dnf
+# and yum on the oldest supported systems when a key has to be imported. Those get their own
+# switch for running without a terminal, which gives the answers a person would give.
 run_printed() {
   echo "+ $1"
   case "$1" in
     "zypper "*) sh -c "zypper --non-interactive ${1#zypper }" ;;
+    "dnf "* | "yum "*) sh -c "${1%% *} -y ${1#* }" ;;
     *) yes | sh -c "$1" ;;
   esac
 }
