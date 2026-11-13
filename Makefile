@@ -3,7 +3,14 @@
 site:
 	sh scripts/build-site.sh
 
-check: site
+# Nothing that must stay private may be tracked: no compiled program (it carries the folder
+# names of the machine it was built on), no file over 1 MiB, no name of a private machine,
+# account or place. The ignore rules help; this check is what stops a mistake.
+.PHONY: tracked-files
+tracked-files:
+	scripts/tracked-files.sh
+
+check: site tracked-files
 	sh scripts/check.sh
 
 # Static analysis of every shell file. The built script is analyzed, not the template,

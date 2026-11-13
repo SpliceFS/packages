@@ -29,4 +29,5 @@ notable ones.
   system is supported only while its own vendor supports it.
 - ShellCheck runs with every optional check on; the two that are off say why in
   `.shellcheckrc`. The scripts no longer hide the failure of a command inside `$(...)`.
-
+- `make check` fails when a tracked file names a private machine, account or place, and the
+  ignore rules cover programs built in place, editor leftovers and disk images.
