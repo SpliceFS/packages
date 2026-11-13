@@ -25,3 +25,5 @@ notable ones.
 - The script is now `setup.sh`: it only sets up the package repository and takes no
   arguments. The packages are installed with the system's own package manager, with the
   commands the script prints.
+- openSUSE Leap 15.6 is no longer supported: its vendor ended its support on 2026-04-30. A
+  system is supported only while its own vendor supports it.
