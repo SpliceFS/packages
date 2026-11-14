@@ -77,6 +77,7 @@ make site     # writes dist/site
 make check    # builds, then runs every check
 make e2e-prepare  # builds ../server and ../client with throwaway keys into dist/e2e/site
 make e2e      # runs the setup script in a container of every supported system
+make e2e-freebsd  # runs the setup script in a FreeBSD machine of every supported release (FREEBSD=15.1 for one)
 ```
 
 `make check` needs `python3`. It also uses `node`, `dash` and `bash` when they are installed.

@@ -43,5 +43,16 @@ e2e-prepare:
 e2e:
 	sh tests/run.sh
 
+# Runs the setup script as root in a virtual machine of every FreeBSD release in
+# packaging/freebsd/images, which has no Linux container. The machine runs under QEMU inside
+# LINUX_IMAGE; this needs Docker, curl and xz, nothing else. FREEBSD=15.1 limits the run to
+# one release. Where the machine has to be emulated (any computer but Linux on amd64) a run
+# takes many minutes.
+LINUX_IMAGE ?= golang:1.27
+FREEBSD ?=
+.PHONY: e2e-freebsd
+e2e-freebsd:
+	LINUX_IMAGE=$(LINUX_IMAGE) FREEBSD=$(FREEBSD) tests/freebsd.sh
+
 clean:
 	rm -rf dist
