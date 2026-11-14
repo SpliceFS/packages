@@ -1,6 +1,8 @@
 #!/bin/sh
 # Publishes the signed site files by rsync, or proves that the upload path works.
 # Usage: publish.sh send | publish.sh check
+# send uploads in three passes: the page and the keys, then setup.sh, then its hash and its
+# signature.
 # Variables: SITE_DIR (default dist/site), UPLOAD_HOST (packages.splicefs.org), UPLOAD_PORT
 # (7022), UPLOAD_USER (site-splicefs-packages), UPLOAD_KEY_FILE (required, private key,
 # mode 600), UPLOAD_KNOWN_HOSTS_FILE (required). Test hook: UPLOAD_TARGET is a complete
@@ -65,13 +67,42 @@ if [ "$MODE" = check ]; then
 fi
 
 # Run from the site folder with --relative so keys/ lands as keys/ and nothing else is
-# named. --delay-updates moves the files into place together at the end. There is no
-# delete option, on purpose.
+# named. There is no delete option, on purpose.
 cd "$SITE"
-set -- -a --chmod=D755,F644 --delay-updates --relative
-if [ -z "${UPLOAD_TARGET:-}" ]; then
-  set -- "$@" -e "$SSH_CMD"
-fi
-# shellcheck disable=SC2086 # FILES is a fixed list of names without spaces
-rsync "$@" $FILES "$DEST"
+
+run_rsync() {
+  if [ -n "${UPLOAD_TARGET:-}" ]; then
+    rsync "$@"
+  else
+    rsync -e "$SSH_CMD" "$@"
+  fi
+}
+
+# Runs one pass: $1 names it for the message, the other arguments are the files. A failed pass
+# ends the script, so a later pass never sends a file that depends on one that did not arrive.
+# --delay-updates moves the files of one pass into place together at the end of that pass.
+# set -e is switched off around the call, not by using it as a condition, which would also
+# switch it off inside run_rsync.
+send_pass() {
+  pass_name=$1
+  shift
+  set +e
+  run_rsync -a --chmod=D755,F644 --delay-updates --relative "$@" "$DEST"
+  pass_status=$?
+  set -e
+  if [ "$pass_status" -ne 0 ]; then
+    echo "the upload stopped: $pass_name failed" >&2
+    exit 1
+  fi
+}
+
+# The setup script holds the public keys, and it checks itself against setup.sh.sha256 before
+# it changes anything. So everything else goes first, then the script, then its hash and its
+# signature right after it: a reader must never get a new script with an old hash for longer
+# than the time between the last two passes. A client that fetches in that instant gets the
+# new script and the old hash. The self-check then stops it and tells the person to download
+# the script again, which is the safe direction.
+send_pass "pass 1 (the page and the keys)" index.html keys/splicefs.asc keys/splicefs.rsa.pub
+send_pass "pass 2 (setup.sh)" setup.sh
+send_pass "pass 3 (setup.sh.sha256 and setup.sh.asc)" setup.sh.sha256 setup.sh.asc
 echo "published to ${UPLOAD_TARGET:-$HOST}"

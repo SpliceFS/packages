@@ -352,6 +352,120 @@ else
     else
       fail "8. server/keep.txt is untouched and nothing else appeared"
     fi
+
+    # The upload goes in three passes and stops when one fails: the page and the keys, then
+    # setup.sh, then its hash and its signature. A wrapper for rsync is put on the PATH: it
+    # counts the real passes, saves a copy of the target folder after each, and makes the pass
+    # named by FAIL_PASS fail, so the state between the passes can be looked at.
+    mkdir "$TMP/wrap"
+    cat > "$TMP/wrap/rsync" <<'WRAP'
+#!/bin/sh
+set -eu
+# The second process that some rsync versions start for a local copy is called with --server.
+for arg in "$@"; do
+  case "$arg" in
+    --server) exec "$REAL_RSYNC" "$@" ;;
+    *) ;;
+  esac
+done
+count=0
+[ ! -f "$PASS_DIR/count" ] || count=$(cat "$PASS_DIR/count")
+count=$((count + 1))
+echo "$count" > "$PASS_DIR/count"
+[ "$count" != "${FAIL_PASS:-0}" ] || { echo "test wrapper: pass $count fails" >&2; exit 23; }
+"$REAL_RSYNC" "$@"
+for dest; do :; done
+cp -R "$dest" "$PASS_DIR/after-$count"
+WRAP
+    chmod 755 "$TMP/wrap/rsync"
+    REAL_RSYNC=$(command -v rsync)
+    # Sends the signed site to $1 through the wrapper. $2 is the number of the pass that
+    # fails, if any. The number of passes that were run is left in PASS_TOTAL.
+    send_logged() {
+      rm -rf "$TMP/passes"
+      mkdir "$TMP/passes"
+      SEND_STATUS=0
+      PATH="$TMP/wrap:$PATH" REAL_RSYNC=$REAL_RSYNC PASS_DIR=$TMP/passes FAIL_PASS=${2:-0} \
+        SITE_DIR=$SIGNSITE UPLOAD_TARGET=$1 sh scripts/publish.sh send > "$TMP/out" 2>&1 ||
+        SEND_STATUS=$?
+      PASS_TOTAL=0
+      [ ! -f "$TMP/passes/count" ] || PASS_TOTAL=$(cat "$TMP/passes/count")
+    }
+    files_in() { (cd "$1" && find . -type f | sed 's|^\./||' | LC_ALL=C sort); }
+    PAGE_AND_KEYS='index.html
+keys/splicefs.asc
+keys/splicefs.rsa.pub'
+    WITH_SCRIPT="$PAGE_AND_KEYS
+setup.sh"
+    ALL_SIX="$WITH_SCRIPT
+setup.sh.asc
+setup.sh.sha256"
+
+    mkdir "$TMP/first"
+    send_logged "$TMP/first"
+    got1=$(files_in "$TMP/passes/after-1")
+    got2=$(files_in "$TMP/passes/after-2")
+    got3=$(files_in "$TMP/passes/after-3")
+    if [ "$SEND_STATUS" -eq 0 ] && [ "$PASS_TOTAL" = 3 ] && [ "$got1" = "$PAGE_AND_KEYS" ] &&
+      [ "$got2" = "$WITH_SCRIPT" ] && [ "$got3" = "$ALL_SIX" ]; then
+      pass "8. a send is three passes: page and keys, then setup.sh, then its hash and signature"
+    else
+      fail "8. the passes of a first send (status $SEND_STATUS, $PASS_TOTAL passes)"
+      sed 's/^/        /' "$TMP/out"
+    fi
+
+    # An upgrade: the old script keeps its old hash and signature until the last pass, and the
+    # new script never meets anything but the old hash before that.
+    mkdir -p "$TMP/upgrade/keys"
+    for f in $ALL_SIX; do echo "old $f" > "$TMP/upgrade/$f"; done
+    send_logged "$TMP/upgrade"
+    P=$TMP/passes
+    S=$SIGNSITE
+    if [ "$SEND_STATUS" -eq 0 ] && [ "$PASS_TOTAL" = 3 ] &&
+      cmp -s "$S/index.html" "$P/after-1/index.html" &&
+      cmp -s "$S/keys/splicefs.asc" "$P/after-1/keys/splicefs.asc" &&
+      grep -qx 'old setup.sh' "$P/after-1/setup.sh" &&
+      grep -qx 'old setup.sh.sha256' "$P/after-1/setup.sh.sha256" &&
+      cmp -s "$S/setup.sh" "$P/after-2/setup.sh" &&
+      grep -qx 'old setup.sh.sha256' "$P/after-2/setup.sh.sha256" &&
+      grep -qx 'old setup.sh.asc' "$P/after-2/setup.sh.asc" &&
+      cmp -s "$S/setup.sh.sha256" "$P/after-3/setup.sh.sha256" &&
+      cmp -s "$S/setup.sh.asc" "$P/after-3/setup.sh.asc"; then
+      pass "8. an upgrade: the new script goes before its hash and signature, never after"
+    else
+      fail "8. the passes of an upgrade (status $SEND_STATUS, $PASS_TOTAL passes)"
+      sed 's/^/        /' "$TMP/out"
+    fi
+
+    # A failed pass ends the script: no later pass runs and nothing is reported as published.
+    mkdir "$TMP/fail1" "$TMP/fail2" "$TMP/fail3"
+    send_logged "$TMP/fail1" 1
+    left=$(files_in "$TMP/fail1")
+    if [ "$SEND_STATUS" -ne 0 ] && [ "$PASS_TOTAL" = 1 ] && [ -z "$left" ] &&
+      grep -q 'pass 1' "$TMP/out" && ! grep -q '^published to' "$TMP/out"; then
+      pass "8. when pass 1 fails the script stops and nothing was sent"
+    else
+      fail "8. a failing pass 1 (status $SEND_STATUS, $PASS_TOTAL passes)"
+      sed 's/^/        /' "$TMP/out"
+    fi
+    send_logged "$TMP/fail2" 2
+    left=$(files_in "$TMP/fail2")
+    if [ "$SEND_STATUS" -ne 0 ] && [ "$PASS_TOTAL" = 2 ] && [ "$left" = "$PAGE_AND_KEYS" ] &&
+      grep -q 'pass 2' "$TMP/out" && ! grep -q '^published to' "$TMP/out"; then
+      pass "8. when pass 2 fails the script stops, and no script, hash or signature was sent"
+    else
+      fail "8. a failing pass 2 (status $SEND_STATUS, $PASS_TOTAL passes)"
+      sed 's/^/        /' "$TMP/out"
+    fi
+    send_logged "$TMP/fail3" 3
+    left=$(files_in "$TMP/fail3")
+    if [ "$SEND_STATUS" -ne 0 ] && [ "$PASS_TOTAL" = 3 ] && [ "$left" = "$WITH_SCRIPT" ] &&
+      grep -q 'pass 3' "$TMP/out" && ! grep -q '^published to' "$TMP/out"; then
+      pass "8. when pass 3 fails the script stops and reports nothing as published"
+    else
+      fail "8. a failing pass 3 (status $SEND_STATUS, $PASS_TOTAL passes)"
+      sed 's/^/        /' "$TMP/out"
+    fi
   fi
 
   mv "$SIGNSITE/setup.sh.asc" "$TMP/asc.saved"
