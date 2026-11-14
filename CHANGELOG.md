@@ -6,6 +6,11 @@ the setup script and the page at packages.splicefs.org.
 
 The change log of all parts of SpliceFS, side by side: https://splicefs.org/changelog/
 
+## [0.4.4] - 2026-11-14
+
+- Internal: a failed release, merge or scheduled check opens an issue that emails the owner. Nothing
+  changes for users.
+
 ## [0.4.3] - 2026-11-14
 
 - Internal: a release uploads the package files before the index files that name them, and stops at
