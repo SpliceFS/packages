@@ -6,6 +6,11 @@ the setup script and the page at packages.splicefs.org.
 
 The change log of all parts of SpliceFS, side by side: https://splicefs.org/changelog/
 
+## [0.4.5] - 2026-11-14
+
+- Internal: contributors are told to merge `main` down to fix a branch the bot cannot rebuild.
+  Nothing changes for users.
+
 ## [0.4.4] - 2026-11-14
 
 - Internal: a failed release, merge or scheduled check opens an issue that emails the owner. Nothing
