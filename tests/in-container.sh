@@ -58,7 +58,8 @@ esac
 files="$keyfile $srcfile"
 out=$(mktemp)
 first=$(mktemp)
-trap 'rm -f "$out" "$first"' EXIT
+work=$(mktemp -d)
+trap 'rm -rf "$out" "$first" "$work"' EXIT
 # The printed apt-get commands must not stop to ask about debconf questions.
 DEBIAN_FRONTEND=noninteractive
 export DEBIAN_FRONTEND
@@ -98,6 +99,14 @@ no_temp_files() {
       fail "temporary file left in $d"
     fi
   done
+}
+
+# The first argument names the run that must have left the system alone.
+expect_untouched() {
+  for f in $files; do
+    [ ! -e "$f" ] || fail "$1 wrote $f"
+  done
+  no_temp_files
 }
 
 # cmp is missing on some minimal images, so files are compared by checksum. The third
@@ -142,7 +151,33 @@ run_printed() {
   esac
 }
 
-# a. apt needs the certificate bundle for https sources, and the script refuses before it
+# a. the script checks itself before it changes anything: a changed copy, a cut copy and a
+# script piped into a shell are refused, and none of them writes a file. Debian and Ubuntu
+# images have neither curl nor wget, and the unchanged copy passes in the runs below through
+# apt-helper there.
+cp /site/setup.sh "$work/changed.sh"
+echo '# changed' >>"$work/changed.sh"
+try sh "$work/changed.sh" >"$out" 2>&1
+[ "$status" -eq 1 ] || fail "a changed copy exited $status, expected 1"
+grep -q 'does not match the published one' "$out" || fail "a changed copy was not reported"
+grep -q 'Get the latest setup script' "$out" || fail "a changed copy got no way to the latest script"
+expect_untouched "a changed copy"
+# A download that was cut short runs nothing, wherever the cut falls: in the middle of a
+# function the copy is not valid shell, and between functions it only defines them, because
+# the call of main is the last line. Its exit status differs between the two, so only the
+# result counts: nothing was written.
+head -n 100 /site/setup.sh >"$work/cut.sh"
+try sh "$work/cut.sh" >"$out" 2>&1
+expect_untouched "a copy cut after 100 lines"
+sed '$d' /site/setup.sh >"$work/cut.sh"
+try sh "$work/cut.sh" >"$out" 2>&1
+expect_untouched "a copy without its last line"
+try sh </site/setup.sh >"$out" 2>&1
+[ "$status" -eq 1 ] || fail "a script piped into a shell exited $status, expected 1"
+grep -q 'run from a file' "$out" || fail "a piped script did not say it must be run from a file"
+expect_untouched "a piped script"
+
+# b. apt needs the certificate bundle for https sources, and the script refuses before it
 # writes anything when it is missing. The bundle is moved away on systems that have it, so
 # every apt system proves the refusal.
 if [ "$format" = deb ]; then
@@ -165,7 +200,7 @@ if [ "$format" = deb ]; then
   fi
 fi
 
-# b. argument errors exit 2 and touch nothing, before the first setup and after it
+# c. argument errors exit 2 and touch nothing, before the first setup and after it
 for arg in both nonsense; do
   try run_script "$arg"
   [ "$status" -eq 2 ] || fail "setup.sh $arg exited $status, expected 2"
@@ -175,14 +210,14 @@ for f in $files; do
   [ ! -e "$f" ] || fail "an argument error wrote $f"
 done
 
-# c. the script succeeds and prints the next steps
+# d. the script succeeds and prints the next steps
 try run_script
 [ "$status" -eq 0 ] || fail "setup.sh exited $status"
 cp "$out" "$first"
 grep -q '^The SpliceFS package repository is set up\. Next:$' "$first" ||
   fail "setup.sh did not print the next steps"
 
-# d. files, modes, no temporary files
+# e. files, modes, no temporary files
 for f in $files; do
   [ -f "$f" ] || fail "$f was not written"
   mode=$(stat -c %a "$f")
@@ -193,7 +228,7 @@ no_temp_files
 before=$(state)
 before_content=$(state content)
 
-# e. the script installed nothing
+# f. the script installed nothing
 for p in splicefs-server splicefs-client; do
   try is_installed "$p"
   [ "$status" -ne 0 ] || fail "setup.sh installed $p"
@@ -202,7 +237,7 @@ if command -v splicefsd >/dev/null 2>&1 || command -v splicefs >/dev/null 2>&1; 
   fail "a SpliceFS program is on the system after setup.sh"
 fi
 
-# f. argument errors after setup change nothing
+# g. argument errors after setup change nothing
 sleep 1
 for arg in both nonsense; do
   try run_script "$arg"
@@ -211,7 +246,7 @@ done
 now=$(state)
 [ "$now" = "$before" ] || fail "an argument error changed a file"
 
-# g. a second run changes nothing, not even a modification time. The sleep makes a rewrite
+# h. a second run changes nothing, not even a modification time. The sleep makes a rewrite
 # visible, because mtime has one second resolution on some filesystems.
 sleep 2
 try run_script
@@ -225,7 +260,7 @@ cmds_first=$(next_commands "$first")
 [ "$cmds_again" = "$cmds_first" ] ||
   fail "second run printed other next steps than the first"
 
-# h. repair: a deleted key and a damaged source file come back, and only those two are
+# i. repair: a deleted key and a damaged source file come back, and only those two are
 # reported
 rm -f "$keyfile"
 echo "junk line" >>"$srcfile"
@@ -243,7 +278,7 @@ restored=$(state content)
   fail "files are not back to their original content and mode"
 no_temp_files
 
-# i. the commands the script printed: first the index refresh, then the server, then the client
+# j. the commands the script printed: first the index refresh, then the server, then the client
 cmds=$(next_commands "$first")
 cmd_count=$(printf '%s\n' "$cmds" | wc -l | tr -d ' ')
 [ "$cmd_count" = 3 ] ||
@@ -260,7 +295,7 @@ try run_printed "$server_cmd"
 try run_printed "$client_cmd"
 [ "$status" -eq 0 ] || fail "printed client command failed: $client_cmd"
 
-# j. both packages are installed and both programs report a version
+# k. both packages are installed and both programs report a version
 for p in splicefs-server splicefs-client; do
   try is_installed "$p"
   [ "$status" -eq 0 ] || fail "$p is not installed according to the package manager"
@@ -268,7 +303,7 @@ done
 splicefsd --version | grep -q . || fail "splicefsd --version printed nothing"
 splicefs --version | grep -q . || fail "splicefs --version printed nothing"
 
-# k. the package manager can remove what the printed commands installed
+# l. the package manager can remove what the printed commands installed
 try remove_pkgs splicefs-server splicefs-client
 [ "$status" -eq 0 ] || fail "removing the packages failed"
 for p in splicefs-server splicefs-client; do

@@ -8,6 +8,10 @@
 # sources. It installs no package and refreshes no package index. When it is done it prints the
 # system's own commands to run next. Safe to run again: a file is rewritten only when its
 # content differs.
+#
+# Before it changes anything it hashes its own file and compares the SHA-256 with the published
+# one. A copy that is incomplete, was changed or is not the latest stops there. For that it must
+# be run from a file, not piped into a shell.
 set -eu
 
 # Root may inherit the caller's PATH and umask through sudo or su, and either could make this
@@ -311,16 +315,143 @@ next_steps() {
   echo "  $ns_pm $ns_add splicefs-client    # the client"
 }
 
-# Removes the file write_file is working on when the script is interrupted. The EXIT trap
-# keeps the exit status of the command that triggered it.
+# The command lines that download the script and run it, indented for printing. The argument
+# is the download tool that was found. apt-helper cannot print to the terminal in one line, and
+# the install page leads with curl, so apt-helper, a missing tool and anything else get the
+# curl line. "any" is for a script that has no file to check and so has not looked for a tool:
+# it gets every line that applies to this system.
+latest_lines() {
+  ll_curl="  curl --proto '=https' --tlsv1.2 -fsSL $BASE_URL/setup.sh -o ~/splicefs-setup.sh && sudo sh ~/splicefs-setup.sh"
+  ll_wget="  wget -qO ~/splicefs-setup.sh $BASE_URL/setup.sh && sudo sh ~/splicefs-setup.sh"
+  ll_fetch="  fetch -o ~/splicefs-setup.sh $BASE_URL/setup.sh && sh ~/splicefs-setup.sh"
+  case "$1" in
+    wget) echo "$ll_wget" ;;
+    fetch) echo "$ll_fetch" ;;
+    any)
+      ll_os=$(uname -s)
+      if [ "$ll_os" = FreeBSD ]; then
+        echo "$ll_fetch"
+      else
+        echo "$ll_curl"
+        echo "$ll_wget"
+      fi
+      ;;
+    *) echo "$ll_curl" ;;
+  esac
+}
+
+# A copy that does not match is answered with the way to get the latest script. The first
+# argument is the download tool that was found, the others are the message.
+die_latest() {
+  dl_tool=$1
+  shift
+  dl_lines=$(latest_lines "$dl_tool")
+  die "$*
+
+Get the latest setup script and run it:
+$dl_lines"
+}
+
+# apt-helper is in every Debian and Ubuntu, also where curl and wget are not installed.
+find_download_tool() {
+  if command -v curl >/dev/null 2>&1; then
+    echo curl
+  elif command -v wget >/dev/null 2>&1; then
+    echo wget
+  elif command -v fetch >/dev/null 2>&1; then
+    echo fetch
+  elif [ -x /usr/lib/apt/apt-helper ]; then
+    echo apt-helper
+  fi
+}
+
+# Prints the published hash file, or nothing when the download fails: a failed download and a
+# page that is not a hash are the same problem for the caller, which checks what it got. The
+# timeout keeps a dead network from hanging the script. apt-helper can only write to a file,
+# CS_TMP, which check_self made and cleanup removes: it is made there because this function
+# runs in a command substitution, and a variable set in one is lost. apt-helper is told to
+# download as root, because its default user cannot write to a file made by root and then
+# prints a warning.
+download_hash() {
+  dh_tool=$1
+  dh_url=$BASE_URL/setup.sh.sha256
+  case "$dh_tool" in
+    curl) curl -fsS --max-time 30 "$dh_url" || true ;;
+    wget) wget -q -T 30 -O - "$dh_url" || true ;;
+    fetch) fetch -q -T 30 -o - "$dh_url" || true ;;
+    apt-helper)
+      /usr/lib/apt/apt-helper -o APT::Sandbox::User=root download-file "$dh_url" "$CS_TMP" \
+        >/dev/null || true
+      cat "$CS_TMP"
+      ;;
+    *) ;;
+  esac
+}
+
+# Stops before anything is written when this script is not the published one, so a download
+# that is incomplete, was changed, or is not the latest setup script changes nothing. A script
+# piped into a shell has no file to hash.
+check_self() {
+  if [ ! -f "$0" ]; then
+    cs_lines=$(latest_lines any)
+    die "this script checks itself before it changes anything, and it can only do that when it is run from a file.
+
+Download it to a file and run it:
+$cs_lines"
+  fi
+  cs_tool=$(find_download_tool)
+  if [ -z "$cs_tool" ]; then
+    die "this script checks itself against $BASE_URL/setup.sh.sha256 and needs curl or wget for that." \
+      "Install one of them and run this script again."
+  fi
+  if [ "$cs_tool" = apt-helper ]; then
+    CS_TMP=$(mktemp)
+  fi
+  cs_body=$(download_hash "$cs_tool")
+  # The first word of the hash file is the hash. Anything else is not a hash file.
+  read -r cs_published _ <<EOF
+$cs_body
+EOF
+  cs_valid=0
+  if [ "${#cs_published}" -eq 64 ]; then
+    case "$cs_published" in
+      *[!0123456789abcdef]*) ;;
+      *) cs_valid=1 ;;
+    esac
+  fi
+  if [ "$cs_valid" -eq 0 ]; then
+    # A minimal system without the certificate bundle fails here too, so the message names it.
+    die "could not download $BASE_URL/setup.sh.sha256 to check this script. Nothing was changed." \
+      "Check the network connection, and on a minimal system that the ca-certificates package" \
+      "is installed, then run this script again."
+  fi
+  # FreeBSD has sha256 and no sha256sum.
+  if command -v sha256sum >/dev/null 2>&1; then
+    cs_line=$(sha256sum "$0")
+  elif command -v sha256 >/dev/null 2>&1; then
+    cs_line=$(sha256 -q "$0")
+  else
+    die "this script needs sha256sum to check itself. Install it and run this script again."
+  fi
+  if [ "${cs_line%% *}" != "$cs_published" ]; then
+    die_latest "$cs_tool" "this copy of the setup script does not match the published one. It is incomplete, was changed, or is not the latest setup script. Nothing was changed."
+  fi
+}
+
+# Removes the files write_file and the self-check are working on when the script is
+# interrupted. The EXIT trap keeps the exit status of the command that triggered it.
 cleanup() {
   if [ -n "${WF_TMP:-}" ]; then
     rm -f "$WF_TMP"
+  fi
+  if [ -n "${CS_TMP:-}" ]; then
+    rm -f "$CS_TMP"
   fi
 }
 
 main() {
   WF_TMP=
+  CS_TMP=
   trap cleanup EXIT
   trap 'exit 130' INT
   trap 'exit 143' TERM
@@ -332,6 +463,7 @@ main() {
   if [ "$main_uid" -ne 0 ]; then
     die "run this script as root, for example with sudo"
   fi
+  check_self
   detect_family
   check_tools
   check_cpu

@@ -73,7 +73,7 @@ step = {k: open("steps/%s.sh" % k).read() for k in ("apt", "dnf", "zypper", "apk
 base = "https://packages.splicefs.org"
 curl = "curl --proto '=https' --tlsv1.2 -fsSL %s/setup.sh -o ~/splicefs-setup.sh &&\n  sudo sh ~/splicefs-setup.sh\n" % base
 wget = "wget -qO ~/splicefs-setup.sh %s/setup.sh &&\n  sudo sh ~/splicefs-setup.sh\n" % base
-fetch = "fetch -qo - %s/setup.sh | sh\n" % base
+fetch = "fetch -o ~/splicefs-setup.sh %s/setup.sh &&\n  sh ~/splicefs-setup.sh\n" % base
 # Each step file already ends with the update and install commands, so a family is one block.
 expected = [curl, wget, fetch, "sha256sum ~/splicefs-setup.sh\n"] + [step[k] for k in ("apt", "dnf", "zypper", "apk", "pkg")]
 bad = 0

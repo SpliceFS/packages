@@ -35,6 +35,10 @@ again. Manual steps for each system are on the page as well.
 
 ## Verify the setup script
 
+The script checks itself before it changes anything: it downloads its published SHA-256 hash and
+compares it with its own file. If they differ, the copy is incomplete, was changed, or is not the
+latest, and the script stops and tells you how to get the latest one.
+
 The SHA-256 of the published script for each release is listed in this repository's releases.
 To check a download before running it:
 
