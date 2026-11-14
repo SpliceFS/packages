@@ -6,6 +6,11 @@ the setup script and the page at packages.splicefs.org.
 
 The change log of all parts of SpliceFS, side by side: https://splicefs.org/changelog/
 
+## [0.4.1] - 2026-11-14
+
+- Internal: the setup script is now tested on FreeBSD on every change, in a virtual machine of each
+  supported release. Nothing changes for users.
+
 ## [0.4.0] - 2026-11-13
 
 - The setup script checks itself before it changes anything: it downloads its published SHA-256 hash

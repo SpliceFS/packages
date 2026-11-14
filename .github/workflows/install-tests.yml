@@ -46,3 +46,24 @@ jobs:
       - name: Run the setup script on every supported system
         working-directory: packages
         run: make e2e
+
+  # The same on FreeBSD, which cannot run in a container: a virtual machine of each release
+  # runs the setup script of this commit, checks what it wrote, and then installs both
+  # packages from the published repositories with the signature check on.
+  freebsd:
+    name: FreeBSD (${{ matrix.release }}, ${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        release: ["14.5", "15.1"]
+        arch: [amd64, arm64]
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Run the setup script on FreeBSD and install from the published repositories
+        run: make e2e-freebsd FREEBSD=${{ matrix.release }}

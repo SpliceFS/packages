@@ -2,7 +2,8 @@
 # Builds dist/site from the page, the script template and the public keys.
 # Variables: KEYS_DIR (default keys, relative to the caller's folder), BASE_URL (default
 # https://packages.splicefs.org), OPENPGP_FINGERPRINT (the pinned primary key fingerprint),
-# SITE_DIR (output folder, default dist/site; the end to end test builds elsewhere).
+# SITE_DIR (output folder, default dist/site; the end to end test builds elsewhere),
+# ALLOW_FILE_BASE_URL (1 accepts a file:/// BASE_URL, for the FreeBSD test only).
 set -eu
 
 DEFAULT_URL='https://packages.splicefs.org'
@@ -26,7 +27,16 @@ fi
 OPENPGP_FINGERPRINT=${OPENPGP_FINGERPRINT:-$DEFAULT_FPR}
 
 # The URL ends up inside a shell script that runs as root, so only plain URL characters pass.
-if ! printf '%s\n' "$BASE_URL" | grep -Eq '^https?://[A-Za-z0-9./:-]+$'; then
+# ALLOW_FILE_BASE_URL=1 also lets a file:/// address through. That is for the FreeBSD test
+# only (tests/freebsd.sh): the machine reads the site from a folder with fetch, so no web
+# server is needed. A published site never uses it, and without the variable such an
+# address is refused as before.
+if [ "${ALLOW_FILE_BASE_URL:-}" = 1 ]; then
+  if ! printf '%s\n' "$BASE_URL" | grep -Eq '^(https?://[A-Za-z0-9./:-]+|file:///[A-Za-z0-9./_-]+)$'; then
+    echo "BASE_URL must match ^https?://[A-Za-z0-9./:-]+\$ or ^file:///[A-Za-z0-9./_-]+\$" >&2
+    exit 1
+  fi
+elif ! printf '%s\n' "$BASE_URL" | grep -Eq '^https?://[A-Za-z0-9./:-]+$'; then
   echo "BASE_URL must match ^https?://[A-Za-z0-9./:-]+\$" >&2
   exit 1
 fi
