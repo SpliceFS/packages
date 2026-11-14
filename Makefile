@@ -32,14 +32,13 @@ publish: sign
 publish-check:
 	sh scripts/publish.sh check
 
-# Builds both sibling repositories with one set of throwaway keys and assembles the site the
-# end to end test serves. Separate from e2e because the build takes minutes and the test
-# can be repeated against the same site.
+# Builds both sibling repositories with one set of throwaway keys. Separate from e2e because
+# the build takes minutes and the test can be repeated against the same packages.
 e2e-prepare:
 	sh tests/prepare.sh
 
-# Runs the setup script in a container of every system in tests/systems, against the site
-# from e2e-prepare, served over local HTTP. Needs docker.
+# Runs the setup script in a container of every system in tests/systems, against a site built
+# from the packages of e2e-prepare and served over local HTTP. Needs docker.
 e2e:
 	sh tests/run.sh
 
