@@ -1,15 +1,16 @@
 #!/bin/sh
-# Builds the site the end to end test serves (make e2e-prepare). Runs on the host. Both
-# sibling repositories are built with ONE set of throwaway keys, so a single setup script
-# can trust the server and the client packages. Result: dist/e2e/site, laid out like the
-# published site. Variables: SERVER_DIR and CLIENT_DIR (default ../server and ../client, since
-# CI checks them out elsewhere), E2E_PORT (default 18080, part of the base URL).
+# Builds what the end to end test serves (make e2e-prepare). Runs on the host. Both sibling
+# repositories are built with ONE set of throwaway keys, so a single setup script can trust
+# the server and the client packages. Result: dist/e2e/keys, dist/e2e/server and
+# dist/e2e/client. The site itself is put together by tests/run.sh for every run, because its
+# base URL holds the port of the web server, and the system picks that port when the server
+# starts. Variables: SERVER_DIR and CLIENT_DIR (default ../server and ../client, since CI
+# checks them out elsewhere).
 set -eu
 
 root=$(cd "$(dirname "$0")/.." && pwd)
 SERVER_DIR=${SERVER_DIR:-$root/../server}
 CLIENT_DIR=${CLIENT_DIR:-$root/../client}
-port=${E2E_PORT:-18080}
 
 for d in "$SERVER_DIR" "$CLIENT_DIR"; do
   [ -f "$d/Makefile" ] || { echo "FAIL: $d is not a checkout of the sibling repository" >&2; exit 1; }
@@ -31,11 +32,10 @@ for k in splicefs.asc splicefs.rsa.pub; do
   }
 done
 
-site=$root/dist/e2e/site
-rm -rf "$site"
-mkdir -p "$site"
-(cd "$root" && KEYS_DIR=$keys BASE_URL="http://host.docker.internal:$port" SITE_DIR=$site \
-  sh scripts/build-site.sh)
-cp -R "$SERVER_DIR/dist/repo" "$site/server"
-cp -R "$CLIENT_DIR/dist/repo" "$site/client"
-echo "e2e site ready in dist/e2e/site"
+out=$root/dist/e2e
+rm -rf "$out"
+mkdir -p "$out/keys"
+cp "$keys/splicefs.asc" "$keys/splicefs.rsa.pub" "$out/keys/"
+cp -R "$SERVER_DIR/dist/repo" "$out/server"
+cp -R "$CLIENT_DIR/dist/repo" "$out/client"
+echo "e2e packages ready in dist/e2e"

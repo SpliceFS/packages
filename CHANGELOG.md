@@ -6,6 +6,11 @@ the setup script and the page at packages.splicefs.org.
 
 The change log of all parts of SpliceFS, side by side: https://splicefs.org/changelog/
 
+## [0.4.6] - 2026-11-14
+
+- Internal: the end-to-end test's web server always uses a port of its own. Nothing changes for
+  users.
+
 ## [0.4.5] - 2026-11-14
 
 - Internal: contributors are told to merge `main` down to fix a branch the bot cannot rebuild.
