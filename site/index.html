@@ -171,11 +171,13 @@ footer a:first-of-type { margin-left: 4px; }
     <div class="block nojs"><div class="bar"><span class="label">wget</span></div><pre><code>wget -qO ~/splicefs-setup.sh https://packages.splicefs.org/setup.sh &amp;&amp;
   sudo sh ~/splicefs-setup.sh
 </code></pre></div>
-    <div class="block nojs"><div class="bar"><span class="label">fetch (FreeBSD, as root)</span></div><pre><code>fetch -qo - https://packages.splicefs.org/setup.sh | sh
+    <div class="block nojs"><div class="bar"><span class="label">fetch (FreeBSD, as root)</span></div><pre><code>fetch -o ~/splicefs-setup.sh https://packages.splicefs.org/setup.sh &amp;&amp;
+  sh ~/splicefs-setup.sh
 </code></pre></div>
     <p class="small">Already root? Leave out sudo. FreeBSD has no sudo by default: run fetch as root.</p>
     <p>The script registers the SpliceFS package repository and its signing key on your system. It installs no package and takes no arguments. It is safe to run again.</p>
-    <p>It is downloaded completely before it runs. To check it first, compare its SHA-256 with the one in the <a href="https://github.com/SpliceFS/packages#verify-the-setup-script">packages repository on GitHub</a>:</p>
+    <p>The script checks itself before it changes anything: it downloads its published SHA-256 hash and compares it with its own file. If they differ, the copy is incomplete, was changed, or is not the latest, and the script stops and tells you how to get the latest one.</p>
+    <p>To check it yourself before you run it, compare its SHA-256 with the one in the <a href="https://github.com/SpliceFS/packages#verify-the-setup-script">packages repository on GitHub</a>:</p>
     <div class="block"><div class="bar"><span class="label">Shell</span></div><pre><code>sha256sum ~/splicefs-setup.sh
 </code></pre></div>
     <p class="small">Works on Debian, Ubuntu, RHEL, Rocky Linux, AlmaLinux, Amazon Linux, openSUSE, Alpine and FreeBSD, on x86-64 and arm64.</p>
@@ -576,7 +578,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = { tokenize
   var toolButtons = Array.prototype.slice.call(document.querySelectorAll('[data-tool]'));
   function oneText() {
     var base = 'https://packages.splicefs.org/setup.sh';
-    if (tool === 'fetch') return 'fetch -qo - ' + base + ' | sh\n';
+    if (tool === 'fetch') return 'fetch -o ~/splicefs-setup.sh ' + base + ' &&\n  sh ~/splicefs-setup.sh\n';
     var get = tool === 'curl'
       ? 'curl --proto \'=https\' --tlsv1.2 -fsSL ' + base + ' -o ~/splicefs-setup.sh &&\n'
       : 'wget -qO ~/splicefs-setup.sh ' + base + ' &&\n';

@@ -6,6 +6,17 @@ the setup script and the page at packages.splicefs.org.
 
 The change log of all parts of SpliceFS, side by side: https://splicefs.org/changelog/
 
+## [0.4.0] - 2026-11-13
+
+- The setup script checks itself before it changes anything: it downloads its published SHA-256 hash
+  and compares it with its own file. A copy that is incomplete, was changed or is not the latest
+  stops and prints how to get the latest one.
+- The script must be run from a file, because a script that is piped into a shell has no file to
+  check. The FreeBSD command on the packages page now downloads the script first, like the Linux
+  ones.
+- The check uses `curl`, `wget`, `fetch` or, on Debian and Ubuntu, the downloader that is part of
+  apt, so no extra tool is needed.
+
 ## [0.3.1] - 2026-11-13
 
 - The packages page links to the change log at `splicefs.org/changelog`, which shows what each
