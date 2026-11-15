@@ -6,6 +6,12 @@ the setup script and the page at packages.splicefs.org.
 
 The change log of all parts of SpliceFS, side by side: https://splicefs.org/changelog/
 
+## [0.4.8] - 2026-11-15
+
+- The setup script's signature is now in the same file as the script, `setup.sh.asc`. Verify it with
+  `gpg --verify` and write the verified script with `gpg --decrypt`. The separate `setup.sh.sha256`
+  file is gone.
+
 ## [0.4.7] - 2026-11-15
 
 - Internal: the setup script test no longer depends on the clock. Nothing changes for users.
