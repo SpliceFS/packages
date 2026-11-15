@@ -1,0 +1,473 @@
+#!/bin/sh
+# Everything below is a function and the last line calls main, so a download that is cut
+# short runs nothing at all.
+#
+# Usage: sh setup.sh
+#
+# Sets up the SpliceFS package repository for this system: the signing key and the package
+# sources. It installs no package and refreshes no package index. When it is done it prints the
+# system's own commands to run next. Safe to run again: a file is rewritten only when its
+# content differs.
+#
+# Before it changes anything it downloads the published setup.sh and compares it with its own
+# file. A copy that is incomplete, was changed or is not the latest stops there. For that it must
+# be run from a file, not piped into a shell.
+set -eu
+
+# Root may inherit the caller's PATH and umask through sudo or su, and either could make this
+# script run the wrong tools or write files that other users cannot read.
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+export PATH
+umask 022
+
+# The setup_ functions are called only as "setup_$FAMILY", which ShellCheck cannot follow, so
+# it reports them as unreachable or unused. Only those two codes are silenced, and no other
+# check is turned off for the file.
+# shellcheck disable=SC2317,SC2329
+BASE_URL='@BASE_URL@'
+
+usage() {
+  echo "usage: sh setup.sh" >&2
+  echo "This script only sets up the package repository; the packages are installed with the system's own package manager." >&2
+}
+
+die() {
+  echo "error: $*" >&2
+  exit 1
+}
+
+# The new content goes to a temporary file first, so an interrupted run never leaves a
+# half-written PATH, and an unchanged file keeps its timestamp. The temporary file must be on
+# the same filesystem as PATH for the final mv to be atomic.
+write_file() {
+  wf_path=$1
+  wf_mode=$2
+  WF_TMP=${3:-$wf_path.new}
+  if [ -d "$wf_path" ]; then
+    die "$wf_path is a folder; move it away and run this script again"
+  fi
+  cat > "$WF_TMP"
+  # Compared in the shell when cmp is missing: cmp and diff are absent on some minimal systems.
+  if [ -f "$wf_path" ]; then
+    if command -v cmp >/dev/null 2>&1; then
+      wf_same=0
+      cmp -s "$WF_TMP" "$wf_path" || wf_same=1
+    else
+      wf_same=0
+      wf_new=$(cat "$WF_TMP")
+      wf_old=$(cat "$wf_path")
+      [ "$wf_new" = "$wf_old" ] || wf_same=1
+    fi
+    if [ "$wf_same" -eq 0 ]; then
+      rm -f "$WF_TMP"
+      WF_TMP=
+      chmod "$wf_mode" "$wf_path"
+      return 0
+    fi
+  fi
+  chmod "$wf_mode" "$WF_TMP"
+  mv "$WF_TMP" "$wf_path"
+  WF_TMP=
+  echo "updated $wf_path"
+}
+
+# The path is only known at run time, so ShellCheck cannot follow the sourced file.
+# shellcheck disable=SC1090
+# The family decides which package manager and which repository format to use.
+detect_family() {
+  # FreeBSD is asked for by name first, so the Linux logic below, which reads the os-release
+  # file, is never reached on FreeBSD and stays as it was.
+  df_os=$(uname -s)
+  if [ "$df_os" = FreeBSD ]; then
+    FAMILY=pkg
+    return 0
+  fi
+  if [ -r /etc/os-release ]; then
+    OS_RELEASE=/etc/os-release
+  elif [ -r /usr/lib/os-release ]; then
+    OS_RELEASE=/usr/lib/os-release
+  else
+    die "unsupported system 'unknown'; see $BASE_URL/ for the manual steps"
+  fi
+  # ID and ID_LIKE are read in subshells so nothing in the file can change this script's
+  # variables or abort it.
+  ID=$( . "$OS_RELEASE" >/dev/null 2>&1; printf %s "${ID:-}" )
+  ID_LIKE=$( . "$OS_RELEASE" >/dev/null 2>&1; printf %s "${ID_LIKE:-}" )
+  case "$ID" in
+    debian | ubuntu) FAMILY=apt ;;
+    rhel | rocky | almalinux | centos | fedora | amzn | ol) FAMILY=dnf ;;
+    opensuse* | sles | sled) FAMILY=zypper ;;
+    alpine) FAMILY=apk ;;
+    *)
+      case " $ID_LIKE " in
+        *" debian "*) FAMILY=apt ;;
+        *" rhel "* | *" fedora "*) FAMILY=dnf ;;
+        *suse*) FAMILY=zypper ;;
+        *) die "unsupported system '${ID:-unknown}'; see $BASE_URL/ for the manual steps" ;;
+      esac
+      ;;
+  esac
+}
+
+# Checked before anything is written, so a missing tool never leaves a half-configured system.
+check_tools() {
+  case "$FAMILY" in
+    apt)
+      command -v apt-get >/dev/null 2>&1 || die "apt-get not found"
+      # The repository is https. This script installs no package, so the missing bundle is
+      # reported here, before anything is written, instead of as a failed apt-get update later.
+      if [ ! -f /etc/ssl/certs/ca-certificates.crt ]; then
+        die "/etc/ssl/certs/ca-certificates.crt is missing, and apt needs it for https sources;" \
+          "install the ca-certificates package, then run this script again"
+      fi
+      ;;
+    dnf)
+      # yum takes the same repository file and the same install arguments.
+      if command -v dnf >/dev/null 2>&1; then
+        RPM_TOOL=dnf
+      elif command -v yum >/dev/null 2>&1; then
+        RPM_TOOL=yum
+      else
+        die "no supported package manager found (dnf or yum)"
+      fi
+      ;;
+    zypper)
+      command -v zypper >/dev/null 2>&1 || die "zypper not found"
+      if command -v transactional-update >/dev/null 2>&1; then
+        die "this system installs packages with transactional-update;" \
+          "the manual steps at $BASE_URL/ apply"
+      fi
+      ;;
+    apk)
+      command -v apk >/dev/null 2>&1 || die "apk not found"
+      ;;
+    pkg)
+      # /usr/sbin/pkg is in the FreeBSD base system, so a missing pkg means a damaged system.
+      command -v pkg >/dev/null 2>&1 || die "pkg not found"
+      ;;
+    *)
+      # detect_family sets FAMILY to one of the five values above, so nothing is left to check.
+      ;;
+  esac
+}
+
+# Packages are static binaries, but the repositories are split per CPU type. FreeBSD names the
+# same two CPU types amd64 and arm64 in uname -m, and Linux names them x86_64 and aarch64.
+check_cpu() {
+  cc_cpu=$(uname -m)
+  case "$FAMILY:$cc_cpu" in
+    pkg:amd64 | pkg:arm64) ;;
+    pkg:*) die "unsupported CPU type '$cc_cpu'; SpliceFS is built for amd64 and arm64" ;;
+    *:x86_64 | *:aarch64) ;;
+    *) die "unsupported CPU type '$cc_cpu'; SpliceFS is built for x86_64 and aarch64" ;;
+  esac
+}
+
+# The keys travel inside this script, so installing needs no second download.
+write_openpgp_key() {
+  write_file "$1" 0644 <<'KEY_EOF'
+@OPENPGP_KEY@
+KEY_EOF
+}
+
+# The same RSA key is checked by Alpine's apk and by FreeBSD's pkg. The second argument is
+# where the file is written before it is moved into place. Alpine gives one, because apk
+# reads every file in its keys folder as a key; without it the file is written next to its
+# final place.
+write_rsa_key() {
+  write_file "$1" 0644 "${2:-$1.new}" <<'KEY_EOF'
+@ALPINE_KEY@
+KEY_EOF
+}
+
+setup_apt() {
+  install -m 0755 -d /etc/apt/keyrings
+  write_openpgp_key /etc/apt/keyrings/splicefs.asc
+  write_file /etc/apt/sources.list.d/splicefs.sources 0644 <<EOF
+Types: deb
+URIs: $BASE_URL/server/apt $BASE_URL/client/apt
+Suites: stable
+Components: main
+Signed-By: /etc/apt/keyrings/splicefs.asc
+EOF
+}
+
+# The backslash keeps $basearch literal, because dnf and zypper expand it themselves.
+write_rpm_repo() {
+  wr_path=$1
+  wr_extra=$2
+  write_file "$wr_path" 0644 <<EOF
+[splicefs-server]
+name=SpliceFS server
+baseurl=$BASE_URL/server/rpm/\$basearch
+enabled=1
+$wr_extra
+gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-splicefs
+
+[splicefs-client]
+name=SpliceFS client
+baseurl=$BASE_URL/client/rpm/\$basearch
+enabled=1
+$wr_extra
+gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-splicefs
+EOF
+}
+
+setup_dnf() {
+  install -m 0755 -d /etc/pki/rpm-gpg
+  write_openpgp_key /etc/pki/rpm-gpg/RPM-GPG-KEY-splicefs
+  # The key is known to rpm from the moment the repository is added, not from the first
+  # install. Importing a key that is already known is harmless.
+  rpm --import /etc/pki/rpm-gpg/RPM-GPG-KEY-splicefs
+  write_rpm_repo /etc/yum.repos.d/splicefs.repo 'gpgcheck=1
+repo_gpgcheck=1'
+}
+
+setup_zypper() {
+  install -m 0755 -d /etc/pki/rpm-gpg
+  write_openpgp_key /etc/pki/rpm-gpg/RPM-GPG-KEY-splicefs
+  # Importing a key that is already known is harmless, so no check is needed first.
+  rpm --import /etc/pki/rpm-gpg/RPM-GPG-KEY-splicefs
+  write_rpm_repo /etc/zypp/repos.d/splicefs.repo 'autorefresh=1
+gpgcheck=1
+repo_gpgcheck=1
+pkg_gpgcheck=1'
+}
+
+setup_apk() {
+  # The temporary file stays out of the keys folder, because apk reads every file in it.
+  mkdir -p /etc/apk/keys
+  write_rsa_key /etc/apk/keys/splicefs.rsa.pub /etc/apk/splicefs.rsa.pub.new
+  mkdir -p /etc/apk/repositories.d
+  write_file /etc/apk/repositories.d/splicefs.list 0644 <<EOF
+$BASE_URL/server/alpine
+$BASE_URL/client/alpine
+EOF
+}
+
+# The backslash keeps the ABI variable literal in the file, because pkg replaces it itself with
+# the ABI of the system it runs on. The key's path is named in the repository file, so the
+# keys folder holds nothing but the key.
+write_pkg_repo() {
+  write_file /usr/local/etc/pkg/repos/splicefs.conf 0644 <<EOF
+splicefs-server: {
+  url: "$BASE_URL/server/freebsd/\${ABI}",
+  mirror_type: "none",
+  signature_type: "pubkey",
+  pubkey: "/usr/local/etc/pkg/keys/splicefs.rsa.pub",
+  enabled: yes
+}
+splicefs-client: {
+  url: "$BASE_URL/client/freebsd/\${ABI}",
+  mirror_type: "none",
+  signature_type: "pubkey",
+  pubkey: "/usr/local/etc/pkg/keys/splicefs.rsa.pub",
+  enabled: yes
+}
+EOF
+}
+
+setup_pkg() {
+  mkdir -p /usr/local/etc/pkg/keys
+  write_rsa_key /usr/local/etc/pkg/keys/splicefs.rsa.pub
+  mkdir -p /usr/local/etc/pkg/repos
+  write_pkg_repo
+}
+
+# The commands are the system's own, so the person can run them again later, for example to
+# add the other package. Alpine and FreeBSD have no sudo by default, and their manual steps are
+# written for root, so apk and pkg are printed without it.
+next_steps() {
+  case "$FAMILY" in
+    apt)
+      ns_pm='sudo apt-get'
+      ns_update=update
+      ns_add=install
+      ;;
+    dnf)
+      ns_pm="sudo $RPM_TOOL"
+      ns_update=makecache
+      ns_add=install
+      ;;
+    zypper)
+      ns_pm='sudo zypper'
+      ns_update=refresh
+      ns_add=install
+      ;;
+    apk)
+      ns_pm=apk
+      ns_update=update
+      ns_add=add
+      ;;
+    pkg)
+      ns_pm=pkg
+      ns_update=update
+      ns_add=install
+      ;;
+    *)
+      # detect_family sets FAMILY to one of the five values above, so every value is handled.
+      ;;
+  esac
+  echo "The SpliceFS package repository is set up. Next:"
+  echo
+  echo "  $ns_pm $ns_update"
+  echo "  $ns_pm $ns_add splicefs-server    # the server"
+  echo "  $ns_pm $ns_add splicefs-client    # the client"
+}
+
+# The command lines that download the script and run it, indented for printing. The argument
+# is the download tool that was found. apt-helper cannot print to the terminal in one line, and
+# the install page leads with curl, so apt-helper, a missing tool and anything else get the
+# curl line. "any" is for a script that has no file to check and so has not looked for a tool:
+# it gets every line that applies to this system.
+latest_lines() {
+  ll_curl="  curl --proto '=https' --tlsv1.2 -fsSL $BASE_URL/setup.sh -o ~/splicefs-setup.sh && sudo sh ~/splicefs-setup.sh"
+  ll_wget="  wget -qO ~/splicefs-setup.sh $BASE_URL/setup.sh && sudo sh ~/splicefs-setup.sh"
+  ll_fetch="  fetch -o ~/splicefs-setup.sh $BASE_URL/setup.sh && sh ~/splicefs-setup.sh"
+  case "$1" in
+    wget) echo "$ll_wget" ;;
+    fetch) echo "$ll_fetch" ;;
+    any)
+      ll_os=$(uname -s)
+      if [ "$ll_os" = FreeBSD ]; then
+        echo "$ll_fetch"
+      else
+        echo "$ll_curl"
+        echo "$ll_wget"
+      fi
+      ;;
+    *) echo "$ll_curl" ;;
+  esac
+}
+
+# A copy that does not match is answered with the way to get the latest script. The first
+# argument is the download tool that was found, the others are the message.
+die_latest() {
+  dl_tool=$1
+  shift
+  dl_lines=$(latest_lines "$dl_tool")
+  die "$*
+
+Get the latest setup script and run it:
+$dl_lines"
+}
+
+# apt-helper is in every Debian and Ubuntu, also where curl and wget are not installed.
+find_download_tool() {
+  if command -v curl >/dev/null 2>&1; then
+    echo curl
+  elif command -v wget >/dev/null 2>&1; then
+    echo wget
+  elif command -v fetch >/dev/null 2>&1; then
+    echo fetch
+  elif [ -x /usr/lib/apt/apt-helper ]; then
+    echo apt-helper
+  fi
+}
+
+# Downloads the published setup script to the file CS_TMP, which check_self made and cleanup
+# removes. The argument is the download tool that was found. A failed download leaves the file
+# empty, and a partial one leaves a cut copy that does not match, so the caller judges what it
+# got and not the exit status. The timeout keeps a dead network from hanging the script.
+# apt-helper is told to download as root, because its default user cannot write to a file made
+# by root and then prints a warning.
+download_published() {
+  dp_tool=$1
+  dp_url=$BASE_URL/setup.sh
+  case "$dp_tool" in
+    curl) curl -fsS --max-time 30 -o "$CS_TMP" "$dp_url" || true ;;
+    wget) wget -q -T 30 -O "$CS_TMP" "$dp_url" || true ;;
+    fetch) fetch -q -T 30 -o "$CS_TMP" "$dp_url" || true ;;
+    apt-helper)
+      /usr/lib/apt/apt-helper -o APT::Sandbox::User=root download-file "$dp_url" "$CS_TMP" \
+        >/dev/null || true
+      ;;
+    *) ;;
+  esac
+}
+
+# Prints the SHA-256 of the file. Two files with the same hash have the same bytes, which is
+# the comparison the self-check needs: cmp is missing from some supported systems (Amazon
+# Linux, Rocky Linux), and a comparison in the shell would lose NUL bytes and final newlines.
+# FreeBSD has sha256 and no sha256sum.
+file_hash() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    fh_line=$(sha256sum "$1")
+    echo "${fh_line%% *}"
+  elif command -v sha256 >/dev/null 2>&1; then
+    sha256 -q "$1"
+  else
+    die "this script needs sha256sum to check itself. Install it and run this script again."
+  fi
+}
+
+# Stops before anything is written when this script is not the published one, so a download
+# that is incomplete, was changed, or is not the latest setup script changes nothing. A script
+# piped into a shell has no file to compare.
+check_self() {
+  if [ ! -f "$0" ]; then
+    cs_lines=$(latest_lines any)
+    die "this script checks itself before it changes anything, and it can only do that when it is run from a file.
+
+Download it to a file and run it:
+$cs_lines"
+  fi
+  cs_tool=$(find_download_tool)
+  if [ -z "$cs_tool" ]; then
+    die "this script checks itself against $BASE_URL/setup.sh and needs curl or wget for that." \
+      "Install one of them and run this script again."
+  fi
+  CS_TMP=$(mktemp)
+  download_published "$cs_tool"
+  if [ ! -s "$CS_TMP" ]; then
+    # A minimal system without the certificate bundle fails here too, so the message names it.
+    die "could not download $BASE_URL/setup.sh to check this script. Nothing was changed." \
+      "Check the network connection, and on a minimal system that the ca-certificates package" \
+      "is installed, then run this script again."
+  fi
+  cs_own=$(file_hash "$0")
+  cs_published=$(file_hash "$CS_TMP")
+  if [ "$cs_own" != "$cs_published" ]; then
+    die_latest "$cs_tool" "this copy of the setup script does not match the published one. It is incomplete, was changed, or is not the latest setup script. Nothing was changed."
+  fi
+}
+
+# Removes the files write_file and the self-check are working on when the script is
+# interrupted. The EXIT trap keeps the exit status of the command that triggered it.
+cleanup() {
+  if [ -n "${WF_TMP:-}" ]; then
+    rm -f "$WF_TMP"
+  fi
+  if [ -n "${CS_TMP:-}" ]; then
+    rm -f "$CS_TMP"
+  fi
+}
+
+main() {
+  WF_TMP=
+  CS_TMP=
+  trap cleanup EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+  if [ "$#" -ne 0 ]; then
+    usage
+    exit 2
+  fi
+  main_uid=$(id -u)
+  if [ "$main_uid" -ne 0 ]; then
+    die "run this script as root, for example with sudo"
+  fi
+  check_self
+  detect_family
+  check_tools
+  check_cpu
+
+  # Both sources are always set up so either package can be installed with the system's own
+  # command.
+  "setup_$FAMILY"
+
+  echo
+  next_steps
+}
+
+main "$@"
