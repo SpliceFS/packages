@@ -225,6 +225,13 @@ for f in $files; do
 done
 expect_same_file "$keyfile" "$sitekey" "$keyfile differs from the published key"
 no_temp_files
+# Every later run that must change nothing is compared with this state. The files get an
+# old fixed modification time first, so a rewrite shows as a new time on any filesystem,
+# however coarse its clock; waiting between runs would only work for a fine clock. The -t
+# form is POSIX and works in coreutils and in busybox.
+for f in $files; do
+  touch -t 200001010000.00 "$f"
+done
 before=$(state)
 before_content=$(state content)
 
@@ -238,7 +245,6 @@ if command -v splicefsd >/dev/null 2>&1 || command -v splicefs >/dev/null 2>&1; 
 fi
 
 # g. argument errors after setup change nothing
-sleep 1
 for arg in both nonsense; do
   try run_script "$arg"
   [ "$status" -eq 2 ] || fail "setup.sh $arg exited $status after setup, expected 2"
@@ -246,9 +252,8 @@ done
 now=$(state)
 [ "$now" = "$before" ] || fail "an argument error changed a file"
 
-# h. a second run changes nothing, not even a modification time. The sleep makes a rewrite
-# visible, because mtime has one second resolution on some filesystems.
-sleep 2
+# h. a second run changes nothing, not even a modification time. The old time set above
+# makes any rewrite visible.
 try run_script
 [ "$status" -eq 0 ] || fail "second setup.sh exited $status"
 if grep -q '^updated ' "$out"; then fail "second run printed an updated line"; fi
