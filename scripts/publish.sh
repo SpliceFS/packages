@@ -1,8 +1,7 @@
 #!/bin/sh
 # Publishes the signed site files by rsync, or proves that the upload path works.
 # Usage: publish.sh send | publish.sh check
-# send uploads in three passes: the page and the keys, then setup.sh, then its hash and its
-# signature.
+# send uploads in two passes: the page and the keys, then setup.sh and setup.sh.asc.
 # Variables: SITE_DIR (default dist/site), UPLOAD_HOST (packages.splicefs.org), UPLOAD_PORT
 # (7022), UPLOAD_USER (site-splicefs-packages), UPLOAD_KEY_FILE (required, private key,
 # mode 600), UPLOAD_KNOWN_HOSTS_FILE (required). Test hook: UPLOAD_TARGET is a complete
@@ -24,7 +23,7 @@ USER_NAME=${UPLOAD_USER:-site-splicefs-packages}
 
 # The only files this repository owns on the site. The server and client folders next to
 # them belong to other pipelines, so nothing else is ever sent and nothing is ever deleted.
-FILES='index.html setup.sh setup.sh.sha256 setup.sh.asc'
+FILES='index.html setup.sh setup.sh.asc'
 FILES="$FILES keys/splicefs.asc keys/splicefs.rsa.pub"
 
 if [ "$MODE" = send ]; then
@@ -96,13 +95,13 @@ send_pass() {
   fi
 }
 
-# The setup script holds the public keys, and it checks itself against setup.sh.sha256 before
-# it changes anything. So everything else goes first, then the script, then its hash and its
-# signature right after it: a reader must never get a new script with an old hash for longer
-# than the time between the last two passes. A client that fetches in that instant gets the
-# new script and the old hash. The self-check then stops it and tells the person to download
-# the script again, which is the safe direction.
+# The setup script holds the public keys, so the page and the keys go first. The two script
+# files go together in the last pass, and their order does not matter: each is complete on its
+# own. setup.sh is the script. setup.sh.asc is the same script with its signature inside, so it
+# verifies without any other file, and nothing has to be paired up. A reader who holds the old
+# copy of one file while the other is already new gets a whole, valid file either way; the
+# self-check of the old script reports that it is not the latest and stops, which is the safe
+# direction.
 send_pass "pass 1 (the page and the keys)" index.html keys/splicefs.asc keys/splicefs.rsa.pub
-send_pass "pass 2 (setup.sh)" setup.sh
-send_pass "pass 3 (setup.sh.sha256 and setup.sh.asc)" setup.sh.sha256 setup.sh.asc
+send_pass "pass 2 (setup.sh and setup.sh.asc)" setup.sh setup.sh.asc
 echo "published to ${UPLOAD_TARGET:-$HOST}"

@@ -120,8 +120,10 @@ starts the Release workflow. Nobody creates tags or release branches by hand. On
 version.
 
 The Release workflow runs the checks, signs `setup.sh` with the signing subkey, publishes the
-site over rsync and creates the GitHub release with `setup.sh`, `setup.sh.sha256` and
-`setup.sh.asc`. The keys live in the `publish` environment, which only version tags can use.
+site over rsync and creates the GitHub release with `setup.sh` and `setup.sh.asc`, and the SHA-256
+of `setup.sh` in the release text. `setup.sh.asc` is `setup.sh` clearsigned: the script and its
+signature in one file, so no second file has to match it. The keys live in the `publish`
+environment, which only version tags can use.
 
 The Upload check workflow, started by hand, lists the remote site folder to prove the upload
 credentials work without publishing.

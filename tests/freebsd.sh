@@ -7,7 +7,8 @@
 #
 # No web server is needed. The test site is built for the base address
 # file:///tmp/input/site and travels into the machine as its input archive, so the setup
-# script's self-check (fetch of its own hash) reads the site folder inside the machine.
+# script's self-check (fetch of the published setup.sh) reads the site folder inside the
+# machine.
 #
 # Environment: FREEBSD limits the run to one release (for example 15.1), empty means every
 # release in the list; LINUX_IMAGE is the container image QEMU is installed into;

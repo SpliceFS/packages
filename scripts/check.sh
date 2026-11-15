@@ -41,7 +41,7 @@ for root, dirs, fs in os.walk("."):
         if root == "." and f in ("LICENSE", ".git"):
             continue
         files.append(os.path.join(root, f))
-files += ["dist/site/setup.sh", "dist/site/index.html", "dist/site/setup.sh.sha256"]
+files += ["dist/site/setup.sh", "dist/site/index.html"]
 bad = 0
 for path in sorted(files):
     data = open(path, "rb").read()
@@ -75,7 +75,14 @@ curl = "curl --proto '=https' --tlsv1.2 -fsSL %s/setup.sh -o ~/splicefs-setup.sh
 wget = "wget -qO ~/splicefs-setup.sh %s/setup.sh &&\n  sudo sh ~/splicefs-setup.sh\n" % base
 fetch = "fetch -o ~/splicefs-setup.sh %s/setup.sh &&\n  sh ~/splicefs-setup.sh\n" % base
 # Each step file already ends with the update and install commands, so a family is one block.
-expected = [curl, wget, fetch, "sha256sum ~/splicefs-setup.sh\n"] + [step[k] for k in ("apt", "dnf", "zypper", "apk", "pkg")]
+# The two blocks that check the signed copy of the script: get the file and the key, then verify.
+get_signed = ("curl -fsSLo ~/splicefs-setup.sh.asc %s/setup.sh.asc\n"
+              "curl -fsSLo ~/splicefs.asc %s/keys/splicefs.asc\n"
+              "gpg --show-keys --fingerprint ~/splicefs.asc\n"
+              "gpg --import ~/splicefs.asc\n") % (base, base)
+verify_signed = ("gpg --verify ~/splicefs-setup.sh.asc &&\n"
+                 "  gpg --output ~/splicefs-setup.sh --decrypt ~/splicefs-setup.sh.asc\n")
+expected = [curl, wget, fetch, get_signed, verify_signed] + [step[k] for k in ("apt", "dnf", "zypper", "apk", "pkg")]
 bad = 0
 if len(blocks) != len(expected):
     print("page has %d code blocks, expected %d" % (len(blocks), len(expected))); bad += 1
@@ -86,10 +93,10 @@ sys.exit(1 if bad else 0)
 PYEOF
 run "3. page code blocks match steps/ and the setup lines" python3 -I "$TMP/blocks.py" "$TMP/blocks.json"
 
-# 4. The built script: keys byte-identical, no placeholder left, last line, checksum.
+# 4. The built script: keys byte-identical, no placeholder left, last line, line endings.
 cat > "$TMP/built.py" <<'PYEOF'
-import hashlib, re, sys
-s = open("dist/site/setup.sh", encoding="ascii").read()
+import re, sys
+s = open("dist/site/setup.sh", encoding="ascii", newline="").read()
 bad = 0
 for key in ("keys/splicefs.asc", "keys/splicefs.rsa.pub"):
     k = open(key, encoding="ascii").read()
@@ -105,12 +112,15 @@ for name in ("splicefs-server: {", "splicefs-client: {"):
         print("setup.sh does not write the repository %s" % name); bad += 1
 if not s.endswith('\nmain "$@"\n'):
     print('last line is not main "$@"'); bad += 1
-want = hashlib.sha256(open("dist/site/setup.sh", "rb").read()).hexdigest() + "  setup.sh\n"
-if open("dist/site/setup.sh.sha256").read() != want:
-    print("setup.sh.sha256 does not match"); bad += 1
+# A clearsigned file does not keep a space or tab at the end of a line, nor a carriage return, so
+# gpg --decrypt could not give setup.sh back byte for byte. sign-site.sh proves that too, but
+# only here is the cause named.
+for n, line in enumerate(s.split("\n"), 1):
+    if line.endswith((" ", "\t", "\r")):
+        print("line %d of setup.sh ends in a space, tab or carriage return" % n); bad += 1
 sys.exit(1 if bad else 0)
 PYEOF
-run "4. built setup.sh: keys, placeholders, last line, sha256" python3 -I "$TMP/built.py"
+run "4. built setup.sh: keys, placeholders, last line, no trailing blanks" python3 -I "$TMP/built.py"
 
 # 5. The page script and its tokenizer.
 cat > "$TMP/tok.js" <<'JSEOF'
@@ -199,6 +209,59 @@ expect_next dnf yum 'sudo yum' makecache install
 expect_next zypper '' 'sudo zypper' refresh install zypper
 expect_next apk '' apk update add apk
 expect_next pkg '' pkg update install pkg
+
+# The self-check is taken out of the built script with the functions it calls and run against
+# a folder that stands in for the published site, read through file:// by curl. The script
+# itself cannot run here, because after the self-check it writes under /etc as root. It needs
+# curl; wget cannot read file://, and the real tools are covered by the install tests.
+if ! command -v curl >/dev/null 2>&1; then
+  skip "6. curl is not on the PATH, the self-check is not run here"
+else
+  for fn in die die_latest latest_lines find_download_tool download_published file_hash check_self; do
+    awk -v fn="$fn" '$0 == fn "() {" { on = 1 } on { print } on && /^}$/ { on = 0 }' \
+      dist/site/setup.sh
+  done > "$TMP/selfcheck.sh"
+  mkdir "$TMP/published"
+  cp dist/site/setup.sh "$TMP/published/setup.sh"
+  # The copy to check is $0 of the shell that runs the functions, as it is for the script. The
+  # temporary file the self-check makes is removed on exit, as the script's cleanup does.
+  selfcheck() {
+    sh -eu -c 'CS_TMP=; trap '\''rm -f "$CS_TMP"'\'' EXIT; . "$1"; BASE_URL=$2; check_self' \
+      "$1" "$TMP/selfcheck.sh" "file://$2"
+  }
+  cp dist/site/setup.sh "$TMP/own.sh"
+  selfcheck "$TMP/own.sh" "$TMP/published" > "$TMP/out" 2>&1
+  got=$?
+  if [ "$got" -eq 0 ] && [ ! -s "$TMP/out" ]; then
+    pass "6. self-check: the published copy passes and prints nothing"
+  else
+    fail "6. self-check: the published copy passes and prints nothing (exit $got)"
+    sed 's/^/        /' "$TMP/out"
+  fi
+  echo '# changed' >> "$TMP/own.sh"
+  head -n 100 dist/site/setup.sh > "$TMP/cut.sh"
+  sed '$d' dist/site/setup.sh > "$TMP/nolast.sh"
+  for copy in own cut nolast; do
+    selfcheck "$TMP/$copy.sh" "$TMP/published" > "$TMP/out" 2>&1
+    got=$?
+    if [ "$got" -eq 1 ] && grep -q 'does not match the published one' "$TMP/out" &&
+      grep -q 'Get the latest setup script' "$TMP/out"; then
+      pass "6. self-check: stops on a changed copy ($copy.sh) and names the latest script"
+    else
+      fail "6. self-check: stops on a changed copy ($copy.sh) and names the latest script (exit $got)"
+      sed 's/^/        /' "$TMP/out"
+    fi
+  done
+  mkdir "$TMP/nopublished"
+  selfcheck "$TMP/published/setup.sh" "$TMP/nopublished" > "$TMP/out" 2>&1
+  got=$?
+  if [ "$got" -eq 1 ] && grep -q "could not download file://$TMP/nopublished/setup.sh" "$TMP/out"; then
+    pass "6. self-check: stops when the published script cannot be downloaded"
+  else
+    fail "6. self-check: stops when the published script cannot be downloaded (exit $got)"
+    sed 's/^/        /' "$TMP/out"
+  fi
+fi
 
 # 7. Properties of the built script that can be read from its text.
 cat > "$TMP/text.py" <<'PYEOF'
@@ -291,18 +354,83 @@ else
   mkdir "$verify_home"
   chmod 700 "$verify_home"
   GNUPGHOME=$verify_home gpg --batch --quiet --import "$TMP/ka/splicefs.asc" 2>/dev/null
+  # The commands of the page, run with the public key only. The decrypted file must be
+  # setup.sh itself, byte for byte.
   run "8. setup.sh.asc verifies" env GNUPGHOME="$verify_home" gpg --batch --verify \
-    "$SIGNSITE/setup.sh.asc" "$SIGNSITE/setup.sh"
+    "$SIGNSITE/setup.sh.asc"
+  decrypt_gives_setup() {
+    GNUPGHOME=$verify_home gpg --batch --output "$TMP/decrypted" --decrypt "$SIGNSITE/setup.sh.asc" &&
+      cmp "$TMP/decrypted" "$SIGNSITE/setup.sh"
+  }
+  run "8. gpg --decrypt of setup.sh.asc gives exactly the bytes of setup.sh" decrypt_gives_setup
 
-  cp "$SIGNSITE/setup.sh" "$TMP/setup.sh.orig"
-  echo "# tampered" >> "$SIGNSITE/setup.sh"
-  if GNUPGHOME=$verify_home gpg --batch --verify "$SIGNSITE/setup.sh.asc" \
-    "$SIGNSITE/setup.sh" > "$TMP/out" 2>&1; then
-    fail "8. a tampered setup.sh fails verification"
+  # A changed word in the signed file must fail both commands. gpg --decrypt still writes the
+  # text it was given when the signature is bad, which is why the page chains the commands.
+  sed 's/^set -eu$/set -e/' "$SIGNSITE/setup.sh.asc" > "$TMP/tampered.asc"
+  if cmp -s "$TMP/tampered.asc" "$SIGNSITE/setup.sh.asc"; then
+    fail "8. the test change of setup.sh.asc did not change it"
+  elif GNUPGHOME=$verify_home gpg --batch --verify "$TMP/tampered.asc" > "$TMP/out" 2>&1; then
+    fail "8. a changed setup.sh.asc fails gpg --verify"
+  elif GNUPGHOME=$verify_home gpg --batch --output "$TMP/tampered.out" \
+    --decrypt "$TMP/tampered.asc" > "$TMP/out" 2>&1; then
+    fail "8. a changed setup.sh.asc fails gpg --decrypt"
   else
-    pass "8. a tampered setup.sh fails verification"
+    pass "8. a changed setup.sh.asc fails gpg --verify and gpg --decrypt"
   fi
-  cp "$TMP/setup.sh.orig" "$SIGNSITE/setup.sh"
+  # What gpg drops when it reads a clearsigned file cannot reach the decrypted script: blanks
+  # added at the end of a line are gone from the output, so the output stays the signed text.
+  sed 's/^set -eu$/set -eu   /' "$SIGNSITE/setup.sh.asc" > "$TMP/blanks.asc"
+  if ! cmp -s "$TMP/blanks.asc" "$SIGNSITE/setup.sh.asc" &&
+    GNUPGHOME=$verify_home gpg --batch --output "$TMP/blanks.out" --decrypt "$TMP/blanks.asc" \
+      > "$TMP/out" 2>&1 && cmp -s "$TMP/blanks.out" "$SIGNSITE/setup.sh"; then
+    pass "8. blanks added to the signed file do not reach the decrypted script"
+  else
+    fail "8. blanks added to the signed file do not reach the decrypted script"
+    sed 's/^/        /' "$TMP/out"
+  fi
+
+  # A script with a blank at the end of a line cannot be signed, because decrypting would not
+  # give it back.
+  cp -R "$SIGNSITE" "$TMP/sitews"
+  rm -f "$TMP/sitews/setup.sh.asc"
+  sed '1s/$/ /' "$SIGNSITE/setup.sh" > "$TMP/sitews/setup.sh"
+  if SITE_DIR=$TMP/sitews KEYS_DIR=$TMP/ka SIGNING_KEY_FILE=$TMP/ka/secret.asc \
+    sh scripts/sign-site.sh > "$TMP/out" 2>&1; then
+    fail "8. sign-site.sh refuses a setup.sh that ends a line in a blank"
+  elif grep -q 'byte for byte' "$TMP/out" && [ ! -e "$TMP/sitews/setup.sh.asc" ]; then
+    pass "8. sign-site.sh refuses a setup.sh that ends a line in a blank"
+  else
+    fail "8. sign-site.sh refuses a setup.sh that ends a line in a blank (wrong reason)"
+    sed 's/^/        /' "$TMP/out"
+  fi
+
+  # Each script file stands alone, so no mix of an old and a new one is broken. A second
+  # script is made and signed with the same key, and the four mixes of old and new
+  # setup.sh and setup.sh.asc are looked at: every setup.sh.asc verifies and decrypts to the
+  # script it was signed with, whichever setup.sh is beside it.
+  cp -R "$SIGNSITE" "$TMP/sitenew"
+  sed '1a\
+# a newer script' "$SIGNSITE/setup.sh" > "$TMP/sitenew/setup.sh"
+  SITE_DIR=$TMP/sitenew KEYS_DIR=$TMP/ka SIGNING_KEY_FILE=$TMP/ka/secret.asc \
+    sh scripts/sign-site.sh > "$TMP/out" 2>&1 || { fail "8. signing the newer script"; cat "$TMP/out"; }
+  mix_ok=1
+  for sh_ver in sitesign sitenew; do
+    for asc_ver in sitesign sitenew; do
+      rm -rf "$TMP/mix"
+      mkdir "$TMP/mix"
+      cp "$TMP/$sh_ver/setup.sh" "$TMP/$asc_ver/setup.sh.asc" "$TMP/mix/"
+      GNUPGHOME=$verify_home gpg --batch --verify "$TMP/mix/setup.sh.asc" > "$TMP/out" 2>&1 ||
+        mix_ok=0
+      GNUPGHOME=$verify_home gpg --batch --output "$TMP/mix/out" --decrypt "$TMP/mix/setup.sh.asc" \
+        > "$TMP/out" 2>&1 || mix_ok=0
+      cmp -s "$TMP/mix/out" "$TMP/$asc_ver/setup.sh" || mix_ok=0
+    done
+  done
+  if [ "$mix_ok" -eq 1 ] && ! cmp -s "$TMP/sitenew/setup.sh" "$SIGNSITE/setup.sh"; then
+    pass "8. every mix of an old and a new script file: setup.sh.asc verifies on its own"
+  else
+    fail "8. every mix of an old and a new script file: setup.sh.asc verifies on its own"
+  fi
 
   if sign "$TMP/kb/secret.asc" > "$TMP/out" 2>&1; then
     fail "8. sign-site.sh fails for a secret key that does not match keys/"
@@ -329,8 +457,7 @@ else
     pub() { SITE_DIR=$SIGNSITE UPLOAD_TARGET=$TMP/remote sh scripts/publish.sh send; }
     run "8. publish.sh send to a local folder" pub
     modes_ok=1
-    for f in index.html setup.sh setup.sh.sha256 setup.sh.asc keys/splicefs.asc \
-      keys/splicefs.rsa.pub; do
+    for f in index.html setup.sh setup.sh.asc keys/splicefs.asc keys/splicefs.rsa.pub; do
       perm_file=$(perms "$TMP/remote/$f")
       [ "$perm_file" = '-rw-r--r--' ] || modes_ok=0
       cmp -s "$SIGNSITE/$f" "$TMP/remote/$f" || modes_ok=0
@@ -338,25 +465,25 @@ else
     perm_dir=$(perms "$TMP/remote/keys")
     [ "$perm_dir" = 'drwxr-xr-x' ] || modes_ok=0
     if [ "$modes_ok" -eq 1 ]; then
-      pass "8. the six files arrived with modes 644 and folder 755"
+      pass "8. the five files arrived with modes 644 and folder 755"
     else
-      fail "8. the six files arrived with modes 644 and folder 755"
+      fail "8. the five files arrived with modes 644 and folder 755"
     fi
     keep_text=$(cat "$TMP/remote/server/keep.txt")
     remote_names=$(cd "$TMP/remote" && echo *)
     perm_keep=$(perms "$TMP/remote/server/keep.txt")
     if [ "$keep_text" = keep ] &&
-      [ "$remote_names" = 'index.html keys server setup.sh setup.sh.asc setup.sh.sha256' ] &&
+      [ "$remote_names" = 'index.html keys server setup.sh setup.sh.asc' ] &&
       [ "$perm_keep" = '-rw-------' ]; then
       pass "8. server/keep.txt is untouched and nothing else appeared"
     else
       fail "8. server/keep.txt is untouched and nothing else appeared"
     fi
 
-    # The upload goes in three passes and stops when one fails: the page and the keys, then
-    # setup.sh, then its hash and its signature. A wrapper for rsync is put on the PATH: it
-    # counts the real passes, saves a copy of the target folder after each, and makes the pass
-    # named by FAIL_PASS fail, so the state between the passes can be looked at.
+    # The upload goes in two passes and stops when one fails: the page and the keys, then
+    # setup.sh and setup.sh.asc. A wrapper for rsync is put on the PATH: it counts the real
+    # passes, saves a copy of the target folder after each, and makes the pass named by
+    # FAIL_PASS fail, so the state between the passes can be looked at.
     mkdir "$TMP/wrap"
     cat > "$TMP/wrap/rsync" <<'WRAP'
 #!/bin/sh
@@ -395,50 +522,43 @@ WRAP
     PAGE_AND_KEYS='index.html
 keys/splicefs.asc
 keys/splicefs.rsa.pub'
-    WITH_SCRIPT="$PAGE_AND_KEYS
-setup.sh"
-    ALL_SIX="$WITH_SCRIPT
-setup.sh.asc
-setup.sh.sha256"
+    ALL_FIVE="$PAGE_AND_KEYS
+setup.sh
+setup.sh.asc"
 
     mkdir "$TMP/first"
     send_logged "$TMP/first"
     got1=$(files_in "$TMP/passes/after-1")
     got2=$(files_in "$TMP/passes/after-2")
-    got3=$(files_in "$TMP/passes/after-3")
-    if [ "$SEND_STATUS" -eq 0 ] && [ "$PASS_TOTAL" = 3 ] && [ "$got1" = "$PAGE_AND_KEYS" ] &&
-      [ "$got2" = "$WITH_SCRIPT" ] && [ "$got3" = "$ALL_SIX" ]; then
-      pass "8. a send is three passes: page and keys, then setup.sh, then its hash and signature"
+    if [ "$SEND_STATUS" -eq 0 ] && [ "$PASS_TOTAL" = 2 ] && [ "$got1" = "$PAGE_AND_KEYS" ] &&
+      [ "$got2" = "$ALL_FIVE" ]; then
+      pass "8. a send is two passes: page and keys, then setup.sh and setup.sh.asc"
     else
       fail "8. the passes of a first send (status $SEND_STATUS, $PASS_TOTAL passes)"
       sed 's/^/        /' "$TMP/out"
     fi
 
-    # An upgrade: the old script keeps its old hash and signature until the last pass, and the
-    # new script never meets anything but the old hash before that.
+    # An upgrade: the old script files stay until the last pass, and then both are new.
     mkdir -p "$TMP/upgrade/keys"
-    for f in $ALL_SIX; do echo "old $f" > "$TMP/upgrade/$f"; done
+    for f in $ALL_FIVE; do echo "old $f" > "$TMP/upgrade/$f"; done
     send_logged "$TMP/upgrade"
     P=$TMP/passes
     S=$SIGNSITE
-    if [ "$SEND_STATUS" -eq 0 ] && [ "$PASS_TOTAL" = 3 ] &&
+    if [ "$SEND_STATUS" -eq 0 ] && [ "$PASS_TOTAL" = 2 ] &&
       cmp -s "$S/index.html" "$P/after-1/index.html" &&
       cmp -s "$S/keys/splicefs.asc" "$P/after-1/keys/splicefs.asc" &&
       grep -qx 'old setup.sh' "$P/after-1/setup.sh" &&
-      grep -qx 'old setup.sh.sha256' "$P/after-1/setup.sh.sha256" &&
+      grep -qx 'old setup.sh.asc' "$P/after-1/setup.sh.asc" &&
       cmp -s "$S/setup.sh" "$P/after-2/setup.sh" &&
-      grep -qx 'old setup.sh.sha256' "$P/after-2/setup.sh.sha256" &&
-      grep -qx 'old setup.sh.asc' "$P/after-2/setup.sh.asc" &&
-      cmp -s "$S/setup.sh.sha256" "$P/after-3/setup.sh.sha256" &&
-      cmp -s "$S/setup.sh.asc" "$P/after-3/setup.sh.asc"; then
-      pass "8. an upgrade: the new script goes before its hash and signature, never after"
+      cmp -s "$S/setup.sh.asc" "$P/after-2/setup.sh.asc"; then
+      pass "8. an upgrade: the page and keys go first, the two script files last"
     else
       fail "8. the passes of an upgrade (status $SEND_STATUS, $PASS_TOTAL passes)"
       sed 's/^/        /' "$TMP/out"
     fi
 
     # A failed pass ends the script: no later pass runs and nothing is reported as published.
-    mkdir "$TMP/fail1" "$TMP/fail2" "$TMP/fail3"
+    mkdir "$TMP/fail1" "$TMP/fail2"
     send_logged "$TMP/fail1" 1
     left=$(files_in "$TMP/fail1")
     if [ "$SEND_STATUS" -ne 0 ] && [ "$PASS_TOTAL" = 1 ] && [ -z "$left" ] &&
@@ -452,18 +572,9 @@ setup.sh.sha256"
     left=$(files_in "$TMP/fail2")
     if [ "$SEND_STATUS" -ne 0 ] && [ "$PASS_TOTAL" = 2 ] && [ "$left" = "$PAGE_AND_KEYS" ] &&
       grep -q 'pass 2' "$TMP/out" && ! grep -q '^published to' "$TMP/out"; then
-      pass "8. when pass 2 fails the script stops, and no script, hash or signature was sent"
+      pass "8. when pass 2 fails the script stops, and no script file was sent"
     else
       fail "8. a failing pass 2 (status $SEND_STATUS, $PASS_TOTAL passes)"
-      sed 's/^/        /' "$TMP/out"
-    fi
-    send_logged "$TMP/fail3" 3
-    left=$(files_in "$TMP/fail3")
-    if [ "$SEND_STATUS" -ne 0 ] && [ "$PASS_TOTAL" = 3 ] && [ "$left" = "$WITH_SCRIPT" ] &&
-      grep -q 'pass 3' "$TMP/out" && ! grep -q '^published to' "$TMP/out"; then
-      pass "8. when pass 3 fails the script stops and reports nothing as published"
-    else
-      fail "8. a failing pass 3 (status $SEND_STATUS, $PASS_TOTAL passes)"
       sed 's/^/        /' "$TMP/out"
     fi
   fi

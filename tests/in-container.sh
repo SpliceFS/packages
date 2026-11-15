@@ -210,7 +210,8 @@ for f in $files; do
   [ ! -e "$f" ] || fail "an argument error wrote $f"
 done
 
-# d. the script succeeds and prints the next steps
+# d. the script succeeds and prints the next steps. Its self-check passes here, because the
+# published copy and the copy that runs are the same file.
 try run_script
 [ "$status" -eq 0 ] || fail "setup.sh exited $status"
 cp "$out" "$first"

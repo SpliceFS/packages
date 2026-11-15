@@ -87,15 +87,6 @@ replace_text() {
   '
 }
 
-if command -v sha256sum >/dev/null 2>&1 && echo x | sha256sum >/dev/null 2>&1; then
-  hash_file() { sha256sum "$1"; }
-elif command -v shasum >/dev/null 2>&1 && echo x | shasum -a 256 >/dev/null 2>&1; then
-  hash_file() { shasum -a 256 "$1"; }
-else
-  echo "neither sha256sum nor shasum works" >&2
-  exit 1
-fi
-
 for f in "$KEYS_DIR/splicefs.asc" "$KEYS_DIR/splicefs.rsa.pub" setup.sh.in site/index.html; do
   [ -f "$f" ] || { echo "missing $f" >&2; exit 1; }
 done
@@ -119,12 +110,6 @@ fi
 
 replace_text "$DEFAULT_URL" "$BASE_URL" < site/index.html > "$OUT/index.html"
 cp "$KEYS_DIR/splicefs.asc" "$KEYS_DIR/splicefs.rsa.pub" "$OUT/keys/"
-
-# The sha256 file names setup.sh without a folder, so it verifies from inside the
-# download folder. The hash is taken first, so a failure never leaves an empty file behind.
-SUM=$(cd "$OUT" && hash_file setup.sh | awk '{ print $1 }')
-[ -n "$SUM" ] || { echo "could not compute the sha256 of setup.sh" >&2; exit 1; }
-printf '%s  setup.sh\n' "$SUM" > "$OUT/setup.sh.sha256"
 
 # Pull each embedded key block back out of the built script and compare it with its source,
 # so a broken replacement fails the build instead of shipping a bad key. The extracts are

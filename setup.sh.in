@@ -9,8 +9,8 @@
 # system's own commands to run next. Safe to run again: a file is rewritten only when its
 # content differs.
 #
-# Before it changes anything it hashes its own file and compares the SHA-256 with the published
-# one. A copy that is incomplete, was changed or is not the latest stops there. For that it must
+# Before it changes anything it downloads the published setup.sh and compares it with its own
+# file. A copy that is incomplete, was changed or is not the latest stops there. For that it must
 # be run from a file, not piped into a shell.
 set -eu
 
@@ -365,32 +365,45 @@ find_download_tool() {
   fi
 }
 
-# Prints the published hash file, or nothing when the download fails: a failed download and a
-# page that is not a hash are the same problem for the caller, which checks what it got. The
-# timeout keeps a dead network from hanging the script. apt-helper can only write to a file,
-# CS_TMP, which check_self made and cleanup removes: it is made there because this function
-# runs in a command substitution, and a variable set in one is lost. apt-helper is told to
-# download as root, because its default user cannot write to a file made by root and then
-# prints a warning.
-download_hash() {
-  dh_tool=$1
-  dh_url=$BASE_URL/setup.sh.sha256
-  case "$dh_tool" in
-    curl) curl -fsS --max-time 30 "$dh_url" || true ;;
-    wget) wget -q -T 30 -O - "$dh_url" || true ;;
-    fetch) fetch -q -T 30 -o - "$dh_url" || true ;;
+# Downloads the published setup script to the file CS_TMP, which check_self made and cleanup
+# removes. The argument is the download tool that was found. A failed download leaves the file
+# empty, and a partial one leaves a cut copy that does not match, so the caller judges what it
+# got and not the exit status. The timeout keeps a dead network from hanging the script.
+# apt-helper is told to download as root, because its default user cannot write to a file made
+# by root and then prints a warning.
+download_published() {
+  dp_tool=$1
+  dp_url=$BASE_URL/setup.sh
+  case "$dp_tool" in
+    curl) curl -fsS --max-time 30 -o "$CS_TMP" "$dp_url" || true ;;
+    wget) wget -q -T 30 -O "$CS_TMP" "$dp_url" || true ;;
+    fetch) fetch -q -T 30 -o "$CS_TMP" "$dp_url" || true ;;
     apt-helper)
-      /usr/lib/apt/apt-helper -o APT::Sandbox::User=root download-file "$dh_url" "$CS_TMP" \
+      /usr/lib/apt/apt-helper -o APT::Sandbox::User=root download-file "$dp_url" "$CS_TMP" \
         >/dev/null || true
-      cat "$CS_TMP"
       ;;
     *) ;;
   esac
 }
 
+# Prints the SHA-256 of the file. Two files with the same hash have the same bytes, which is
+# the comparison the self-check needs: cmp is missing from some supported systems (Amazon
+# Linux, Rocky Linux), and a comparison in the shell would lose NUL bytes and final newlines.
+# FreeBSD has sha256 and no sha256sum.
+file_hash() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    fh_line=$(sha256sum "$1")
+    echo "${fh_line%% *}"
+  elif command -v sha256 >/dev/null 2>&1; then
+    sha256 -q "$1"
+  else
+    die "this script needs sha256sum to check itself. Install it and run this script again."
+  fi
+}
+
 # Stops before anything is written when this script is not the published one, so a download
 # that is incomplete, was changed, or is not the latest setup script changes nothing. A script
-# piped into a shell has no file to hash.
+# piped into a shell has no file to compare.
 check_self() {
   if [ ! -f "$0" ]; then
     cs_lines=$(latest_lines any)
@@ -401,39 +414,20 @@ $cs_lines"
   fi
   cs_tool=$(find_download_tool)
   if [ -z "$cs_tool" ]; then
-    die "this script checks itself against $BASE_URL/setup.sh.sha256 and needs curl or wget for that." \
+    die "this script checks itself against $BASE_URL/setup.sh and needs curl or wget for that." \
       "Install one of them and run this script again."
   fi
-  if [ "$cs_tool" = apt-helper ]; then
-    CS_TMP=$(mktemp)
-  fi
-  cs_body=$(download_hash "$cs_tool")
-  # The first word of the hash file is the hash. Anything else is not a hash file.
-  read -r cs_published _ <<EOF
-$cs_body
-EOF
-  cs_valid=0
-  if [ "${#cs_published}" -eq 64 ]; then
-    case "$cs_published" in
-      *[!0123456789abcdef]*) ;;
-      *) cs_valid=1 ;;
-    esac
-  fi
-  if [ "$cs_valid" -eq 0 ]; then
+  CS_TMP=$(mktemp)
+  download_published "$cs_tool"
+  if [ ! -s "$CS_TMP" ]; then
     # A minimal system without the certificate bundle fails here too, so the message names it.
-    die "could not download $BASE_URL/setup.sh.sha256 to check this script. Nothing was changed." \
+    die "could not download $BASE_URL/setup.sh to check this script. Nothing was changed." \
       "Check the network connection, and on a minimal system that the ca-certificates package" \
       "is installed, then run this script again."
   fi
-  # FreeBSD has sha256 and no sha256sum.
-  if command -v sha256sum >/dev/null 2>&1; then
-    cs_line=$(sha256sum "$0")
-  elif command -v sha256 >/dev/null 2>&1; then
-    cs_line=$(sha256 -q "$0")
-  else
-    die "this script needs sha256sum to check itself. Install it and run this script again."
-  fi
-  if [ "${cs_line%% *}" != "$cs_published" ]; then
+  cs_own=$(file_hash "$0")
+  cs_published=$(file_hash "$CS_TMP")
+  if [ "$cs_own" != "$cs_published" ]; then
     die_latest "$cs_tool" "this copy of the setup script does not match the published one. It is incomplete, was changed, or is not the latest setup script. Nothing was changed."
   fi
 }

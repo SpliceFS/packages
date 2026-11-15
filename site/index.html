@@ -176,9 +176,16 @@ footer a:first-of-type { margin-left: 4px; }
 </code></pre></div>
     <p class="small">Already root? Leave out sudo. FreeBSD has no sudo by default: run fetch as root.</p>
     <p>The script registers the SpliceFS package repository and its signing key on your system. It installs no package and takes no arguments. It is safe to run again.</p>
-    <p>The script checks itself before it changes anything: it downloads its published SHA-256 hash and compares it with its own file. If they differ, the copy is incomplete, was changed, or is not the latest, and the script stops and tells you how to get the latest one.</p>
-    <p>To check it yourself before you run it, compare its SHA-256 with the one in the <a href="https://github.com/SpliceFS/packages#verify-the-setup-script">packages repository on GitHub</a>:</p>
-    <div class="block"><div class="bar"><span class="label">Shell</span></div><pre><code>sha256sum ~/splicefs-setup.sh
+    <p>The script checks itself before it changes anything: it downloads the published setup.sh and compares it with its own file. If they differ, the copy is incomplete, was changed, or is not the latest, and the script stops and tells you how to get the latest one.</p>
+    <p>To check the signature yourself before you run it, use the signed copy of the script. It is one file, setup.sh.asc, with the script and its signature together. Download it and the public key, and compare the fingerprint that gpg prints with the one in the <a href="https://github.com/SpliceFS/packages#verify-the-setup-script">packages repository on GitHub</a>:</p>
+    <div class="block"><div class="bar"><span class="label">Shell</span></div><pre><code>curl -fsSLo ~/splicefs-setup.sh.asc https://packages.splicefs.org/setup.sh.asc
+curl -fsSLo ~/splicefs.asc https://packages.splicefs.org/keys/splicefs.asc
+gpg --show-keys --fingerprint ~/splicefs.asc
+gpg --import ~/splicefs.asc
+</code></pre></div>
+    <p>Then verify the file and write the script it holds. The second command runs only when the signature is good. Run the script it wrote as in the commands above.</p>
+    <div class="block"><div class="bar"><span class="label">Shell</span></div><pre><code>gpg --verify ~/splicefs-setup.sh.asc &amp;&amp;
+  gpg --output ~/splicefs-setup.sh --decrypt ~/splicefs-setup.sh.asc
 </code></pre></div>
     <p class="small">Works on Debian, Ubuntu, RHEL, Rocky Linux, AlmaLinux, Amazon Linux, openSUSE, Alpine and FreeBSD, on x86-64 and arm64.</p>
   </section>

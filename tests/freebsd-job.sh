@@ -5,7 +5,8 @@
 # The contract:
 # - The input archive is the machine's fourth disk (/dev/vtbd3). The job unpacks it into
 #   /tmp/input first, and from then on the site is at /tmp/input/site. It was built for the
-#   base address file:///tmp/input/site, so the setup script reads its own hash from there.
+#   base address file:///tmp/input/site, so the setup script reads the published setup.sh
+#   from there.
 # - The job runs as root.
 # - Everything it prints (standard output and standard error) comes back to the host.
 # - Its last line must be FREEBSD-SETUP-OK when all checks passed.

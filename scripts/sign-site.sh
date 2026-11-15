@@ -1,5 +1,9 @@
 #!/bin/sh
-# Signs dist/site/setup.sh and proves the signature with the published public key only.
+# Writes dist/site/setup.sh.asc, a clearsigned copy of dist/site/setup.sh (the script and its
+# signature in one file), and proves it with the published public key only: the signature is
+# good, it was made by the pinned key, and gpg --decrypt gives back exactly the bytes of
+# setup.sh. That last proof is what people do with the file, and it fails when setup.sh has a
+# space or tab at the end of a line, because gpg drops those when it reads a clearsigned file.
 # Variables: SIGNING_KEY_FILE (required, armored secret key file), SITE_DIR (default
 # dist/site), KEYS_DIR (default keys; must hold splicefs.asc). Relative paths are relative
 # to the caller's folder, except the defaults, which are in the repository.
@@ -40,7 +44,7 @@ then
   exit 1
 fi
 if ! GNUPGHOME=$SIGN_HOME gpg --batch --quiet --pinentry-mode loopback --passphrase '' \
-  --armor --detach-sign --output "$TMPOUT/setup.sh.asc" "$SITE/setup.sh" > "$TMPOUT/log" 2>&1
+  --clearsign --output "$TMPOUT/setup.sh.asc" "$SITE/setup.sh" > "$TMPOUT/log" 2>&1
 then
   echo "signing failed" >&2
   sed 's/^/  /' "$TMPOUT/log" >&2
@@ -56,9 +60,10 @@ WANT=$(GNUPGHOME=$VERIFY_HOME gpg --batch --with-colons --list-keys 2>/dev/null 
   awk -F: '$1 == "pub" { want = 1 } $1 == "fpr" && want { print $10; exit }')
 [ -n "$WANT" ] || { echo "no fingerprint in $KEYS/splicefs.asc" >&2; exit 1; }
 
-# VALIDSIG field 11 is the primary key fingerprint, which holds for a signing subkey too.
-if ! GNUPGHOME=$VERIFY_HOME gpg --batch --status-fd 1 \
-  --verify "$TMPOUT/setup.sh.asc" "$SITE/setup.sh" > "$TMPOUT/status" 2>/dev/null
+# --decrypt is the command that people run to get the verified script. VALIDSIG field 11 is the
+# primary key fingerprint, which holds for a signing subkey too.
+if ! GNUPGHOME=$VERIFY_HOME gpg --batch --status-fd 1 --output "$TMPOUT/setup.sh" \
+  --decrypt "$TMPOUT/setup.sh.asc" > "$TMPOUT/status" 2>/dev/null
 then
   echo "the signature does not verify against $KEYS/splicefs.asc" >&2
   exit 1
@@ -68,7 +73,12 @@ if [ "$GOT" != "$WANT" ]; then
   echo "the signature was not made by the key $WANT" >&2
   exit 1
 fi
+if ! cmp -s "$TMPOUT/setup.sh" "$SITE/setup.sh"; then
+  echo "gpg --decrypt of the signed file does not give setup.sh back byte for byte" >&2
+  echo "(a space or tab at the end of a line of setup.sh is the usual cause)" >&2
+  exit 1
+fi
 
 cp "$TMPOUT/setup.sh.asc" "$SITE/setup.sh.asc"
 chmod 644 "$SITE/setup.sh.asc"
-echo "signed $SITE/setup.sh, verified against key $WANT"
+echo "signed $SITE/setup.sh into setup.sh.asc, verified against key $WANT"

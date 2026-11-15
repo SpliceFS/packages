@@ -11,9 +11,9 @@ permissions:
 
 jobs:
   # Two releases of this repository must not overlap: each one publishes the setup script
-  # and its hash, and the later release must be the one that ends up published. So a release
-  # waits here until every earlier one has ended. This job holds no key and is not part of
-  # the publish environment.
+  # and its signed copy, and the later release must be the one that ends up published. So a
+  # release waits here until every earlier one has ended. This job holds no key and is not
+  # part of the publish environment.
   wait:
     name: Wait for earlier releases
     runs-on: ubuntu-latest
@@ -96,21 +96,23 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          SUM=$(cut -d ' ' -f 1 dist/site/setup.sh.sha256)
+          SUM=$(sha256sum dist/site/setup.sh | cut -d ' ' -f 1)
           {
             echo "Setup script for $GITHUB_REF_NAME."
             echo
             echo "SHA-256 of setup.sh: \`$SUM\`"
             echo
-            echo "Verify the signature with the SpliceFS key (fingerprint in the README):"
+            echo "setup.sh.asc is the same script with its signature inside. Verify it with the"
+            echo "SpliceFS key (fingerprint in the README) and write the verified script:"
             echo
             echo '    curl -fsSLO https://packages.splicefs.org/keys/splicefs.asc'
             echo '    gpg --import splicefs.asc'
-            echo '    gpg --verify setup.sh.asc setup.sh'
+            echo '    gpg --verify setup.sh.asc &&'
+            echo '      gpg --output setup.sh --decrypt setup.sh.asc'
           } > "$RUNNER_TEMP/notes.md"
           gh release create "$GITHUB_REF_NAME" --verify-tag --title "$GITHUB_REF_NAME" \
             --notes-file "$RUNNER_TEMP/notes.md" \
-            dist/site/setup.sh dist/site/setup.sh.sha256 dist/site/setup.sh.asc
+            dist/site/setup.sh dist/site/setup.sh.asc
       - name: Remove the secret files
         if: always()
         run: rm -f "$RUNNER_TEMP/upload_key" "$RUNNER_TEMP/signing_key.asc" "$RUNNER_TEMP/known_hosts"

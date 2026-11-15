@@ -35,36 +35,44 @@ again. Manual steps for each system are on the page as well.
 
 ## Verify the setup script
 
-The script checks itself before it changes anything: it downloads its published SHA-256 hash and
+The script checks itself before it changes anything: it downloads the published `setup.sh` and
 compares it with its own file. If they differ, the copy is incomplete, was changed, or is not the
 latest, and the script stops and tells you how to get the latest one.
 
-The SHA-256 of the published script for each release is listed in this repository's releases.
-To check a download before running it:
-
-```
-sha256sum ~/splicefs-setup.sh
-```
-
-Compare the output with the hash in the release.
-
-The script is also signed. Download the signature and verify it with the public key:
+The script is also published as one signed file, `setup.sh.asc`. It holds the script and its
+signature together, so there is nothing to pair up. Download it and the public key, and look at
+the key:
 
 ```
 curl -fsSLo ~/splicefs-setup.sh.asc https://packages.splicefs.org/setup.sh.asc
 curl -fsSLo ~/splicefs.asc https://packages.splicefs.org/keys/splicefs.asc
 gpg --show-keys --fingerprint ~/splicefs.asc
 gpg --import ~/splicefs.asc
-gpg --verify ~/splicefs-setup.sh.asc ~/splicefs-setup.sh
 ```
 
-The fingerprint printed by `--show-keys` must be the one below. `gpg --verify` must report a
-good signature from that key.
+The fingerprint printed by `--show-keys` must be the one below. Then verify the file and write
+the script it holds:
+
+```
+gpg --verify ~/splicefs-setup.sh.asc &&
+  gpg --output ~/splicefs-setup.sh --decrypt ~/splicefs-setup.sh.asc
+```
+
+`gpg --verify` must report a good signature from that key. The second command runs only after
+that, writes the verified script to `~/splicefs-setup.sh` and checks the signature once more.
+Run the script as in step 1: `sudo sh ~/splicefs-setup.sh`.
 
 The OpenPGP key that signs the apt and rpm packages has this fingerprint. It is the second place to check the key the script puts on your system:
 
 ```
 93F2 C425 AA5A C125 B6C2  D10A 47FB E2B8 21A4 E69F
+```
+
+The SHA-256 of the published `setup.sh` for each release is listed in this repository's releases.
+To check a plain download against it:
+
+```
+sha256sum ~/splicefs-setup.sh
 ```
 
 The public keys are in `keys/` (`splicefs.asc` for apt and rpm, `splicefs.rsa.pub` for
