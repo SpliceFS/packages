@@ -6,6 +6,10 @@ the setup script and the page at packages.splicefs.org.
 
 The change log of all parts of SpliceFS, side by side: https://splicefs.org/changelog/
 
+## [0.4.7] - 2026-11-15
+
+- Internal: the setup script test no longer depends on the clock. Nothing changes for users.
+
 ## [0.4.6] - 2026-11-14
 
 - Internal: the end-to-end test's web server always uses a port of its own. Nothing changes for
