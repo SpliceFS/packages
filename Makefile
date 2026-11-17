@@ -205,6 +205,15 @@ package-test: built-packages package-order-test
 service-test: built-packages
 	$(TEST_VARS) scripts/service-test.sh
 
+# Proves that the client mounts from the boot mounts of the system, on every Alpine image of
+# packaging/test-systems (scripts/fstab-test.sh): installs the client package next to a real server
+# (SERVER_BIN, the folder with the splicefsd program for the CPU type of the container), writes an
+# fstab line, and checks that OpenRC's netmount service mounts it and unmounts it again.
+.PHONY: fstab-test
+SERVER_BIN ?=
+fstab-test: built-packages
+	$(TEST_VARS) SERVER_BIN=$(SERVER_BIN) scripts/fstab-test.sh
+
 # The part of the upgrade test that decides whether the packaging changed, checked against small
 # hand-made package listings. It needs no Docker, so it is part of check.
 .PHONY: upgrade-diff-test upgrade-test
