@@ -175,7 +175,7 @@ footer a:first-of-type { margin-left: 4px; }
   sh ~/splicefs-setup.sh
 </code></pre></div>
     <p class="small">Already root? Leave out sudo. FreeBSD has no sudo by default: run fetch as root.</p>
-    <p>The script registers the SpliceFS package repository and its signing key on your system. It installs no package and takes no arguments. It is safe to run again.</p>
+    <p>The script registers the SpliceFS package repository and its signing key on your system. It installs no package. Its only argument is <code class="inline">--remove</code>, which is described under Remove the repository. It is safe to run again.</p>
     <p>The script checks itself before it changes anything: it downloads the published setup.sh and compares it with its own file. If they differ, the copy is incomplete, was changed, or is not the latest, and the script stops and tells you how to get the latest one.</p>
     <p>To check the signature yourself before you run it, use the signed copy of the script. It is one file, setup.sh.asc, with the script and its signature together. Download it and the public key, and compare the fingerprint that gpg prints with the one in the <a href="https://github.com/SpliceFS/packages#verify-the-setup-script">packages repository on GitHub</a>:</p>
     <div class="block"><div class="bar"><span class="label">Shell</span></div><pre><code>curl -fsSLo ~/splicefs-setup.sh.asc https://packages.splicefs.org/setup.sh.asc
@@ -205,6 +205,22 @@ gpg --import ~/splicefs.asc
     <div id="twohost"></div>
     <p class="nojs">The commands are the last three lines of your system's block under Manual setup below.</p>
     <p class="small">On Alpine and FreeBSD, run them as root.</p>
+  </section>
+
+  <section class="one" id="remove">
+    <h2>Remove the repository</h2>
+    <p>To take the repository away, download the script again and run it with <code class="inline">--remove</code>. It removes exactly what step 1 added: the package source file and the signing key. It removes no package, and it leaves alone any file it did not write. It is safe to run again.</p>
+    <div class="block" id="removeblock"><div class="bar"><span class="label">curl</span></div><pre><code>curl --proto '=https' --tlsv1.2 -fsSL https://packages.splicefs.org/setup.sh -o ~/splicefs-setup.sh &amp;&amp;
+  sudo sh ~/splicefs-setup.sh --remove
+</code></pre></div>
+    <div class="block nojs"><div class="bar"><span class="label">wget</span></div><pre><code>wget -qO ~/splicefs-setup.sh https://packages.splicefs.org/setup.sh &amp;&amp;
+  sudo sh ~/splicefs-setup.sh --remove
+</code></pre></div>
+    <div class="block nojs"><div class="bar"><span class="label">fetch (FreeBSD, as root)</span></div><pre><code>fetch -o ~/splicefs-setup.sh https://packages.splicefs.org/setup.sh &amp;&amp;
+  sh ~/splicefs-setup.sh --remove
+</code></pre></div>
+    <p>To remove the packages as well, remove them first with your package manager, then the repository. When the script is done it prints the commands for your system. Packages that stay installed keep working, but they get no updates.</p>
+    <p>A file that someone changed after step 1 is not removed. The script leaves it in place and prints a warning with its path. The folders are left in place too.</p>
   </section>
 
   <section class="manual">
@@ -588,17 +604,21 @@ if (typeof module !== 'undefined' && module.exports) module.exports = { tokenize
     nojs.parentNode.removeChild(nojs);
   });
   var toolButtons = Array.prototype.slice.call(document.querySelectorAll('[data-tool]'));
-  function oneText() {
+  var removeBlock = document.getElementById('removeblock');
+  /* The same download for step 1 and for the removal; only what runs the script differs. */
+  function oneText(args) {
     var base = 'https://packages.splicefs.org/setup.sh';
-    if (tool === 'fetch') return 'fetch -o ~/splicefs-setup.sh ' + base + ' &&\n  sh ~/splicefs-setup.sh\n';
+    if (tool === 'fetch') return 'fetch -o ~/splicefs-setup.sh ' + base + ' &&\n  sh ~/splicefs-setup.sh' + args + '\n';
     var get = tool === 'curl'
       ? 'curl --proto \'=https\' --tlsv1.2 -fsSL ' + base + ' -o ~/splicefs-setup.sh &&\n'
       : 'wget -qO ~/splicefs-setup.sh ' + base + ' &&\n';
-    return get + '  sudo sh ~/splicefs-setup.sh\n';
+    return get + '  sudo sh ~/splicefs-setup.sh' + args + '\n';
   }
   function chooseOne() {
-    oneBlock.setText(oneText());
+    oneBlock.setText(oneText(''));
     oneBlock.querySelector('.label').textContent = tool;
+    removeBlock.setText(oneText(' --remove'));
+    removeBlock.querySelector('.label').textContent = tool;
     toolButtons.forEach(function (b) {
       b.setAttribute('aria-pressed', b.getAttribute('data-tool') === tool ? 'true' : 'false');
     });

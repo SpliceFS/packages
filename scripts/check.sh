@@ -82,7 +82,9 @@ get_signed = ("curl -fsSLo ~/splicefs-setup.sh.asc %s/setup.sh.asc\n"
               "gpg --import ~/splicefs.asc\n") % (base, base)
 verify_signed = ("gpg --verify ~/splicefs-setup.sh.asc &&\n"
                  "  gpg --output ~/splicefs-setup.sh --decrypt ~/splicefs-setup.sh.asc\n")
-expected = [curl, wget, fetch, get_signed, verify_signed] + [step[k] for k in ("apt", "dnf", "zypper", "apk", "pkg")]
+# The removal section repeats the three download commands of step 1 with --remove added.
+remove = [b.replace("splicefs-setup.sh\n", "splicefs-setup.sh --remove\n") for b in (curl, wget, fetch)]
+expected = [curl, wget, fetch, get_signed, verify_signed] + remove + [step[k] for k in ("apt", "dnf", "zypper", "apk", "pkg")]
 bad = 0
 if len(blocks) != len(expected):
     print("page has %d code blocks, expected %d" % (len(blocks), len(expected))); bad += 1
@@ -166,17 +168,27 @@ expect() {
     sed 's/^/        /' "$TMP/out"
   fi
 }
-# No argument gets as far as the root check, and any argument is refused before it.
+# No argument and --remove get as far as the root check, and any other argument is refused
+# before it.
 expect "6. no argument, not root: message, exit 1" 1 "run this script as root, for example with sudo" \
   sh dist/site/setup.sh
-expect "6. an argument: usage, exit 2" 2 "usage: sh setup.sh" sh dist/site/setup.sh server
-expect "6. an argument: says it only sets up the repository, exit 2" 2 \
-  "only sets up the package repository" sh dist/site/setup.sh nonsense
+expect "6. --remove, not root: message, exit 1" 1 "run this script as root, for example with sudo" \
+  sh dist/site/setup.sh --remove
+expect "6. an argument: usage, exit 2" 2 "usage: sh setup.sh \[--remove\]" sh dist/site/setup.sh server
+expect "6. an argument: says it never installs or removes a package, exit 2" 2 \
+  "never installs or removes a package" sh dist/site/setup.sh nonsense
+expect "6. --remove and another argument: usage, exit 2" 2 "usage: sh setup.sh" \
+  sh dist/site/setup.sh --remove server
+expect "6. another argument and --remove: usage, exit 2" 2 "usage: sh setup.sh" \
+  sh dist/site/setup.sh server --remove
+expect "6. a misspelled --remove: usage, exit 2" 2 "usage: sh setup.sh" sh dist/site/setup.sh --removes
 
-# The next-step lines are printed by one function, taken out of the built script and run for
-# each family. The script itself cannot run here, because it writes under /etc as root.
-awk '/^next_steps\(\) \{$/ { on = 1 } on { print } on && /^\}$/ { exit }' dist/site/setup.sh \
-  > "$TMP/next.sh"
+# The next-step lines are printed by two functions, taken out of the built script and run for
+# each family, and so are the lines that name the commands to remove the packages. The script
+# itself cannot run here, because it writes under /etc as root.
+for fn in package_commands next_steps remove_steps; do
+  awk -v fn="$fn" '$0 == fn "() {" { on = 1 } on { print } on && /^}$/ { on = 0 }' dist/site/setup.sh
+done > "$TMP/next.sh"
 next_text() {
   printf 'The SpliceFS package repository is set up. Next:\n\n  %s %s\n  %s %s splicefs-server    # the server\n  %s %s splicefs-client    # the client\n' \
     "$1" "$2" "$1" "$3" "$1" "$3"
@@ -203,6 +215,24 @@ expect_next() {
     fi
   fi
 }
+# Arguments: family, rpm tool, the printed manager, the word that removes a package.
+expect_remove_steps() {
+  printf 'The packages are not removed by this script. To remove them:\n\n  %s %s splicefs-server    # the server\n  %s %s splicefs-client    # the client\n' \
+    "$3" "$4" "$3" "$4" > "$TMP/want"
+  FAMILY=$1 RPM_TOOL=$2 sh -c '. "$1"; remove_steps' sh "$TMP/next.sh" > "$TMP/got" 2>&1
+  if cmp -s "$TMP/want" "$TMP/got"; then
+    pass "6. removal steps for $1 ($3 $4)"
+  else
+    fail "6. removal steps for $1 ($3 $4)"
+    diff "$TMP/want" "$TMP/got" | sed 's/^/        /'
+  fi
+}
+expect_remove_steps apt '' 'sudo apt-get' remove
+expect_remove_steps dnf dnf 'sudo dnf' remove
+expect_remove_steps dnf yum 'sudo yum' remove
+expect_remove_steps zypper '' 'sudo zypper' remove
+expect_remove_steps apk '' apk del
+expect_remove_steps pkg '' pkg delete
 expect_next apt '' 'sudo apt-get' update install apt
 expect_next dnf dnf 'sudo dnf' makecache install dnf
 expect_next dnf yum 'sudo yum' makecache install
@@ -279,15 +309,15 @@ if "/tmp" in s:
 for l in lines:
     if "arm64" in l and "pkg:" not in l and not l.lstrip().startswith("#"):
         print("setup.sh accepts arm64 outside the pkg family: %s" % l.strip()); bad += 1
-m = re.search(r"write_rpm_repo /etc/zypp/repos.d/splicefs.repo '([^']*)'", s)
+m = re.search(r"zypper_repo\(\) \{\n  rpm_repo '([^']*)'", s)
 if not m or m.group(1).split("\n") != ["autorefresh=1", "gpgcheck=1", "repo_gpgcheck=1", "pkg_gpgcheck=1"]:
     print("zypper repo lines are not autorefresh, gpgcheck, repo_gpgcheck, pkg_gpgcheck"); bad += 1
 sys.exit(1 if bad else 0)
 PYEOF
 run "7. built setup.sh: PATH and umask first, no /tmp, arm64 only for pkg, zypper lines" python3 -I "$TMP/text.py"
 
-# The script only sets up the repository. No package manager command that installs, upgrades or
-# refreshes anything may be run, and the install_ functions are gone. Text inside quotes is
+# The script only sets up and removes the repository. No package manager command that installs,
+# upgrades, refreshes or removes anything may be run, and the install_ functions are gone. Text inside quotes is
 # printed text, so quoted strings are removed before the search; the one command that is quoted
 # in a call, the rpm tool variable, is searched before that.
 cat > "$TMP/noinstall.py" <<'PYEOF'
@@ -298,8 +328,12 @@ verbs = (r'install|add|upgrade|dist-upgrade|update|refresh|makecache|remove|in|'
          r'-i|--install|--upgrade')
 manager_re = re.compile(mgr + r'\s+(?:-\S+\s+)*(?:' + verbs + r')\b')
 rpm_re = re.compile(r'\brpm\s+(?:-(?!q)[a-zA-Z]*[iUF]|--install|--upgrade|--freshen)')
+# The script removes no package. The one rpm erase is of the gpg-pubkey that rpm --import made,
+# and it is allowed in the function that finds that key and nowhere else.
+erase_re = re.compile(r'\brpm\s+(?:-[a-zA-Z]*e|--erase)\b')
 bad = 0
 in_key = False
+func = ""
 for n, line in enumerate(lines, 1):
     if line.endswith("<<'KEY_EOF'"):
         in_key = True
@@ -309,15 +343,20 @@ for n, line in enumerate(lines, 1):
         continue
     if in_key or line.lstrip().startswith("#"):
         continue
+    m = re.match(r'(\w+)\(\) \{$', line)
+    if m:
+        func = m.group(1)
     raw = re.search(r'\$\{?RPM_TOOL\}?"?\s+\S', line) and not re.search(r'=', line)
     stripped = re.sub(r'"[^"]*"|\'[^\']*\'', '""', line)
     if raw or manager_re.search(stripped) or rpm_re.search(stripped):
         print("line %d runs a package command: %s" % (n, line.strip())); bad += 1
+    if erase_re.search(stripped) and func != "remove_rpm_key":
+        print("line %d erases an rpm package outside remove_rpm_key: %s" % (n, line.strip())); bad += 1
     if re.search(r'\binstall_\w+', line):
         print("line %d still has an install_ function: %s" % (n, line.strip())); bad += 1
 sys.exit(1 if bad else 0)
 PYEOF
-run "7. built setup.sh: no package is installed, upgraded or refreshed" python3 -I "$TMP/noinstall.py"
+run "7. built setup.sh: no package is installed, upgraded, refreshed or removed" python3 -I "$TMP/noinstall.py"
 
 # 8. Signing and publishing with throwaway keys. Nothing here touches a real key or host;
 # the site is built in the temporary folder, so dist/site stays the normal build.
@@ -607,6 +646,8 @@ run "9. package-lib.sh: program.conf, versions, documents, unit, system selectio
   sh scripts/package-lib-test.sh
 run "9. package-script.sh: the service steps filled into the install scripts of each program" \
   sh scripts/package-script-test.sh
+run "9. setup.sh --remove: setup, removal and a changed file, for every family, in a fake root" \
+  sh scripts/setup-remove-test.sh
 run "9. part.sh: the timer every package target runs through" sh scripts/part-test.sh
 run "9. package-record.sh: the version make packages built, read by the tests" sh scripts/package-record-test.sh
 run "9. upgrade-diff.sh: when the packaging of two versions differs" sh scripts/upgrade-diff-test.sh

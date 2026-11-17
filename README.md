@@ -14,7 +14,7 @@ keys. It is served at https://packages.splicefs.org.
 ## Install
 
 Step 1: set up the package repository. The script registers the SpliceFS repository and its
-signing key. It installs no package and takes no arguments.
+signing key. It installs no package. Its only argument is `--remove`, described below.
 
 ```
 curl --proto '=https' --tlsv1.2 -fsSL https://packages.splicefs.org/setup.sh -o ~/splicefs-setup.sh &&
@@ -57,6 +57,30 @@ An upgrade restarts a service that was running and leaves a stopped one stopped;
 a service on or off. Removing the package stops the service and turns it off; its data and the
 `splicefs` user stay. In a container without a running service manager the package only
 installs its files.
+
+## Remove the repository
+
+`sh setup.sh --remove` takes away what the setup added, and nothing else: the repository
+definition and the signing key of your system's package manager. Download the script as in
+step 1, and run it with the argument:
+
+```
+curl --proto '=https' --tlsv1.2 -fsSL https://packages.splicefs.org/setup.sh -o ~/splicefs-setup.sh &&
+  sudo sh ~/splicefs-setup.sh --remove
+```
+
+- It removes no package. To remove the packages as well, remove them first with the system's own
+  command, then the repository. When the script is done it prints that command for your system,
+  for example `sudo apt-get remove splicefs-server splicefs-client`. Packages that stay installed
+  keep working, but they get no updates.
+- On dnf and zypper systems it also removes the key that the setup added to the rpm database,
+  and no other key.
+- A file is removed only when its content is exactly what the setup writes there. A file that
+  someone changed is left in place, and the script prints a warning with its path.
+- The folders the setup created are left in place, because other software keeps its files in
+  them too.
+- It is safe to run again, and on a system that was never set up it does nothing. It makes the
+  same self-check as the setup, so it needs the latest published script.
 
 ## Verify the setup script
 
@@ -157,7 +181,8 @@ ref of the `uses` line.
 - `steps/`: the manual repository setup and the install commands for each package manager,
   shown on the page.
 - `keys/`: the public signing keys.
-- `scripts/`: `build-site.sh`, `sign-site.sh`, `publish.sh` and `check.sh`, and the scripts that
+- `scripts/`: `build-site.sh`, `sign-site.sh`, `publish.sh` and `check.sh`, `setup-remove-test.sh`
+  (setup and removal in a fake root, for every family), and the scripts that
   build, test and publish packages (`package-*.sh`, `service-test*.sh`, `repo-*.sh`,
   `signing-keys.sh`, `upgrade-test*.sh`, `upgrade-diff.sh`), and `release-bin.sh`, which proves and
   unpacks the release archives of a program.
