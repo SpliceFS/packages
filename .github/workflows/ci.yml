@@ -1,8 +1,8 @@
 name: CI
 
+# Only pull requests are tested. main gets nothing but branches that passed here, so a run on
+# main would test the same files a second time.
 on:
-  push:
-    branches: [main]
   pull_request:
 
 permissions:
