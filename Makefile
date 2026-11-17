@@ -121,5 +121,39 @@ package-apk: package-inputs keys
 keys:
 	LINUX_IMAGE=$(GO_IMAGE) scripts/signing-keys.sh
 
+# --- The tests of the packages of a program -----------------------------------------------------
+# They test what make packages left in dist/PROGRAM, on the server images listed in
+# packaging/test-systems, and take the PROGRAM and the VERSION that make packages was given (SRC
+# as well when the version carries the date of its commit). They need Docker.
+#   ONLY      limits a run to one format (ONLY=deb) or to one image, as written in
+#             packaging/test-systems.
+#   PLATFORM  linux/amd64 or linux/arm64 tests that CPU type by emulation; empty tests this
+#             machine's own.
+ONLY ?=
+PLATFORM ?=
+TEST_VARS = PROGRAM=$(PROGRAM) VERSION=$(VERSION) PACKAGE_DATE=$(PACKAGE_DATE) PLATFORM=$(PLATFORM) ONLY=$(ONLY)
+
+.PHONY: built-packages test-inputs package-order-test package-test
+
+# Stops at once, with the name of what is missing, before any image starts.
+built-packages:
+	@: $(if $(PROGRAM),,$(error PROGRAM is not set; see the comment above PROGRAM))
+	@ls "dist/$(PROGRAM)"/*.deb "dist/$(PROGRAM)"/*.rpm "dist/$(PROGRAM)"/alpine/*/*.apk >/dev/null 2>&1 || \
+		{ echo "FAIL: no packages in dist/$(PROGRAM): run make packages first"; exit 1; }
+
+test-inputs: built-packages
+	@: $(if $(VERSION),,$(error VERSION is not set; it is the version make packages was given))
+
+# Checks in a Debian, a Rocky Linux and an Alpine system that the versions of the packages sort
+# the way a release needs (a pre-release before its release) and that apk accepts them. It is a
+# prerequisite of package-test, not of check, because it needs Docker.
+package-order-test:
+	scripts/package-order-test.sh
+
+# Installs and removes the package in a clean, booted server of every system listed in
+# packaging/test-systems and reports each system's result.
+package-test: test-inputs package-order-test
+	$(TEST_VARS) scripts/package-test.sh
+
 clean:
 	rm -rf dist
