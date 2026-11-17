@@ -6,6 +6,11 @@ the setup script and the page at packages.splicefs.org.
 
 The change log of all parts of SpliceFS, side by side: https://splicefs.org/changelog/
 
+## [0.4.18] - 2026-11-17
+
+- Internal: a packaging change merged here is published as a package revision of the current
+  release.
+
 ## [0.4.17] - 2026-11-17
 
 - Internal: packages carry a package revision, so a packaging fix can be published for the current
