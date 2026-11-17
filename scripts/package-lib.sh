@@ -77,6 +77,29 @@ package_unit() {
     sed 's|/usr/local/bin/|/usr/bin/|' "$defs/systemd/$program.service" > "$1"
 }
 
+# Prints the file $2 (an install script of the program, or its rpm spec) with the service steps
+# filled in. A line that holds only @service:STEP@ is replaced by the file
+# packaging/service/MANAGER/STEP, indented like the line, where $1 is the service manager
+# (systemd or openrc) and @SERVICE@ is the name of the service. The steps are the one place that
+# says what installing, upgrading and removing do to the service, for every program and every
+# package format; what only one program needs stays in its own file.
+# What program.conf sets is unknown to ShellCheck, which cannot follow it.
+# shellcheck disable=SC2154
+package_script() {
+    while IFS= read -r script_line; do
+        script_text="${script_line#"${script_line%%[![:space:]]*}"}"
+        case "$script_text" in
+            @service:*@)
+                script_step="packaging/service/$1/${script_text#@service:}"
+                script_step="${script_step%@}"
+                [ -f "$script_step" ] || fail "$script_step does not exist"
+                sed -e "s|@SERVICE@|$program|g" -e "s|^\(.\)|${script_line%"$script_text"}\1|" "$script_step"
+                ;;
+            *) printf '%s\n' "$script_line" ;;
+        esac
+    done < "$2"
+}
+
 # Fetches an image for one test system: up to 3 tries, 5 seconds apart, quiet on success.
 # A registry that fails to deliver now and then is not a fault of the package under test, so
 # the callers report a failed download as one. Pulling first also keeps the download out of

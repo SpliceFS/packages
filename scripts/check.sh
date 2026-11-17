@@ -605,6 +605,8 @@ fi
 # 9. The scripts that build the packages of a program. They need no Docker and no root.
 run "9. package-lib.sh: program.conf, versions, documents, unit, system selection" \
   sh scripts/package-lib-test.sh
+run "9. package-script.sh: the service steps filled into the install scripts of each program" \
+  sh scripts/package-script-test.sh
 run "9. part.sh: the timer every package target runs through" sh scripts/part-test.sh
 run "9. package-record.sh: the version make packages built, read by the tests" sh scripts/package-record-test.sh
 run "9. upgrade-diff.sh: when the packaging of two versions differs" sh scripts/upgrade-diff-test.sh

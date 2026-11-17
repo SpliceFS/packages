@@ -1,0 +1,4 @@
+# Removing the package stops the service and turns it off for good. The data and the user stay.
+if [ -d /run/systemd/system ]; then
+    systemctl disable --now @SERVICE@.service || true
+fi
