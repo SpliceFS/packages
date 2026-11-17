@@ -202,7 +202,7 @@ for format in deb rpm apk; do
     upgraded=$?
     set -e
     if [ "$upgraded" -eq 0 ]; then
-        echo "ok   $format $image: $tag upgraded to $VERSION"
+        echo "ok   $format $image: $tag upgraded to $VERSION revision $REVISION"
         passed=$((passed + 1))
     else
         echo "FAIL $format $image"

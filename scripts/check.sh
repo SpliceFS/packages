@@ -649,6 +649,7 @@ run "9. setup.sh --remove: setup, removal and a changed file, for every family, 
 run "9. part.sh: the timer every package target runs through" sh scripts/part-test.sh
 run "9. package-record.sh: the version make packages built, read by the tests" sh scripts/package-record-test.sh
 run "9. upgrade-diff.sh: when the packaging of two versions differs" sh scripts/upgrade-diff-test.sh
+run "9. next-revision.sh: the revision a build needs to upgrade what is published" sh scripts/next-revision-test.sh
 run "9. freebsd-lib.sh: the FreeBSD machines, their device, job folder and package check" \
   sh scripts/freebsd-lib-test.sh
 run "9. freebsd-repo-files.sh: the input archive of a FreeBSD machine holds the key and is removed" \

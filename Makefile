@@ -214,8 +214,10 @@ upgrade-diff-test:
 # file, and installs the packages in dist/PROGRAM over it, the way a user upgrades. It checks that
 # both survived, the service user exists, the new version is installed and every file the new
 # package lists is there. It runs only for a format whose packaging changed since that release: a
-# version that differs only in the programs and the changelog cannot break an upgrade. It needs
-# Docker and the network.
+# version that differs only in the programs and the changelog cannot break an upgrade. When the
+# packaging changed and the version is the published one, the packages must be a later revision
+# (make packages REVISION=N): the test says so when they are not. scripts/next-revision.sh prints
+# the revision that follows the highest one published. It needs Docker and the network.
 upgrade-test: built-packages
 	$(TEST_VARS) scripts/upgrade-test.sh
 
