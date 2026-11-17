@@ -5,7 +5,8 @@
 # same release as the next revision. The packages are read inside the container of the first
 # system of each format in packaging/test-systems, which has the tools of the format.
 # Usage: revision-listings.sh PROGRAM TAG LISTINGS_DIR
-# Environment: PACKAGE_SITE (https://packages.splicefs.org). Needs Docker and the network.
+# Environment: PACKAGE_SITE (https://packages.splicefs.org). Needs Docker and the network. Only
+# scripts, packaging and programs go into the containers, never the signing keys under dist.
 set -eu
 
 PROGRAM="${1:?usage: revision-listings.sh PROGRAM TAG LISTINGS_DIR}"
@@ -18,7 +19,9 @@ site="${PACKAGE_SITE:-https://packages.splicefs.org}/$PROGRAM"
 
 # The revision these packages were built as, and the names of the published ones before it.
 next="$(sh scripts/next-revision.sh "$PROGRAM" "$TAG")"
-[ "$next" -gt 0 ] || { echo "$TAG of $PROGRAM is not published, so there is nothing to compare with" >&2; exit 1; }
+# No listing is written for a release that is not published: revision-decide.sh says so and decides
+# nothing, so the one place that knows what that means is there.
+[ "$next" -gt 0 ] || { echo "$TAG of $PROGRAM is not published, so there is nothing to compare with" >&2; exit 0; }
 PACKAGE_DATE="$(date +%Y%m%d)"
 export VERSION="$TAG" REVISION="$next" PACKAGE_DATE
 # shellcheck source=package-lib.sh
@@ -43,7 +46,8 @@ list_format() {
     [ -n "$image" ] || fail "packaging/test-systems has no $format system"
     for pair in "published:/out/files/$3" "built:/built/$4"; do
         docker run --rm --entrypoint sh -e PROGRAM -e VERSION -e PACKAGE_DATE -e REVISION \
-            -v "$root":/src:ro -v "$built":/built:ro -v "$out":/out -w /src "$image" \
+            -v "$root/scripts":/src/scripts:ro -v "$root/packaging":/src/packaging:ro -v "$root/programs":/src/programs:ro \
+            -v "$built":/built:ro -v "$out":/out -w /src "$image" \
             scripts/upgrade-test-"$format".sh list "${pair#*:}" > "$out/${pair%%:*}-$format" ||
             fail "could not read the ${pair%%:*} $format package"
     done
