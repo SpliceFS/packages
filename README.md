@@ -99,6 +99,31 @@ The tests need Docker and the packages that `make packages` left in `dist/<progr
 records the version it built in `dist/<program>/version`, and the tests read it from there, so they
 are not given the version again. A `VERSION` given to a test that is not the recorded one is an error.
 
+### Package and test a program in CI
+
+The workflow `package-and-test.yml` does all of the above for one program, from the CI run of the
+repository that releases it: it builds the packages and the signed repositories on amd64 and
+arm64 runners, runs the package, service, repository and upgrade tests of every format, and ends
+in one job, `Result`, that fails unless all passed. The caller builds its programs, uploads its
+`dist/bin` as an artifact, and calls:
+
+```yaml
+  packages:
+    name: Packages
+    needs: build
+    uses: SpliceFS/packages/.github/workflows/package-and-test.yml@main
+    with:
+      program: server
+      bin-artifact: bin
+```
+
+The source tree and the version are the caller's own, at the commit under test. Without
+`bin-artifact` the workflow tests the newest release of the program instead (`scripts/release-bin.sh`
+proves its archives with the signature and `SHA256SUMS` and unpacks them into the `BIN` layout);
+the CI of this repository does that for both programs, so a packaging change is tested on its own.
+`packages-ref` (default `main`) is the ref of this repository the jobs use; keep it the same as the
+ref of the `uses` line.
+
 `make check` needs `python3`. It also uses `node`, `dash` and `bash` when they are installed.
 
 ## Layout
@@ -109,7 +134,8 @@ are not given the version again. A `VERSION` given to a test that is not the rec
 - `keys/`: the public signing keys.
 - `scripts/`: `build-site.sh`, `sign-site.sh`, `publish.sh` and `check.sh`, and the scripts that
   build, test and publish packages (`package-*.sh`, `service-test*.sh`, `repo-*.sh`,
-  `signing-keys.sh`, `upgrade-test*.sh`, `upgrade-diff.sh`).
+  `signing-keys.sh`, `upgrade-test*.sh`, `upgrade-diff.sh`), and `release-bin.sh`, which proves and
+  unpacks the release archives of a program.
 - `programs/<program>/`: the package definitions of one program (deb, rpm, Alpine, systemd, OpenRC)
   and its `program.conf`, which says what the program is: package name, service program,
   programs, documents, and the repository its releases are published in (`release_repo`, which
