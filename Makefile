@@ -244,12 +244,23 @@ repo-test: built-packages
 # dist/PROGRAM/repo to the folder of the program on the package site. UPLOAD_KEY_FILE and
 # UPLOAD_KNOWN_HOSTS_FILE (see scripts/publish-program.sh) come from the environment, so no secret
 # is ever in this file.
-.PHONY: program-fetch program-publish program-publish-check program-publish-test
+.PHONY: program-fetch program-publish program-publish-check program-publish-test freebsd-pack freebsd-unpack
 
 # Downloads what is published into dist/PROGRAM/repo first, so the repositories built next keep
 # every older version.
 program-fetch:
 	scripts/publish-program.sh fetch
+
+# The release builds the FreeBSD packages and publishes in different jobs. freebsd-pack puts what
+# the FreeBSD job of one release (FREEBSD=15.1) merged into dist/PROGRAM/repo into one tar, and
+# freebsd-unpack puts the tars of every release into the repository the publish job fetched
+# (scripts/freebsd-parts.sh). VERSION is the version that make package-freebsd built; unpacking
+# needs no version.
+freebsd-pack:
+	PROGRAM=$(PROGRAM) VERSION=$(VERSION) PACKAGE_DATE=$(PACKAGE_DATE) scripts/freebsd-parts.sh pack $(PACKAGE_OUT) $(FREEBSD)
+
+freebsd-unpack:
+	scripts/freebsd-parts.sh unpack $(PACKAGE_OUT)
 
 # Uploads dist/PROGRAM/repo, packages first, then the index files and their signatures. It
 # refuses an incomplete repository and any upload that would delete a published package.
