@@ -58,7 +58,8 @@ esac
 initial="$(printf '%s' "$name" | cut -c1)"
 old_deb="${name}_${old_debver}_$deb_arch.deb"
 old_rpm="$name-$old_rpmver-$old_rpmrel.$rpm_arch.rpm"
-old_apk="$name-$old_apkver-r$old_apkrel.$apk_arch.apk"
+# An Alpine package file name carries no CPU type: the folder of the CPU type does.
+old_apk="$name-$old_apkver-r$old_apkrel.apk"
 list_format deb "apt/pool/main/$initial/$name" "$old_deb" "${name}_${debver}_$deb_arch.deb"
 list_format rpm "rpm/$rpm_arch" "$old_rpm" "$name-$rpmver-$rpmrel.$rpm_arch.rpm"
 list_format apk "alpine/$apk_arch" "$old_apk" "alpine/$apk_arch/$name-$apkver-r$apkrel.apk"
