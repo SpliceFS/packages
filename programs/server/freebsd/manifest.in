@@ -46,7 +46,7 @@ The SpliceFS server is installed and does not run yet. To turn it on and start i
 
 pkg ends every program an install script starts, so the package cannot start it for you.
 EOD
-  }
+  },
   {
     type: "upgrade"
     message: <<EOD
@@ -56,7 +56,7 @@ A running @PROGRAM@ keeps running the old version until you restart it:
 
 pkg ends every program a package script starts, so the package cannot restart it for you.
 EOD
-  }
+  },
   {
     type: "remove"
     message: <<EOD
