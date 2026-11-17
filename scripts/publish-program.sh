@@ -111,6 +111,31 @@ done
 OWN_ALLOWED='(^|/)repodata/'
 OWN_ALLOWED="$OWN_ALLOWED"'|(^|/)(APKINDEX\.tar\.gz|InRelease|Packages(\.[a-z0-9]+)*'
 OWN_ALLOWED="$OWN_ALLOWED"'|Release(\.[a-z0-9]+)*)$'
+# The index files are what apt, dnf, apk and pkg read to learn which packages exist: the apt
+# dists folder, the rpm repodata folders, APKINDEX.tar.gz, the FreeBSD catalog (meta,
+# meta.conf, packagesite.pkg, data.pkg) and the signature files next to them. A new index
+# that is in place before the packages it names are makes a client ask for a file that is not
+# there yet. rsync --delay-updates cannot prevent that alone, because it moves the files into
+# place one after another. So the upload runs in two passes and the script stops at the first
+# one that fails: pass 1 sends everything except the index files, pass 2 sends the index
+# files (and does the deletions). The patterns start with / so that they match from the top of
+# the repository folder only.
+INDEX_PATTERNS='/apt/dists/*** /rpm/*/repodata/*** /alpine/*/APKINDEX.tar.gz'
+INDEX_PATTERNS="$INDEX_PATTERNS /alpine/*/*.sig /alpine/*/*.asc"
+INDEX_PATTERNS="$INDEX_PATTERNS /freebsd/*/meta /freebsd/*/meta.conf"
+INDEX_PATTERNS="$INDEX_PATTERNS /freebsd/*/packagesite.pkg /freebsd/*/data.pkg"
+INDEX_PATTERNS="$INDEX_PATTERNS /freebsd/*/*.sig /freebsd/*/*.asc"
+# The same index files as one extended regular expression, for the lines of rsync's dry run
+# (paths relative to the repository folder): a leading / anchors at the top, *** is anything
+# below, * is anything within one folder name.
+# The patterns hold *, so file name expansion is off while they are read.
+set -f
+INDEX_REGEX=$(for pattern in $INDEX_PATTERNS; do
+  printf '%s\n' "$pattern" | sed -e 's/[.]/\\./g' -e 's#^/#^#' -e 's#[*][*][*]#@ANY@#g' \
+    -e 's#[*]#[^/]*#g' -e 's#@ANY@#.*#g' -e 's/$/$/'
+done | paste -sd '|' -)
+set +f
+
 DRY=$(mktemp)
 trap 'rm -f "$DRY"' EXIT
 trap 'exit 1' HUP INT TERM
@@ -142,7 +167,7 @@ fi
 # that the upload would change shows in the dry run as ">f" followed by something other than
 # the "+" of a new file; the index files are the only ones a new build rewrites.
 REPLACED=$(awk '$1 ~ /^>f[^+]/ { $1 = ""; sub(/^ +/, ""); print }' "$DRY" |
-  grep -Ev "$OWN_ALLOWED" || true)
+  grep -Ev "$INDEX_REGEX" || true)
 if [ -n "$REPLACED" ]; then
   echo "refusing to send: it would replace published files with other content under the same name" >&2
   echo "(a change to a package needs a new revision, which has a new name):" >&2
@@ -150,20 +175,6 @@ if [ -n "$REPLACED" ]; then
   exit 1
 fi
 
-# The index files are what apt, dnf, apk and pkg read to learn which packages exist: the apt
-# dists folder, the rpm repodata folders, APKINDEX.tar.gz, the FreeBSD catalog (meta,
-# meta.conf, packagesite.pkg, data.pkg) and the signature files next to them. A new index
-# that is in place before the packages it names are makes a client ask for a file that is not
-# there yet. rsync --delay-updates cannot prevent that alone, because it moves the files into
-# place one after another. So the upload runs in two passes and the script stops at the first
-# one that fails: pass 1 sends everything except the index files, pass 2 sends the index
-# files (and does the deletions). The patterns start with / so that they match from the top of
-# the repository folder only.
-INDEX_PATTERNS='/apt/dists/*** /rpm/*/repodata/*** /alpine/*/APKINDEX.tar.gz'
-INDEX_PATTERNS="$INDEX_PATTERNS /alpine/*/*.sig /alpine/*/*.asc"
-INDEX_PATTERNS="$INDEX_PATTERNS /freebsd/*/meta /freebsd/*/meta.conf"
-INDEX_PATTERNS="$INDEX_PATTERNS /freebsd/*/packagesite.pkg /freebsd/*/data.pkg"
-INDEX_PATTERNS="$INDEX_PATTERNS /freebsd/*/*.sig /freebsd/*/*.asc"
 
 # Runs one pass: $1 names it for the message, the other arguments are rsync options. A failed
 # pass ends the script, so a later pass never sends an index for files that an earlier one did
