@@ -22,7 +22,7 @@ expect() {
         { cat "$work/output" >&2; fail "[$*] did not say [$want_text]"; }
 }
 
-export PROGRAM=server VERSION=v1.2.3 PACKAGE_DATE=20260101
+export PROGRAM=server VERSION=v1.2.3 PACKAGE_DATE=20260101 REVISION=0
 cd "$root"
 # The name of the package of this version comes from the same library the build uses, which
 # also provides fail.

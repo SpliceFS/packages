@@ -257,7 +257,7 @@ program-fetch:
 # (scripts/freebsd-parts.sh). VERSION is the version that make package-freebsd built; unpacking
 # needs no version.
 freebsd-pack:
-	PROGRAM=$(PROGRAM) VERSION=$(VERSION) PACKAGE_DATE=$(PACKAGE_DATE) scripts/freebsd-parts.sh pack $(PACKAGE_OUT) $(FREEBSD)
+	$(RECORD_VARS) scripts/freebsd-parts.sh pack $(PACKAGE_OUT) $(FREEBSD)
 
 freebsd-unpack:
 	scripts/freebsd-parts.sh unpack $(PACKAGE_OUT)
