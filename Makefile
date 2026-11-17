@@ -165,5 +165,23 @@ package-test: test-inputs package-order-test
 service-test: test-inputs
 	$(TEST_VARS) scripts/service-test.sh
 
+# Signed package repositories in dist/PROGRAM/repo, made from the packages make packages left in
+# dist/PROGRAM (it builds none). Keys come from scripts/signing-keys.sh, which is the one place
+# that picks real or throwaway keys. Each format runs in the image of its own distribution's
+# tools, with the keys mounted read-only.
+REPO_RUN = docker run --rm --user "$(shell id -u):$(shell id -g)" $(KEYS_MOUNT) -v "$(CURDIR)":/repo -w /repo
+
+.PHONY: repo repo-test
+repo: built-packages keys
+	scripts/part.sh repo-apt $(REPO_RUN) $(GO_IMAGE) sh scripts/repo-apt.sh /repo/dist/$(PROGRAM)
+	scripts/part.sh repo-rpm $(REPO_RUN) $(RPM_IMAGE) sh scripts/repo-rpm.sh /repo/dist/$(PROGRAM)
+	scripts/part.sh repo-apk $(REPO_RUN) $(APK_IMAGE) sh scripts/repo-apk.sh /repo/dist/$(PROGRAM)
+
+# Installs from the repository on every system in packaging/test-systems with signature checks
+# on, and checks that a damaged repository is refused.
+repo-test: test-inputs
+	@[ -d "dist/$(PROGRAM)/repo" ] || { echo "FAIL: no repository in dist/$(PROGRAM)/repo: run make repo first"; exit 1; }
+	$(TEST_VARS) scripts/package-test.sh repo
+
 clean:
 	rm -rf dist
