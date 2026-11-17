@@ -11,6 +11,11 @@ The change log of all parts of SpliceFS, side by side: https://splicefs.org/chan
 - Internal: packages carry a package revision, so a packaging fix can be published for the current
   program release.
 
+## [0.4.16] - 2026-11-17
+
+- Internal: the FreeBSD packages of a released program are built, signed, checked and published from
+  this repository.
+
 ## [0.4.15] - 2026-11-17
 
 - Internal: this repository can publish a released program's packages, after building, signing and
