@@ -42,8 +42,9 @@ ZYPPER_REPO=/etc/zypp/repos.d/splicefs.repo
 APK_KEY=/etc/apk/keys/splicefs.rsa.pub
 APK_KEY_TMP=/etc/apk/splicefs.rsa.pub.new
 APK_REPO=/etc/apk/repositories.d/splicefs.list
-PKG_KEY=/usr/local/etc/pkg/keys/splicefs.rsa.pub
-PKG_REPO=/usr/local/etc/pkg/repos/splicefs.conf
+PKG_DIR=/usr/local/etc/pkg
+PKG_KEY=$PKG_DIR/keys/splicefs.rsa.pub
+PKG_REPO=$PKG_DIR/repos/splicefs.conf
 
 usage() {
   echo "usage: sh setup.sh [--remove]" >&2
@@ -130,6 +131,18 @@ remove_file() {
   fi
   rm -f "$WF_TMP"
   WF_TMP=
+}
+
+# Removes the folder when nothing is in it. The setup makes the folders it writes into when they
+# are not there, and a removal that left them would leave a folder only SpliceFS ever needed. A
+# folder with anything in it, a file of another maker or the system's own, stays, and so does a
+# folder that is not there.
+remove_empty_folder() {
+  ref_dir=$1
+  if [ -d "$ref_dir" ] && [ ! -L "$ref_dir" ] && [ -z "$(ls -A "$ref_dir")" ]; then
+    rmdir "$ref_dir"
+    echo "removed the empty folder $ref_dir"
+  fi
 }
 
 # The path is only known at run time, so ShellCheck cannot follow the sourced file.
@@ -345,7 +358,10 @@ remove_rpm_key() {
 }
 
 # Each remove_ function takes away what the setup_ function of its family wrote, the
-# repository first, because it names the key.
+# repository first, because it names the key. The folders come last, and only the ones that a
+# system of the family does not ship: apt ships /etc/apt/keyrings and sources.list.d, the rpm
+# systems ship the folder of the repository files, and Alpine ships the folder of its keys. A
+# system's own folder is never removed, also when it is empty.
 setup_apt() {
   install -m 0755 -d "${APT_KEY%/*}"
   write_file "$APT_KEY" 0644 openpgp_key
@@ -370,6 +386,7 @@ remove_dnf() {
   remove_file "$DNF_REPO" dnf_repo
   remove_rpm_key
   remove_file "$RPM_KEY" openpgp_key
+  remove_empty_folder "${RPM_KEY%/*}"
 }
 
 setup_zypper() {
@@ -384,6 +401,7 @@ remove_zypper() {
   remove_file "$ZYPPER_REPO" zypper_repo
   remove_rpm_key
   remove_file "$RPM_KEY" openpgp_key
+  remove_empty_folder "${RPM_KEY%/*}"
 }
 
 setup_apk() {
@@ -397,6 +415,7 @@ setup_apk() {
 remove_apk() {
   remove_file "$APK_REPO" apk_list
   remove_file "$APK_KEY" rsa_key "$APK_KEY_TMP"
+  remove_empty_folder "${APK_REPO%/*}"
 }
 
 setup_pkg() {
@@ -409,6 +428,9 @@ setup_pkg() {
 remove_pkg() {
   remove_file "$PKG_REPO" pkg_conf
   remove_file "$PKG_KEY" rsa_key
+  remove_empty_folder "${PKG_KEY%/*}"
+  remove_empty_folder "${PKG_REPO%/*}"
+  remove_empty_folder "$PKG_DIR"
 }
 
 # The commands are the system's own, so the person can run them again later, for example to

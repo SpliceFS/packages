@@ -112,8 +112,44 @@ says() { grep -q -e "$1" "$TMP/out"; }
 db_keys() { (cd "$root/rpmdb" && echo *); }
 erase_calls() { grep -c '^-e ' "$RPMLOG" || true; }
 
+# The folder that holds the key (token key) or the repository file (token repo) of the family.
+folder_of() {
+  case "$1" in
+    key) echo "${key%/*}" ;;
+    *) echo "${repo%/*}" ;;
+  esac
+}
+
+# The folders of a family. Some a system always has: they exist before the setup, empty, and the
+# removal leaves them. The others the setup makes when they are not there, and the removal takes
+# them away again, but only when nothing else is in them. The arguments are the tokens (key or
+# repo) of the folders the system has, and of the folders the setup makes. The third argument is
+# a folder above them that the system has too (/etc/pki, which the setup does not make).
+check_folders() {
+  has=$1
+  makes=$2
+  rm -rf "$root"
+  mkdir -p "$root/rpmdb" "$root$3"
+  for token in $has; do mkdir -p "$(folder_of "$token")"; done
+  before=$(snap_all)
+  run_fn "setup_$fam"
+  for token in $has $makes; do
+    expect "setup leaves $token folder there" test -d "$(folder_of "$token")"
+  done
+  run_fn "remove_$fam"
+  expect "removal exits 0 when the setup made folders" ok
+  now=$(snap_all)
+  expect "setup then removal leaves every path as it was, the made folders gone" same "$now" "$before"
+  for token in $makes; do
+    expect "removal reports the $token folder it removed" says "^removed the empty folder $(folder_of "$token")\$"
+  done
+  run_fn "remove_$fam"
+  expect "a second removal prints nothing" quiet
+}
+
 # The setup and removal of one family. Arguments: family, the variable that holds the key's
-# path, the variable that holds the repository file's path, whether rpm holds the key.
+# path, the variable that holds the repository file's path, whether rpm holds the key, then the
+# folders as for check_folders (three arguments).
 check_family() {
   fam=$1
   key=$(var_of "$2")
@@ -122,6 +158,7 @@ check_family() {
 
   fresh_root
   before=$(snap)
+  before_all=$(snap_all)
   run_fn "setup_$fam"
   expect "setup exits 0" ok
   expect "setup writes the key and the repository" test -f "$key" -a -f "$repo"
@@ -133,6 +170,8 @@ check_family() {
   expect "removal reports the key file" says "^removed $key\$"
   now=$(snap)
   expect "setup then removal leaves every file and its content as it was" same "$now" "$before"
+  now=$(snap_all)
+  expect "the folders that hold a file of another maker stay" same "$now" "$before_all"
   if [ "$rpmkey" = rpm ]; then
     keys=$(db_keys)
     expect "the key is out of rpm and the other key is still there" same "$keys" 'gpg-pubkey-deadbeef-0'
@@ -150,6 +189,8 @@ check_family() {
   expect "removal on a clean root prints nothing" quiet
   now=$(snap_all)
   expect "removal on a clean root creates nothing" same "$now" '.'
+
+  check_folders "$5" "$6" "$7"
 
   for changed in repo key; do
     fresh_root
@@ -174,11 +215,13 @@ check_family() {
   done
 }
 
-check_family apt APT_KEY APT_REPO none
-check_family dnf RPM_KEY DNF_REPO rpm
-check_family zypper RPM_KEY ZYPPER_REPO rpm
-check_family apk APK_KEY APK_REPO none
-check_family pkg PKG_KEY PKG_REPO none
+# apt ships its keyrings and sources folders, the rpm systems ship the folder of the repository
+# files, and an Alpine system ships the folder of its keys, so those stay.
+check_family apt APT_KEY APT_REPO none 'key repo' '' /etc/apt
+check_family dnf RPM_KEY DNF_REPO rpm repo key /etc/pki
+check_family zypper RPM_KEY ZYPPER_REPO rpm repo key /etc/pki
+check_family apk APK_KEY APK_REPO none key repo /etc/apk
+check_family pkg PKG_KEY PKG_REPO none '' 'key repo' /usr/local/etc
 
 if [ "$FAILS" -eq 0 ]; then
   echo "setup-remove-test: all passed"
