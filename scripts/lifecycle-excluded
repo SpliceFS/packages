@@ -1,0 +1,11 @@
+# What the lifecycle test leaves out when it compares the files of a system before the setup and
+# after the removal (scripts/lifecycle-snapshot.sh, scripts/lifecycle-test.sh). One path to a
+# line, then why. Everything below a path is left out; the path itself is compared. Nothing of
+# SpliceFS may be listed here: a file of ours that stays behind is what the test is for.
+/var/log          logs: the system and the package managers write them while they run
+/var/cache        caches of the package managers
+/var/lib/apt      the package manager's own state: the index apt-get update downloads
+/var/lib/dpkg     the package manager's own state: the dpkg database and its backups
+/var/lib/dnf      the package manager's own state: dnf's transaction history
+/var/lib/rpm      the package manager's own state: the rpm database
+/lib/apk          the package manager's own state: the apk database and its scripts

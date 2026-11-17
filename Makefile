@@ -186,6 +186,26 @@ upgrade-diff-test:
 upgrade-test: built-packages
 	$(TEST_VARS) scripts/upgrade-test.sh
 
+# The whole life of the packages in one booted server per system of packaging/test-systems: our
+# repository is set up with setup.sh, the published release of the server and the client is
+# installed from it, upgraded to the new packages, removed, installed again, removed, and the
+# repository taken away with setup.sh --remove; the system must then match the one it started as
+# (what is left out is in scripts/lifecycle-excluded). It needs the new packages of both
+# programs in dist/server and dist/client (make packages for each), Docker and the network.
+# ONLY limits it to one format or one image; PLATFORM is as for the other tests.
+.PHONY: lifecycle-repo lifecycle-test
+lifecycle-repo:
+	$(MAKE) built-packages PROGRAM=server
+	$(MAKE) built-packages PROGRAM=client
+	$(MAKE) keys
+	for p in server client; do \
+		PROGRAM=$$p PLATFORM=$(PLATFORM) scripts/lifecycle-repo.sh && \
+		$(MAKE) repo PROGRAM=$$p REPO_DIR=dist/lifecycle/$$p || exit 1; \
+	done
+
+lifecycle-test: lifecycle-repo
+	PROGRAM=server PLATFORM=$(PLATFORM) ONLY=$(ONLY) scripts/lifecycle-test.sh
+
 # Signed package repositories in dist/PROGRAM/repo, made from the packages make packages left in
 # dist/PROGRAM (it builds none). Keys come from scripts/signing-keys.sh, which is the one place
 # that picks real or throwaway keys. Each format runs in the image of its own distribution's
