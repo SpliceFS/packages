@@ -8,7 +8,8 @@
 #   fetch  downloads what is published now into dist/PROGRAM/repo, so the repository that is
 #          built keeps every older version. An empty remote is fine (the first release).
 #   send   uploads dist/PROGRAM/repo in two passes, the packages first and the index files
-#          after them; a published package is never deleted.
+#          after them; a published package is never deleted, and never replaced by a file with
+#          other content under the same name.
 #   check  lists the remote folder of the program and changes nothing.
 # Variables: PROGRAM (required), REPO_DIR (default dist/PROGRAM/repo), UPLOAD_HOST
 # (packages.splicefs.org), UPLOAD_PORT (7022), UPLOAD_USER (site-splicefs-packages),
@@ -109,8 +110,10 @@ trap 'rm -f "$DRY"' EXIT
 trap 'exit 1' HUP INT TERM
 # set -e is switched off around the call, not by using it as a condition, which would also
 # switch it off inside run_rsync.
+# --checksum makes the dry run see a change of content and not of time stamps, so that the same
+# package built into the folder again is no change.
 set +e
-run_rsync -a --chmod=D755,F644 --delete --dry-run --itemize-changes "$REPO/" "$DEST" \
+run_rsync -a --checksum --chmod=D755,F644 --delete --dry-run --itemize-changes "$REPO/" "$DEST" \
   > "$DRY"
 dry_status=$?
 set -e
@@ -124,6 +127,20 @@ BAD=$(awk '$1 == "*deleting" { $1 = ""; sub(/^ +/, ""); print }' "$DRY" |
 if [ -n "$BAD" ]; then
   echo "refusing to send: it would delete published files:" >&2
   echo "$BAD" | sed 's/^/  /' >&2
+  exit 1
+fi
+
+# A published package is never replaced by a file with other content under the same name. A
+# change of the packaging is published as a new revision, which has a new name, so the file that
+# clients and the signatures of the indexes were made from stays what it was. An existing file
+# that the upload would change shows in the dry run as ">f" followed by something other than
+# the "+" of a new file; the index files are the only ones a new build rewrites.
+REPLACED=$(awk '$1 ~ /^>f[^+]/ { $1 = ""; sub(/^ +/, ""); print }' "$DRY" |
+  grep -Ev "$OWN_ALLOWED" || true)
+if [ -n "$REPLACED" ]; then
+  echo "refusing to send: it would replace published files with other content under the same name" >&2
+  echo "(a change to a package needs a new revision, which has a new name):" >&2
+  echo "$REPLACED" | sed 's/^/  /' >&2
   exit 1
 fi
 
