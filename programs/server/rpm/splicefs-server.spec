@@ -48,28 +48,13 @@ getent group splicefs >/dev/null || groupadd -r splicefs
 getent passwd splicefs >/dev/null || useradd -r -g splicefs -M -d / -s /sbin/nologin splicefs
 
 %post
-# $1 is 1 on a first install and 2 on an upgrade. A container or a chroot has no running
-# systemd; the files are installed and there is nothing to start.
-if [ -d /run/systemd/system ]; then
-    systemctl daemon-reload
-    if [ "$1" -eq 1 ]; then
-        systemctl enable splicefsd.service
-        systemctl start splicefsd.service ||
-            echo "splicefsd did not start; see: journalctl -u splicefsd" >&2
-    else
-        # A broken configuration must not turn an upgrade into a failed transaction.
-        systemctl try-restart splicefsd.service ||
-            echo "splicefsd did not restart; see: journalctl -u splicefsd" >&2
-    fi
-fi
+@service:after-files@
 
 %preun
 # $1 is 0 when the package is removed for good, not replaced by another version.
-if [ "$1" -eq 0 ] && [ -d /run/systemd/system ]; then
-    systemctl disable --now splicefsd.service || true
+if [ "$1" -eq 0 ]; then
+    @service:before-removal@
 fi
 
 %postun
-if [ -d /run/systemd/system ]; then
-    systemctl daemon-reload || true
-fi
+@service:after-removal@

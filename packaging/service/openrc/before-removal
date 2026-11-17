@@ -1,0 +1,7 @@
+# Removing the package stops the service and takes it out of the runlevel the documentation adds
+# it to. The data and the user stay.
+if [ -e /run/openrc/softlevel ]; then
+    rc-service --ifstarted @SERVICE@ stop || true
+    # Fails when the service was never added, which is fine.
+    rc-update -qq del @SERVICE@ default || true
+fi

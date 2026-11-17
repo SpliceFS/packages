@@ -33,7 +33,9 @@ for arch in amd64 arm64; do
     # abuild names the repository after the directory above the one holding the APKBUILD.
     work="$(mktemp -d)/splicefs/$name"
     mkdir -p "$work"
-    cp "$defs/alpine/$name".* "$work/"
+    for script in "$defs/alpine/$name".*; do
+        package_script openrc "$script" > "$work/$(basename "$script")"
+    done
     sed -e "s/@NAME@/$name/" -e "s/@VERSION@/$apkver/" -e "s/@REVISION@/$apkrel/" "$defs/alpine/APKBUILD" > "$work/APKBUILD"
     (
         cd "$work"

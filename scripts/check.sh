@@ -644,6 +644,8 @@ fi
 # 9. The scripts that build the packages of a program. They need no Docker and no root.
 run "9. package-lib.sh: program.conf, versions, documents, unit, system selection" \
   sh scripts/package-lib-test.sh
+run "9. package-script.sh: the service steps filled into the install scripts of each program" \
+  sh scripts/package-script-test.sh
 run "9. setup.sh --remove: setup, removal and a changed file, for every family, in a fake root" \
   sh scripts/setup-remove-test.sh
 run "9. part.sh: the timer every package target runs through" sh scripts/part-test.sh

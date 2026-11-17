@@ -1,6 +1,6 @@
 #!/bin/sh
 # Runs before the package's files are removed. On an upgrade the service keeps running
-# and the new version's postinst restarts it.
+# and the new version's postinst restarts it if it was running.
 set -e
 
 case "$1" in
@@ -11,9 +11,7 @@ case "$1" in
         if [ ! -L /sbin ] && [ "$helper_target" = /usr/bin/splicefsctl ]; then
             rm -f /sbin/mount.splicefs
         fi
-        if [ -d /run/systemd/system ]; then
-            systemctl disable --now splicefs.service || true
-        fi
+        @service:before-removal@
         ;;
     *)
         # An upgrade keeps the service running, and a failed upgrade needs nothing here.
