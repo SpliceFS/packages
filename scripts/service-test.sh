@@ -20,6 +20,9 @@
 #   service_user C           prints the user the main process of the service runs as
 #   service_report C         prints the service's status and its last 30 log lines
 #   skip_reason IMAGE        prints why this image cannot be tested, or nothing when it can
+# expected_user and answers_text are set by the service check of the program, which is chosen at
+# run time, so ShellCheck cannot follow it.
+# shellcheck disable=SC2154
 set -eu
 
 : "${PROGRAM:?PROGRAM is not set}"
