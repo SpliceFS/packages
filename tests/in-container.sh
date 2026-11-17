@@ -50,7 +50,8 @@ case "$format" in
     fi
     tmpdirs="/etc/pki/rpm-gpg $(dirname "$srcfile")"
     is_installed() { rpm -q "$1" >/dev/null 2>&1; }
-    # The keys rpm knows, one per line, in a fixed order.
+    # The keys rpm knows, one per line, in a fixed order. Only the setup's own key is compared:
+    # dnf imports the keys of the system's other repositories while it installs the packages.
     rpm_keys() { rpm -qa gpg-pubkey | sort; }
     ;;
   apk)
@@ -61,8 +62,9 @@ case "$format" in
     sitekey=/site/keys/splicefs.rsa.pub
     is_installed() { apk info -e "$1" >/dev/null 2>&1; }
     remove_pkgs() { apk del "$@"; }
-    # apk update prints each repository it reads, with its address.
-    repo_listed() { apk update 2>&1 | grep -q host.docker.internal; }
+    # apk policy names each repository that holds the package. apk update is no probe: apk 2
+    # (Alpine 3.22) prints only the repositories whose index has a description, and ours has none.
+    repo_listed() { apk policy splicefs-server 2>&1 | grep -q host.docker.internal; }
     ;;
   *) fail "unknown format '$format'" ;;
 esac
@@ -223,8 +225,7 @@ for f in $files; do
   [ ! -e "$f" ] || fail "an argument error wrote $f"
 done
 # On a system the script has not touched, --remove has nothing to do and says nothing is wrong.
-# The keys rpm knows are written down first, to see that the whole round trip leaves them as
-# they were.
+# The keys rpm knows are written down first, so that the key the setup adds can be told apart.
 if [ "$format" = rpm ]; then rpm_keys >"$work/keys.before"; fi
 try run_script --remove
 [ "$status" -eq 0 ] || fail "setup.sh --remove on a clean system exited $status"
@@ -247,6 +248,12 @@ for f in $files; do
 done
 expect_same_file "$keyfile" "$sitekey" "$keyfile differs from the published key"
 no_temp_files
+# The setup's own key is the one that rpm knows now and did not know before.
+if [ "$format" = rpm ]; then
+  rpm_keys >"$work/keys.setup"
+  grep -v -x -F -f "$work/keys.before" "$work/keys.setup" >"$work/keys.ours" || true
+  [ -s "$work/keys.ours" ] || fail "the setup added no key to the rpm database"
+fi
 # Every later run that must change nothing is compared with this state. The files get an
 # old fixed modification time first, so a rewrite shows as a new time on any filesystem,
 # however coarse its clock; waiting between runs would only work for a fine clock. The -t
@@ -352,7 +359,9 @@ try repo_listed
 [ "$status" -ne 0 ] || fail "the package manager still lists the repository after --remove"
 if [ "$format" = rpm ]; then
   rpm_keys >"$work/keys.after"
-  expect_same_file "$work/keys.before" "$work/keys.after" "--remove left a key in the rpm database"
+  if grep -q -x -F -f "$work/keys.ours" "$work/keys.after"; then
+    fail "--remove left the setup's key in the rpm database"
+  fi
 fi
 # The packages are still installed, and the script says how to remove them.
 for p in splicefs-server splicefs-client; do
