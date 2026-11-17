@@ -69,7 +69,11 @@ import html, json, re, sys
 page = open("site/index.html", encoding="ascii").read()
 blocks = [html.unescape(b) for b in re.findall(r"<pre><code>(.*?)</code></pre>", page, re.S)]
 json.dump(blocks, open(sys.argv[1], "w"))
-step = {k: open("steps/%s.sh" % k).read() for k in ("apt", "dnf", "zypper", "apk", "pkg")}
+families = ("apt", "dnf", "zypper", "apk", "pkg")
+step = {k: open("steps/%s.sh" % k).read() for k in families}
+# The uninstall commands. The lifecycle test runs these same files, so what the page and the
+# README show is what the test proves.
+uninstall = {k: open("steps/uninstall-%s.sh" % k).read() for k in families}
 base = "https://packages.splicefs.org"
 curl = "curl --proto '=https' --tlsv1.2 -fsSL %s/setup.sh -o ~/splicefs-setup.sh &&\n  sudo sh ~/splicefs-setup.sh\n" % base
 wget = "wget -qO ~/splicefs-setup.sh %s/setup.sh &&\n  sudo sh ~/splicefs-setup.sh\n" % base
@@ -84,8 +88,14 @@ verify_signed = ("gpg --verify ~/splicefs-setup.sh.asc &&\n"
                  "  gpg --output ~/splicefs-setup.sh --decrypt ~/splicefs-setup.sh.asc\n")
 # The removal section repeats the three download commands of step 1 with --remove added.
 remove = [b.replace("splicefs-setup.sh\n", "splicefs-setup.sh --remove\n") for b in (curl, wget, fetch)]
-expected = [curl, wget, fetch, get_signed, verify_signed] + remove + [step[k] for k in ("apt", "dnf", "zypper", "apk", "pkg")]
+# The page shows the uninstall commands after the removal of the repository, then the manual steps.
+expected = ([curl, wget, fetch, get_signed, verify_signed] + remove +
+            [uninstall[k] for k in families] + [step[k] for k in families])
 bad = 0
+readme = open("README.md", encoding="ascii").read()
+for k in families:
+    if "```\n" + uninstall[k] + "```\n" not in readme:
+        print("README.md does not show steps/uninstall-%s.sh as a code block" % k); bad += 1
 if len(blocks) != len(expected):
     print("page has %d code blocks, expected %d" % (len(blocks), len(expected))); bad += 1
 for i, (got, want) in enumerate(zip(blocks, expected)):
@@ -93,7 +103,7 @@ for i, (got, want) in enumerate(zip(blocks, expected)):
         print("block %d differs from its source" % (i + 1)); bad += 1
 sys.exit(1 if bad else 0)
 PYEOF
-run "3. page code blocks match steps/ and the setup lines" python3 -I "$TMP/blocks.py" "$TMP/blocks.json"
+run "3. page and README code blocks match steps/ and the setup lines" python3 -I "$TMP/blocks.py" "$TMP/blocks.json"
 
 # 4. The built script: keys byte-identical, no placeholder left, last line, line endings.
 cat > "$TMP/built.py" <<'PYEOF'

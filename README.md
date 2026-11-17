@@ -48,14 +48,104 @@ curl --proto '=https' --tlsv1.2 -fsSL https://packages.splicefs.org/setup.sh -o 
   command, then the repository. When the script is done it prints that command for your system,
   for example `sudo apt-get remove splicefs-server splicefs-client`. Packages that stay installed
   keep working, but they get no updates.
+  To remove SpliceFS with its data, see Uninstall.
 - On dnf and zypper systems it also removes the key that the setup added to the rpm database,
   and no other key.
 - A file is removed only when its content is exactly what the setup writes there. A file that
   someone changed is left in place, and the script prints a warning with its path.
-- The folders the setup created are left in place, because other software keeps its files in
-  them too.
+- A folder the setup created is removed when it is empty. A folder that holds any other file
+  stays, and so does a folder the system ships, such as `/etc/apt/keyrings`.
 - It is safe to run again, and on a system that was never set up it does nothing. It makes the
   same self-check as the setup, so it needs the latest published script.
+
+## Uninstall
+
+The packages delete neither the data nor the user when they are removed, so that installing them
+again picks up where you left off. To take SpliceFS off a system completely, run the commands for
+your system in this order: the packages, the packages that only they needed, the data and
+configuration folders, the `splicefs` user with its group, and last the repository. Read the list
+of packages your package manager shows before you confirm it. The last command needs the setup
+script, downloaded as under "Remove the repository". On Alpine and FreeBSD, run them as root.
+These commands are on the install page too, and `make check` proves that both show the same.
+
+Debian and Ubuntu:
+
+```
+# Remove the packages and their configuration files:
+sudo apt-get purge splicefs-server splicefs-client
+
+# Remove the packages they needed that nothing else needs now:
+sudo apt-get autoremove --purge
+
+# Delete the data and the configuration folder, then the user and its group:
+sudo rm -rf /var/lib/splicefs /etc/splicefs
+sudo userdel splicefs
+
+# Remove the repository and the signing key, with the setup script from step 1:
+sudo sh ~/splicefs-setup.sh --remove
+```
+
+RHEL, Rocky Linux, AlmaLinux and Amazon Linux:
+
+```
+# Remove the packages:
+sudo dnf remove splicefs-server splicefs-client
+
+# Remove the packages they needed that nothing else needs now:
+sudo dnf autoremove
+
+# Delete the data and the configuration folder, then the user and its group:
+sudo rm -rf /var/lib/splicefs /etc/splicefs
+sudo userdel splicefs
+
+# Remove the repository and the signing key, with the setup script from step 1:
+sudo sh ~/splicefs-setup.sh --remove
+```
+
+openSUSE Leap:
+
+```
+# Remove the packages, and the packages they needed that nothing else needs now:
+sudo zypper remove --clean-deps splicefs-server splicefs-client
+
+# Delete the data and the configuration folder, then the user and its group:
+sudo rm -rf /var/lib/splicefs /etc/splicefs
+sudo userdel splicefs
+
+# Remove the repository and the signing key, with the setup script from step 1:
+sudo sh ~/splicefs-setup.sh --remove
+```
+
+Alpine:
+
+```
+# Remove the packages, and the packages they needed that nothing else needs now:
+apk del splicefs-server splicefs-client
+
+# Delete the data, the logs and the configuration folder, then the user and its group:
+rm -rf /var/lib/splicefs /etc/splicefs /var/log/splicefsd.log /var/log/splicefs.log
+deluser splicefs
+
+# Remove the repository and the signing key, with the setup script from step 1:
+sh ~/splicefs-setup.sh --remove
+```
+
+FreeBSD:
+
+```
+# Remove the packages:
+pkg delete splicefs-server splicefs-client
+
+# Remove the packages they needed that nothing else needs now:
+pkg autoremove
+
+# Delete the data and the configuration folder, then the user and its group:
+rm -rf /var/db/splicefs /usr/local/etc/splicefs
+pw userdel splicefs
+
+# Remove the repository and the signing key, with the setup script from step 1:
+sh ~/splicefs-setup.sh --remove
+```
 
 ## Verify the setup script
 
@@ -128,8 +218,9 @@ are not given the version again. A `VERSION` given to a test that is not the rec
 ## Layout
 
 - `site/`: the install page (`index.html`).
-- `steps/`: the manual repository setup and the install commands for each package manager,
-  shown on the page.
+- `steps/`: the manual repository setup and the install commands for each package manager
+  (`<family>.sh`), and the uninstall commands (`uninstall-<family>.sh`), shown on the page. The
+  lifecycle test runs the uninstall files.
 - `keys/`: the public signing keys.
 - `scripts/`: `build-site.sh`, `sign-site.sh`, `publish.sh` and `check.sh`, `setup-remove-test.sh`
   (setup and removal in a fake root, for every family), and the scripts that
