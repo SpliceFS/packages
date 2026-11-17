@@ -6,11 +6,20 @@ the setup script and the page at packages.splicefs.org.
 
 The change log of all parts of SpliceFS, side by side: https://splicefs.org/changelog/
 
+## [0.4.17] - 2026-11-17
+
+- Internal: packages carry a package revision, so a packaging fix can be published for the current
+  program release.
+
+## [0.4.16] - 2026-11-17
+
+- Internal: the FreeBSD packages of a released program are built, signed, checked and published from
+  this repository.
+
 ## [0.4.15] - 2026-11-17
 
-- Installing a SpliceFS package no longer starts or turns on its service; start it with the system's
-  service manager (see "After the install"). An upgrade restarts only a running service, and
-  removing a package stops and turns off its service.
+- Internal: this repository can publish a released program's packages, after building, signing and
+  testing them.
 
 ## [0.4.14] - 2026-11-17
 

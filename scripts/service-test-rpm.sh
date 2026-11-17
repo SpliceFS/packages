@@ -13,7 +13,7 @@ package_file() {
         linux/amd64) arch=x86_64 ;;
         *) fail "no rpm for platform $platform" ;;
     esac
-    echo "/pkg/$name-$rpmver-1.$arch.rpm"
+    echo "/pkg/$name-$rpmver-$rpmrel.$arch.rpm"
 }
 
 install_package() {

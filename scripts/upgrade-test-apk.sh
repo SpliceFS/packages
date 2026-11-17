@@ -47,7 +47,10 @@ case "$mode" in
         listing="$(mktemp)"
         list_package "$new" > "$listing"
         user="$(sed -n 's/^command_user="\([^:"]*\).*/\1/p' "$init")"
-        verify_upgrade apk "$user" "$listing"
+        # apk list prints "NAME-VERSION-rN CPU {NAME} (LICENSE) [installed]" for a package.
+        installed="$(apk list -I "$name")"
+        installed="${installed%% *}"
+        verify_upgrade apk "$user" "$listing" "$installed" "$name-$apkver-r$apkrel"
         ;;
     *)
         echo "usage: upgrade-test-apk.sh list PACKAGE | upgrade OLD NEW" >&2

@@ -66,6 +66,11 @@ e2e-freebsd: freebsd-kvm
 #   SRC       the source tree of the program at this version. Its LICENSE and the documents named
 #             in program.conf go into the packages; they change with every version.
 #   VERSION   the version of the program, as it was released: v1.2.3 or v1.2.3-rc.1.
+#   REVISION  the revision of the packages, 0 (the default) or more. A change to the packaging
+#             alone, with the same release of the program, is packaged as the next revision of
+#             that release: the way distributions number it (deb 1.2.3-1, rpm release 2, Alpine
+#             -r1, FreeBSD 1.2.3_1). Revision 0 is named as the packages published before
+#             revisions existed. scripts/package-lib.sh says how each format writes it.
 # The packages are written to dist/PROGRAM: deb, rpm, and Alpine packages in alpine/<cpu>. SIGNING_DIR
 # names a folder with the real signing keys (scripts/signing-keys.sh says which); without it throwaway
 # keys are generated, and a package signed with them must never be published.
@@ -87,12 +92,15 @@ PROGRAM ?=
 BIN ?=
 SRC ?=
 VERSION ?=
+REVISION ?= 0
 # Alpine versions cannot carry a commit, so a build with uncommitted changes carries the date of
 # its commit: here, of the commit of SRC.
 PACKAGE_DATE ?= $(shell git -C "$(SRC)" log -1 --format=%cd --date=format:%Y%m%d 2>/dev/null || date +%Y%m%d)
 PACKAGE_OUT = dist/$(PROGRAM)
 # What the package scripts read, with the folders where the image sees BIN and SRC.
-PACKAGE_VARS = PROGRAM=$(PROGRAM) VERSION=$(VERSION) PACKAGE_DATE=$(PACKAGE_DATE) BIN=/in/bin SRC=/in/src
+PACKAGE_VARS = PROGRAM=$(PROGRAM) VERSION=$(VERSION) PACKAGE_DATE=$(PACKAGE_DATE) REVISION=$(REVISION) BIN=/in/bin SRC=/in/src
+# What the version record is written from.
+RECORD_VARS = PROGRAM=$(PROGRAM) VERSION=$(VERSION) PACKAGE_DATE=$(PACKAGE_DATE) REVISION=$(REVISION)
 # The signing keys, read only, for the steps that sign or check with them.
 KEYS_MOUNT := -v "$(CURDIR)/dist/keys":/keys:ro
 RUN_OPTS :=
@@ -105,7 +113,7 @@ DOCKER_RUN = docker run --rm --user "$(shell id -u):$(shell id -g)" $(RUN_OPTS) 
 # version they were built as is recorded in dist/PROGRAM/version, which is where the tests that
 # follow read it (scripts/package-record.sh).
 packages: package-deb package-rpm package-apk
-	PROGRAM=$(PROGRAM) VERSION=$(VERSION) PACKAGE_DATE=$(PACKAGE_DATE) sh -c '. scripts/package-record.sh && write_package_record'
+	$(RECORD_VARS) sh -c '. scripts/package-record.sh && write_package_record'
 
 # Stops at once, with the name of what is missing, before any image starts. Docker would make a
 # folder that does not exist as root. A build removes the record of the version first, so that a
@@ -140,10 +148,10 @@ package-apk: package-inputs keys
 # release: FreeBSD packages hold no documents) and VERSION, and it records the version the way
 # make packages does.
 package-freebsd: freebsd-kvm package-inputs keys
-	scripts/part.sh package-freebsd env PROGRAM=$(PROGRAM) VERSION=$(VERSION) PACKAGE_DATE=$(PACKAGE_DATE) \
+	scripts/part.sh package-freebsd env PROGRAM=$(PROGRAM) VERSION=$(VERSION) PACKAGE_DATE=$(PACKAGE_DATE) REVISION=$(REVISION) \
 		BIN="$(abspath $(BIN))" KEYS_DIR="$(CURDIR)/dist/keys" LINUX_IMAGE=$(GO_IMAGE) FREEBSD_IMAGE=$(FREEBSD_IMAGE) FREEBSD=$(FREEBSD) \
 		sh scripts/package-freebsd.sh $(PACKAGE_OUT)
-	PROGRAM=$(PROGRAM) VERSION=$(VERSION) PACKAGE_DATE=$(PACKAGE_DATE) sh -c '. scripts/package-record.sh && write_package_record'
+	$(RECORD_VARS) sh -c '. scripts/package-record.sh && write_package_record'
 
 # First in every target that starts a FreeBSD machine, so that a computer that cannot is found
 # before anything is built.
@@ -209,8 +217,10 @@ upgrade-diff-test:
 # file, and installs the packages in dist/PROGRAM over it, the way a user upgrades. It checks that
 # both survived, the service user exists, the new version is installed and every file the new
 # package lists is there. It runs only for a format whose packaging changed since that release: a
-# version that differs only in the programs and the changelog cannot break an upgrade. It needs
-# Docker and the network.
+# version that differs only in the programs and the changelog cannot break an upgrade. When the
+# packaging changed and the version is the published one, the packages must be a later revision
+# (make packages REVISION=N): the test says so when they are not. scripts/next-revision.sh prints
+# the revision that follows the highest one published. It needs Docker and the network.
 upgrade-test: built-packages
 	$(TEST_VARS) scripts/upgrade-test.sh
 
@@ -231,6 +241,43 @@ repo: built-packages keys
 repo-test: built-packages
 	@[ -d "dist/$(PROGRAM)/repo" ] || { echo "FAIL: no repository in dist/$(PROGRAM)/repo: run make repo first"; exit 1; }
 	$(TEST_VARS) scripts/package-test.sh repo
+
+# --- Publishing the repositories of a program ---------------------------------------------------
+# The release of a program (the publish-program workflow) publishes what make repo made in
+# dist/PROGRAM/repo to the folder of the program on the package site. UPLOAD_KEY_FILE and
+# UPLOAD_KNOWN_HOSTS_FILE (see scripts/publish-program.sh) come from the environment, so no secret
+# is ever in this file.
+.PHONY: program-fetch program-publish program-publish-check program-publish-test freebsd-pack freebsd-unpack
+
+# Downloads what is published into dist/PROGRAM/repo first, so the repositories built next keep
+# every older version.
+program-fetch:
+	scripts/publish-program.sh fetch
+
+# The release builds the FreeBSD packages and publishes in different jobs. freebsd-pack puts what
+# the FreeBSD job of one release (FREEBSD=15.1) merged into dist/PROGRAM/repo into one tar, and
+# freebsd-unpack puts the tars of every release into the repository the publish job fetched
+# (scripts/freebsd-parts.sh). VERSION is the version that make package-freebsd built; unpacking
+# needs no version.
+freebsd-pack:
+	$(RECORD_VARS) scripts/freebsd-parts.sh pack $(PACKAGE_OUT) $(FREEBSD)
+
+freebsd-unpack:
+	scripts/freebsd-parts.sh unpack $(PACKAGE_OUT)
+
+# Uploads dist/PROGRAM/repo, packages first, then the index files and their signatures. It
+# refuses an incomplete repository and any upload that would delete a published package.
+program-publish:
+	scripts/publish-program.sh send
+
+# Lists the remote folder of the program and changes nothing: proves that the key and host key work.
+program-publish-check:
+	scripts/publish-program.sh check
+
+# Proves publish-program.sh against local folders and a throwaway key, with no server. It is part
+# of check; this runs it alone.
+program-publish-test:
+	scripts/publish-program-test.sh
 
 clean:
 	rm -rf dist
