@@ -8,8 +8,8 @@ The change log of all parts of SpliceFS, side by side: https://splicefs.org/chan
 
 ## [0.4.19] - 2026-11-17
 
-- FreeBSD: installing a SpliceFS package no longer turns its service on at boot; turn it on with
-  `sysrc <name>_enable=YES` and start it with `service <name> start`.
+- Internal: a packaging change merged here is published as a package revision of the current
+  release.
 
 ## [0.4.18] - 2026-11-17
 
