@@ -52,7 +52,7 @@ jobs:
   # packages from the published repositories with the signature check on. The machine is amd64
   # and needs the hardware virtualization that ubuntu-latest offers; no job needs an arm64 runner.
   freebsd:
-    name: FreeBSD (${{ matrix.release }})
+    name: FreeBSD (${{ matrix.release }}, amd64)
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
