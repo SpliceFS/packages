@@ -169,6 +169,23 @@ package-test: built-packages package-order-test
 service-test: built-packages
 	$(TEST_VARS) scripts/service-test.sh
 
+# The part of the upgrade test that decides whether the packaging changed, checked against small
+# hand-made package listings. It needs no Docker, so it is part of check.
+.PHONY: upgrade-diff-test upgrade-test
+upgrade-diff-test:
+	scripts/upgrade-diff-test.sh
+
+# Installs the newest published release of the program (downloaded from the releases of the
+# repository named by release_repo in programs/PROGRAM/program.conf) in a clean, booted server of
+# the first system of each format in packaging/test-systems, writes a configuration line and a data
+# file, and installs the packages in dist/PROGRAM over it, the way a user upgrades. It checks that
+# both survived, the service user exists, the new version is installed and every file the new
+# package lists is there. It runs only for a format whose packaging changed since that release: a
+# version that differs only in the programs and the changelog cannot break an upgrade. It needs
+# Docker and the network.
+upgrade-test: built-packages
+	$(TEST_VARS) scripts/upgrade-test.sh
+
 # Signed package repositories in dist/PROGRAM/repo, made from the packages make packages left in
 # dist/PROGRAM (it builds none). Keys come from scripts/signing-keys.sh, which is the one place
 # that picks real or throwaway keys. Each format runs in the image of its own distribution's

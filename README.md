@@ -89,6 +89,7 @@ make e2e-freebsd  # runs the setup script in a FreeBSD machine of every supporte
 make packages PROGRAM=server BIN=<programs> SRC=<source> VERSION=v1.2.3   # builds deb, rpm and apk into dist/server (PROGRAM=client for the client)
 make package-test PROGRAM=server   # installs and removes each package on every server image (ONLY=deb or ONLY=<image> for one)
 make service-test PROGRAM=server   # proves the service starts, answers, restarts and stops, on every image
+make upgrade-test PROGRAM=server  # installs the newest published release, then upgrades to the packages in dist (only when the packaging changed)
 make repo PROGRAM=server           # builds the signed apt, rpm and Alpine repositories into dist/server/repo
 make repo-test PROGRAM=server      # installs from them with signature checks on
 make package-order-test                           # checks that the package versions sort right in dpkg, rpm and apk
@@ -108,11 +109,13 @@ are not given the version again. A `VERSION` given to a test that is not the rec
 - `keys/`: the public signing keys.
 - `scripts/`: `build-site.sh`, `sign-site.sh`, `publish.sh` and `check.sh`, and the scripts that
   build, test and publish packages (`package-*.sh`, `service-test*.sh`, `repo-*.sh`,
-  `signing-keys.sh`).
+  `signing-keys.sh`, `upgrade-test*.sh`, `upgrade-diff.sh`).
 - `programs/<program>/`: the package definitions of one program (deb, rpm, Alpine, systemd, OpenRC)
   and its `program.conf`, which says what the program is: package name, service program,
-  programs, documents. `BIN` is a folder of compiled programs, one folder `<os>-<arch>` each, and
-  `SRC` the program's source tree at that version, which holds the documents the packages ship.
+  programs, documents, and the repository its releases are published in (`release_repo`, which
+  the upgrade test downloads the newest release from). `BIN` is a folder of compiled programs,
+  one folder `<os>-<arch>` each, and `SRC` the program's source tree at that version, which holds
+  the documents the packages ship.
   A program that installs links names them in `programs/<program>/links`, one `<link> <target>`
   a line, a package test hook in `programs/<program>/package-test-extra.sh`, and what a working
   service means in `programs/<program>/service-check.sh`.

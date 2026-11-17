@@ -23,6 +23,7 @@ name=splicefs-demo
 program=demod
 programs="demod democtl"
 docs="README.md guide/setup.md"
+release_repo=example/demo
 CONF
 printf '# a comment\n\nalpha.d\nbeta.d\n' > "$tree/programs/demo/config-folders"
 printf 'ExecStart=/usr/local/bin/demod\n' > "$tree/programs/demo/systemd/demod.service"
@@ -31,17 +32,18 @@ name=splicefs-other
 program=otherd
 programs=otherd
 docs=README.md
+release_repo=example/other
 CONF
 printf 'gamma.d\n' > "$tree/programs/other/config-folders"
 # A program.conf that leaves a fact out.
 printf 'program=x\nprograms=x\ndocs=x\n' > "$tree/programs/empty/program.conf"
 
 # $1 the folder the library is read from (the root of a repository), $2 PROGRAM, $3 the facts
-# wanted: name, program, programs, docs, confdir and confsubdirs on one line (the folders joined
-# by a comma).
+# wanted: name, program, programs, docs, confdir, confsubdirs (the folders joined by a comma) and
+# release_repo, the repository the program is released from, on one line.
 reads() {
     got="$(cd "$1" && PROGRAM="$2" VERSION=v1.2.3 PACKAGE_DATE=20261112 sh -c \
-        '. "$1/scripts/package-lib.sh"; echo "$name|$program|$programs|$docs|$confdir|$(echo $confsubdirs | tr " " ,)"' \
+        '. "$1/scripts/package-lib.sh"; echo "$name|$program|$programs|$docs|$confdir|$(echo $confsubdirs | tr " " ,)|$release_repo"' \
         sh "$root" 2>&1)" || true
     if [ "$got" = "$3" ]; then
         printf 'ok   program.conf of %-6s %s\n' "$2" "$3"
@@ -69,10 +71,10 @@ refuses_program() {
     fi
 }
 
-reads "$tree" demo 'splicefs-demo|demod|demod democtl|README.md guide/setup.md|/etc/splicefs/demo|alpha.d,beta.d'
-reads "$tree" other 'splicefs-other|otherd|otherd|README.md|/etc/splicefs/other|gamma.d'
-reads "$root" server 'splicefs-server|splicefsd|splicefsd|README.md CHANGELOG.md docs/configuration.md|/etc/splicefs/server|conf.d,shares.d'
-reads "$root" client 'splicefs-client|splicefs|splicefs splicefsctl|README.md CHANGELOG.md docs/configuration.md|/etc/splicefs/client|conf.d,clusters.d,mounts.d'
+reads "$tree" demo 'splicefs-demo|demod|demod democtl|README.md guide/setup.md|/etc/splicefs/demo|alpha.d,beta.d|example/demo'
+reads "$tree" other 'splicefs-other|otherd|otherd|README.md|/etc/splicefs/other|gamma.d|example/other'
+reads "$root" server 'splicefs-server|splicefsd|splicefsd|README.md CHANGELOG.md docs/configuration.md|/etc/splicefs/server|conf.d,shares.d|SpliceFS/server'
+reads "$root" client 'splicefs-client|splicefs|splicefs splicefsctl|README.md CHANGELOG.md docs/configuration.md|/etc/splicefs/client|conf.d,clusters.d,mounts.d|SpliceFS/client'
 refuses_program 'PROGRAM is not set' -u PROGRAM
 refuses_program 'programs/nothing/program.conf' PROGRAM=nothing
 refuses_program 'not a program name' PROGRAM=../demo
