@@ -6,6 +6,11 @@ the setup script and the page at packages.splicefs.org.
 
 The change log of all parts of SpliceFS, side by side: https://splicefs.org/changelog/
 
+## [0.4.14] - 2026-11-17
+
+- `sh setup.sh --remove` removes the SpliceFS repository and signing key that setup.sh added; remove
+  the packages first with the commands it prints.
+
 ## [0.4.13] - 2026-11-17
 
 - Internal: FreeBSD packages of both programs are built and checked here on prepared machine images;
