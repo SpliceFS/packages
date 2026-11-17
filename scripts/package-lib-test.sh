@@ -130,6 +130,25 @@ links_of "$root" server ''
 # The client's mount helper: mount(8) runs mount.splicefs, and the control tool is that helper.
 links_of "$root" client '/usr/sbin/mount.splicefs -> /usr/bin/splicefsctl,'
 
+# The package tests check every link the program installs. The list is read from the same file
+# as the links are made from. $1 the program, $2 the links wanted as "<link> <target>" items each
+# followed by a comma, or nothing.
+link_list_of() {
+    # The inner shell expands $1, which is the root of the repository.
+    # shellcheck disable=SC2016
+    got="$(cd "$tree" && PROGRAM="$1" VERSION=v1.2.3 PACKAGE_DATE=20261112 sh -c \
+        '. "$1/scripts/package-lib.sh"; package_link_list | tr "\n" ,' sh "$root" 2>&1)" || true
+    if [ "$got" = "$2" ]; then
+        printf 'ok   package_link_list of %-6s %s\n' "$1" "$2"
+    else
+        printf 'FAIL package_link_list of %s: want "%s" got "%s"\n' "$1" "$2" "$got"
+        failed=$((failed + 1))
+    fi
+}
+
+link_list_of demo '/usr/sbin/mount.demo /usr/bin/democtl,/usr/lib/demo/helper /usr/bin/demod,'
+link_list_of other ''
+
 # The formats whose definition copies a tree in (rpm, Alpine) get the links as a folder of their
 # own, which is readable by everyone because it is copied over the root of the package.
 tree_of="$(cd "$tree" && PROGRAM=demo VERSION=v1.2.3 PACKAGE_DATE=20261112 sh -c \
