@@ -204,5 +204,31 @@ repo-test: built-packages
 	@[ -d "dist/$(PROGRAM)/repo" ] || { echo "FAIL: no repository in dist/$(PROGRAM)/repo: run make repo first"; exit 1; }
 	$(TEST_VARS) scripts/package-test.sh repo
 
+# --- Publishing the repositories of a program ---------------------------------------------------
+# The release of a program (the publish-program workflow) publishes what make repo made in
+# dist/PROGRAM/repo to the folder of the program on the package site. UPLOAD_KEY_FILE and
+# UPLOAD_KNOWN_HOSTS_FILE (see scripts/publish-program.sh) come from the environment, so no secret
+# is ever in this file.
+.PHONY: program-fetch program-publish program-publish-check program-publish-test
+
+# Downloads what is published into dist/PROGRAM/repo first, so the repositories built next keep
+# every older version.
+program-fetch:
+	scripts/publish-program.sh fetch
+
+# Uploads dist/PROGRAM/repo, packages first, then the index files and their signatures. It
+# refuses an incomplete repository and any upload that would delete a published package.
+program-publish:
+	scripts/publish-program.sh send
+
+# Lists the remote folder of the program and changes nothing: proves that the key and host key work.
+program-publish-check:
+	scripts/publish-program.sh check
+
+# Proves publish-program.sh against local folders and a throwaway key, with no server. It is part
+# of check; this runs it alone.
+program-publish-test:
+	scripts/publish-program-test.sh
+
 clean:
 	rm -rf dist
