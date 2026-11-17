@@ -602,6 +602,11 @@ setup.sh.asc"
   fi
 fi
 
+# 9. The scripts that build the packages of a program. Both need no Docker and no root.
+run "9. package-lib.sh: program.conf, versions, documents, unit, system selection" \
+  sh scripts/package-lib-test.sh
+run "9. part.sh: the timer every package target runs through" sh scripts/part-test.sh
+
 if [ "$FAILS" -eq 0 ]; then
   echo "all checks passed"
 else
