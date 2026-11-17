@@ -19,7 +19,8 @@ lint: site
 	shellcheck --shell=sh dist/site/setup.sh steps/*.sh scripts/*.sh tests/*.sh \
 		programs/*/deb/postinst programs/*/deb/prerm programs/*/deb/postrm \
 		programs/*/alpine/*.post-install programs/*/alpine/*.post-upgrade \
-		programs/*/alpine/*.pre-deinstall programs/*/alpine/*.pre-install programs/*/package-test-extra.sh
+		programs/*/alpine/*.pre-deinstall programs/*/alpine/*.pre-install programs/*/package-test-extra.sh \
+		programs/*/service-check.sh
 
 # Signs the built script with the key file named by SIGNING_KEY_FILE and proves the signature
 # with the public key in keys/ only. Needs gpg.
@@ -154,6 +155,15 @@ package-order-test:
 # packaging/test-systems and reports each system's result.
 package-test: test-inputs package-order-test
 	$(TEST_VARS) scripts/package-test.sh
+
+# Proves the service, not only the files: in a container per system that is booted as a server,
+# with that system's own service manager as process 1, installs the package and checks that the
+# service starts by itself, runs as its own user, does its job (what that means is in
+# programs/PROGRAM/service-check.sh), restarts, comes back after a reboot and stops when the
+# package is removed.
+.PHONY: service-test
+service-test: test-inputs
+	$(TEST_VARS) scripts/service-test.sh
 
 clean:
 	rm -rf dist
