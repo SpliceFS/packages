@@ -1,7 +1,8 @@
 #!/bin/sh
 # Runs as root inside the system under test (started by tests/run.sh). Tests the setup script
 # and then the commands it prints: sh /site/setup.sh must only register the repository, and
-# the printed index refresh and installs must then really install both packages.
+# the printed index refresh and installs must then really install both packages. Then it tests
+# sh /site/setup.sh --remove: it takes the repository and the key away and no package.
 # Usage: in-container.sh deb|rpm|apk. The site is mounted read-only at /site.
 set -eu
 
@@ -26,6 +27,9 @@ case "$format" in
       dpkg-query -W -f='${Status}' "$1" 2>/dev/null | grep -q '^install ok installed$'
     }
     remove_pkgs() { DEBIAN_FRONTEND=noninteractive apt-get remove -y "$@"; }
+    # apt-get update names every source it reads. The test site is the only source with this
+    # host name.
+    repo_listed() { apt-get update 2>&1 | grep -q host.docker.internal; }
     ;;
   rpm)
     keyfile=/etc/pki/rpm-gpg/RPM-GPG-KEY-splicefs
@@ -33,16 +37,21 @@ case "$format" in
     if command -v zypper >/dev/null 2>&1; then
       srcfile=/etc/zypp/repos.d/splicefs.repo
       remove_pkgs() { zypper --non-interactive remove "$@"; }
+      repo_listed() { zypper --non-interactive lr 2>/dev/null | grep -q splicefs; }
     else
       srcfile=/etc/yum.repos.d/splicefs.repo
       if command -v dnf >/dev/null 2>&1; then
         remove_pkgs() { dnf remove -y "$@"; }
+        repo_listed() { dnf repolist --all 2>/dev/null | grep -q splicefs; }
       else
         remove_pkgs() { yum remove -y "$@"; }
+        repo_listed() { yum repolist all 2>/dev/null | grep -q splicefs; }
       fi
     fi
     tmpdirs="/etc/pki/rpm-gpg $(dirname "$srcfile")"
     is_installed() { rpm -q "$1" >/dev/null 2>&1; }
+    # The keys rpm knows, one per line, in a fixed order.
+    rpm_keys() { rpm -qa gpg-pubkey | sort; }
     ;;
   apk)
     keyfile=/etc/apk/keys/splicefs.rsa.pub
@@ -52,6 +61,8 @@ case "$format" in
     sitekey=/site/keys/splicefs.rsa.pub
     is_installed() { apk info -e "$1" >/dev/null 2>&1; }
     remove_pkgs() { apk del "$@"; }
+    # apk update prints each repository it reads, with its address.
+    repo_listed() { apk update 2>&1 | grep -q host.docker.internal; }
     ;;
   *) fail "unknown format '$format'" ;;
 esac
@@ -204,11 +215,21 @@ fi
 for arg in both nonsense; do
   try run_script "$arg"
   [ "$status" -eq 2 ] || fail "setup.sh $arg exited $status, expected 2"
-  grep -q '^usage: sh setup.sh$' "$out" || fail "setup.sh $arg did not print the usage line"
+  grep -q '^usage: sh setup.sh \[--remove\]$' "$out" || fail "setup.sh $arg did not print the usage line"
 done
+try run_script --remove both
+[ "$status" -eq 2 ] || fail "setup.sh --remove both exited $status, expected 2"
 for f in $files; do
   [ ! -e "$f" ] || fail "an argument error wrote $f"
 done
+# On a system the script has not touched, --remove has nothing to do and says nothing is wrong.
+# The keys rpm knows are written down first, to see that the whole round trip leaves them as
+# they were.
+if [ "$format" = rpm ]; then rpm_keys >"$work/keys.before"; fi
+try run_script --remove
+[ "$status" -eq 0 ] || fail "setup.sh --remove on a clean system exited $status"
+if grep -q -e '^removed ' -e '^warning:' "$out"; then fail "--remove on a clean system removed or warned"; fi
+expect_untouched "--remove on a clean system"
 
 # d. the script succeeds and prints the next steps. Its self-check passes here, because the
 # published copy and the copy that runs are the same file.
@@ -309,7 +330,47 @@ done
 splicefsd --version | grep -q . || fail "splicefsd --version printed nothing"
 splicefs --version | grep -q . || fail "splicefs --version printed nothing"
 
-# l. the package manager can remove what the printed commands installed
+# l. --remove takes the repository and the key away and no package. A changed copy of the
+# script is refused for it as for the setup. The package manager must list the repository
+# before, which proves the check, and not after.
+try sh "$work/changed.sh" --remove >"$out" 2>&1
+[ "$status" -eq 1 ] || fail "a changed copy with --remove exited $status, expected 1"
+grep -q 'does not match the published one' "$out" || fail "a changed copy with --remove was not reported"
+for f in $files; do
+  [ -f "$f" ] || fail "a changed copy with --remove removed $f"
+done
+try repo_listed
+[ "$status" -eq 0 ] || fail "the package manager does not list the repository before --remove"
+try run_script --remove
+[ "$status" -eq 0 ] || fail "setup.sh --remove exited $status"
+for f in $files; do
+  [ ! -e "$f" ] || fail "--remove left $f"
+  grep -q "^removed $f\$" "$out" || fail "--remove did not report $f"
+done
+no_temp_files
+try repo_listed
+[ "$status" -ne 0 ] || fail "the package manager still lists the repository after --remove"
+if [ "$format" = rpm ]; then
+  rpm_keys >"$work/keys.after"
+  expect_same_file "$work/keys.before" "$work/keys.after" "--remove left a key in the rpm database"
+fi
+# The packages are still installed, and the script says how to remove them.
+for p in splicefs-server splicefs-client; do
+  try is_installed "$p"
+  [ "$status" -eq 0 ] || fail "--remove removed $p"
+  grep -q "$p" "$out" || fail "--remove did not print the command that removes $p"
+done
+# A second run has nothing left to do and is quiet.
+try run_script --remove
+[ "$status" -eq 0 ] || fail "second setup.sh --remove exited $status"
+if grep -q -e '^removed ' -e '^warning:' "$out"; then fail "second --remove removed or warned"; fi
+# The setup after a removal gives back the same files.
+try run_script
+[ "$status" -eq 0 ] || fail "setup.sh after --remove exited $status"
+back=$(state content)
+[ "$back" = "$before_content" ] || fail "the setup after --remove did not restore the files"
+
+# m. the package manager can remove what the printed commands installed
 try remove_pkgs splicefs-server splicefs-client
 [ "$status" -eq 0 ] || fail "removing the packages failed"
 for p in splicefs-server splicefs-client; do
