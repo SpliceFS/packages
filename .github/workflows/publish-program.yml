@@ -7,14 +7,20 @@ name: Publish program
 # SIGNING_OPENPGP_SUBKEY, SIGNING_ALPINE_KEY and UPLOAD_SSH_KEY; each of them removes its key
 # files at its end.
 #
-#   verify -> packages -> tests ----+
-#   verify, wait -------------------+--> publish -> homebrew, website
+#   verify -> wait -> revision -> packages -> tests ----+
+#   verify, wait -----------------------------------------+--> publish -> homebrew, website
 #
 # The packages are built once, from the archives of the release (proven by their signature) and
 # the source of the program at the tag, and signed with the real keys. The tests run on those
 # files, on both CPU types. The publish job needs all of them. It fetches what is published
 # now, adds the packages, makes the signed repositories, and uploads in order: the packages,
 # then the index files and their signatures.
+#
+# Revision: the packages of a release are revision 0. A change to the packaging alone is
+# published as the next revision of the current release (scripts/next-revision.sh), by a run that
+# publish-revisions.yml starts with this workflow's manual trigger; the run is the same as for a
+# release. The revision job computes the number once, after the wait, so that two runs of a
+# program that queue up never take the same one.
 #
 # FreeBSD: the packages of the FreeBSD releases are not built here yet, because the FreeBSD
 # packaging is not in this repository yet. Its job (one for each release, built from the same
@@ -117,17 +123,48 @@ jobs:
           echo "::error::an earlier publish of $PROGRAM did not end within an hour"
           exit 1
 
+  # The revision of the packages, once, for every job that builds them. A release that was just
+  # made is revision 0 whatever the repository holds, so that a second delivery of the same
+  # release is refused when it publishes (it would replace a published file) and never becomes a
+  # revision of its own. Every other run is a packaging change of a published release, and its
+  # revision is the one after the highest published; it is computed here, after the wait, because
+  # an earlier run of the program may be adding a revision right now. This job holds no key.
+  revision:
+    name: The revision of the packages
+    needs: [verify, wait]
+    runs-on: ubuntu-latest
+    outputs:
+      revision: ${{ steps.revision.outputs.revision }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: The next revision of the release
+        id: revision
+        env:
+          EVENT: ${{ github.event_name }}
+          PROGRAM: ${{ needs.verify.outputs.program }}
+          TAG: ${{ needs.verify.outputs.tag }}
+        run: |
+          revision=0
+          if [ "$EVENT" != repository_dispatch ]; then
+            revision="$(scripts/next-revision.sh "$PROGRAM" "$TAG")"
+          fi
+          echo "$PROGRAM $TAG is published as revision $revision"
+          echo "revision=$revision" >> "$GITHUB_OUTPUT"
+
   # The deb, rpm and apk packages of both CPU types, signed with the real keys, and the signed
   # repositories the tests install from. Only the packages and the public keys are uploaded:
   # dist/keys holds the private keys.
   packages:
     name: Signed packages
-    needs: verify
+    needs: [verify, revision]
     runs-on: ubuntu-latest
     environment: publish
     env:
       PROGRAM: ${{ needs.verify.outputs.program }}
       TAG: ${{ needs.verify.outputs.tag }}
+      REVISION: ${{ needs.revision.outputs.revision }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: The signing secrets are there
@@ -155,7 +192,7 @@ jobs:
             --pattern '*-linux-*.tar.gz' --pattern SHA256SUMS --pattern SHA256SUMS.asc
           scripts/release-bin.sh "$TAG" "$PWD/release" "$PWD/bin"
       - name: Build the deb, rpm and apk packages
-        run: make packages PROGRAM="$PROGRAM" BIN="$PWD/bin" SRC="$PWD/src" VERSION="$TAG"
+        run: make packages PROGRAM="$PROGRAM" BIN="$PWD/bin" SRC="$PWD/src" VERSION="$TAG" REVISION="$REVISION"
       - name: Build the signed package repositories
         run: make repo PROGRAM="$PROGRAM"
       # The public keys only, for the tests.
@@ -269,7 +306,7 @@ jobs:
   # bots start.
   alert:
     name: Report a failure
-    needs: [verify, wait, packages, tests, publish, website, homebrew]
+    needs: [verify, wait, revision, packages, tests, publish, website, homebrew]
     if: ${{ failure() }}
     permissions:
       issues: write
