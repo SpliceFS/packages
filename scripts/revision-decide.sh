@@ -55,7 +55,7 @@ for format in deb rpm apk; do
 done
 
 if [ "$changed" -eq 0 ]; then
-    echo "$PROGRAM $TAG: the packaging is the same as the published revision $((next - 1)): nothing to publish" >&2
+    echo "nothing changed in the packaging of $PROGRAM since revision $((next - 1)) of $TAG" >&2
     exit 0
 fi
 echo "$PROGRAM $TAG"

@@ -54,6 +54,12 @@ decide() {
 }
 
 decide "the packaging is the same" "$published" index ""
+# The sentence is what the publish run shows as the summary of a run that publishes nothing.
+if grep -qx 'nothing changed in the packaging of server since revision 1 of v1.2.3' "$work/err"; then
+    echo "ok   the reason of an unchanged packaging names the program, the revision and the release"
+else
+    echo "FAIL the reason of an unchanged packaging"; sed 's/^/     /' "$work/err"; failed=$((failed + 1))
+fi
 
 # A change of this repository that is no packaging (a test, a document, a workflow) builds the
 # same packages, so it is the same listing; a new program and a new changelog are no change.
