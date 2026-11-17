@@ -5,8 +5,5 @@ helper_target="$(readlink /sbin/mount.splicefs 2>/dev/null)" || helper_target=""
 if [ ! -L /sbin ] && [ "$helper_target" = /usr/bin/splicefsctl ]; then
     rm -f /sbin/mount.splicefs
 fi
-if [ -e /run/openrc/softlevel ]; then
-    rc-service --ifstarted splicefs stop
-    rc-update del splicefs default
-fi
+@service:before-removal@
 exit 0

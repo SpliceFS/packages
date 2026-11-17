@@ -125,4 +125,36 @@ server splicefsd
 client splicefs
 PROGRAMS
 
+# The scripts of the programs as the packages get them: every placeholder is filled in, none of
+# them enables or starts the service (installing never does), and the shell scripts parse. $1 the
+# file, $2 the service manager, $3 the program, $4 shell for a script and spec for the rpm spec,
+# which is not a shell script.
+builds() {
+    filled "$1" "$root" "$3" "$2" > "$tree/built"
+    reason=''
+    if grep -q -e '@service:' -e '@SERVICE@' "$tree/built"; then
+        reason='keeps a placeholder'
+    elif grep -q -e 'systemctl enable' -e 'systemctl start' -e 'rc-update add' -e 'rc-service [a-z]* start' "$tree/built"; then
+        reason='enables or starts the service'
+    elif [ "$4" = shell ] && ! sh -n "$tree/built"; then
+        reason='does not parse'
+    fi
+    if [ -z "$reason" ]; then
+        printf 'ok   %s builds into what a package gets\n' "$1"
+    else
+        printf 'FAIL %s %s\n' "$1" "$reason"
+        failed=$((failed + 1))
+    fi
+}
+
+for program in server client; do
+    for script in postinst prerm postrm; do
+        builds "programs/$program/deb/$script" systemd "$program" shell
+    done
+    for script in "programs/$program/alpine/splicefs-$program".*; do
+        builds "$script" openrc "$program" shell
+    done
+    builds "programs/$program/rpm/splicefs-$program.spec" systemd "$program" spec
+done
+
 [ "$failed" -eq 0 ]

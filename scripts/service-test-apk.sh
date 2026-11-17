@@ -19,11 +19,19 @@ install_package() {
     docker exec "$1" apk add -q --allow-untrusted "$pkg" >/dev/null
 }
 
-# The same file over the installed one: apk runs the upgrade scripts for a package that is
-# already installed, also when it is the same version.
+# apk does nothing when the package file of the installed version is added again. The upgrade
+# scripts run when a package is reinstalled from a repository, so the file is put in a
+# repository of its own and fix --reinstall installs it from there.
 upgrade_package() {
     pkg="$(package_file)"
-    docker exec "$1" apk add -q --allow-untrusted --force-reinstall "$pkg" >/dev/null
+    docker exec "$1" sh -c '
+        repo=/tmp/service-test-repo
+        arch="$(apk --print-arch)"
+        mkdir -p "$repo/$arch"
+        cp "$1" "$repo/$arch/"
+        apk index --allow-untrusted -q -o "$repo/$arch/APKINDEX.tar.gz" "$repo/$arch"/*.apk 2>/dev/null
+        apk fix --reinstall --allow-untrusted --no-network --repositories-file /dev/null \
+            -X "$repo" -q "$2"' sh "$pkg" "$name" >/dev/null
 }
 
 remove_package() {
