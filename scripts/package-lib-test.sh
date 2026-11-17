@@ -72,6 +72,7 @@ refuses_program() {
 reads "$tree" demo 'splicefs-demo|demod|demod democtl|README.md guide/setup.md|/etc/splicefs/demo|alpha.d,beta.d'
 reads "$tree" other 'splicefs-other|otherd|otherd|README.md|/etc/splicefs/other|gamma.d'
 reads "$root" server 'splicefs-server|splicefsd|splicefsd|README.md CHANGELOG.md docs/configuration.md|/etc/splicefs/server|conf.d,shares.d'
+reads "$root" client 'splicefs-client|splicefs|splicefs splicefsctl|README.md CHANGELOG.md docs/configuration.md|/etc/splicefs/client|conf.d,clusters.d,mounts.d'
 refuses_program 'PROGRAM is not set' -u PROGRAM
 refuses_program 'programs/nothing/program.conf' PROGRAM=nothing
 refuses_program 'not a program name' PROGRAM=../demo
@@ -126,6 +127,8 @@ links_of "$tree" demo '/usr/lib/demo/helper -> /usr/bin/demod,/usr/sbin/mount.de
 # A program without a links file has no links, and that is no error.
 links_of "$tree" other ''
 links_of "$root" server ''
+# The client's mount helper: mount(8) runs mount.splicefs, and the control tool is that helper.
+links_of "$root" client '/usr/sbin/mount.splicefs -> /usr/bin/splicefsctl,'
 
 # $1 VERSION, $2 deb and rpm version, $3 Alpine version, $4 FreeBSD version (PACKAGE_DATE is
 # 20261112).
