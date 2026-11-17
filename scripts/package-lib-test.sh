@@ -134,8 +134,9 @@ links_of "$root" client '/usr/sbin/mount.splicefs -> /usr/bin/splicefsctl,'
 # own, which is readable by everyone because it is copied over the root of the package.
 tree_of="$(cd "$tree" && PROGRAM=demo VERSION=v1.2.3 PACKAGE_DATE=20261112 sh -c \
     '. "$1/scripts/package-lib.sh"; package_link_tree' sh "$root" 2>&1)" || true
-if [ "$(readlink "$tree_of/usr/sbin/mount.demo" 2>/dev/null)" = /usr/bin/democtl ] &&
-    [ "$(find "$tree_of" -maxdepth 0 -perm 755)" = "$tree_of" ]; then
+target_of="$(readlink "$tree_of/usr/sbin/mount.demo" 2>/dev/null)" || target_of=""
+mode_of="$(find "$tree_of" -maxdepth 0 -perm 755 2>/dev/null)" || mode_of=""
+if [ "$target_of" = /usr/bin/democtl ] && [ "$mode_of" = "$tree_of" ]; then
     echo "ok   package_link_tree holds the links in a folder with mode 755"
 else
     printf 'FAIL package_link_tree: %s\n' "$tree_of"
