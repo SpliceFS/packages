@@ -37,6 +37,9 @@ CONF
 printf 'gamma.d\n' > "$tree/programs/other/config-folders"
 # A program.conf that leaves a fact out.
 printf 'program=x\nprograms=x\ndocs=x\n' > "$tree/programs/empty/program.conf"
+# The library reads the facts through scripts/program-conf.sh, found from the root of the tree.
+mkdir "$tree/scripts"
+cp "$root/scripts/program-conf.sh" "$tree/scripts/"
 
 # $1 the folder the library is read from (the root of a repository), $2 PROGRAM, $3 the facts
 # wanted: name, program, programs, docs, confdir, confsubdirs (the folders joined by a comma) and

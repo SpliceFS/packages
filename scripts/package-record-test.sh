@@ -91,7 +91,7 @@ refuses "an empty record" empty "" "dist/empty/version is damaged"
 
 # make packages writes the record when every format is built, and any build removes the record
 # first, so the record never describes a set of packages that is only partly built.
-dry="$(cd "$root" && make -n packages PROGRAM=demo BIN=/bin SRC=/tmp VERSION=v1.2.3 PACKAGE_DATE=20261112 2>&1)" || true
+dry="$(cd "$root" && make -n --no-print-directory packages PROGRAM=demo BIN=/bin SRC=/tmp VERSION=v1.2.3 PACKAGE_DATE=20261112 2>&1)" || true
 last="$(printf '%s\n' "$dry" | tail -n 1)"
 if printf '%s' "$last" | grep -q 'PROGRAM=demo VERSION=v1.2.3 PACKAGE_DATE=20261112 .*write_package_record'; then
     echo "ok   make packages writes the record last"
@@ -99,7 +99,7 @@ else
     printf 'FAIL make packages does not write the record last: %s\n' "$last"
     failed=$((failed + 1))
 fi
-dry="$(cd "$root" && make -n package-deb PROGRAM=demo BIN=/bin SRC=/tmp VERSION=v1.2.4 2>&1)" || true
+dry="$(cd "$root" && make -n --no-print-directory package-deb PROGRAM=demo BIN=/bin SRC=/tmp VERSION=v1.2.4 2>&1)" || true
 if printf '%s\n' "$dry" | grep -q 'rm -f "dist/demo/version"' && ! printf '%s\n' "$dry" | grep -q write_package_record; then
     echo "ok   a build of one format removes the record and writes none"
 else

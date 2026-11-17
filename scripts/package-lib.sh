@@ -3,30 +3,10 @@
 # shellcheck disable=SC2034
 # Sourced by the package scripts, from the root of the repository. Says what is being packaged
 # and what its version is called in each package format.
-: "${PROGRAM:?PROGRAM is not set}"
+# shellcheck source=program-conf.sh
+. scripts/program-conf.sh
 : "${VERSION:?VERSION is not set}"
 : "${PACKAGE_DATE:?PACKAGE_DATE is not set}"
-
-fail() {
-    echo "FAIL: $*" >&2
-    exit 1
-}
-
-# PROGRAM names a folder of programs/, so it is a name and never a path.
-case "$PROGRAM" in
-    *[!a-z0-9-]*) fail "PROGRAM=$PROGRAM is not a program name" ;;
-    *) ;;
-esac
-# The definitions of the program: what the packages hold, and program.conf, which says what the
-# program is (name, program, programs and docs). This is the one place that says it.
-defs="programs/$PROGRAM"
-[ -f "$defs/program.conf" ] || fail "$defs/program.conf is missing: $PROGRAM is not a program of this repository"
-# The folder is chosen by PROGRAM at run time, so there is no file for ShellCheck to follow.
-# shellcheck source=/dev/null
-. "$defs/program.conf"
-for fact in name program programs docs; do
-    eval "[ -n \"\${$fact:-}\" ]" || fail "$defs/program.conf does not set $fact"
-done
 
 # What program.conf sets is unknown to ShellCheck, which cannot follow it.
 # shellcheck disable=SC2154
