@@ -22,6 +22,7 @@ cat > "$tree/programs/demo/program.conf" <<'CONF'
 name=splicefs-demo
 program=demod
 programs="demod democtl"
+docs="README.md guide/setup.md"
 CONF
 printf '# a comment\n\nalpha.d\nbeta.d\n' > "$tree/programs/demo/config-folders"
 printf 'ExecStart=/usr/local/bin/demod\n' > "$tree/programs/demo/systemd/demod.service"
@@ -29,17 +30,18 @@ cat > "$tree/programs/other/program.conf" <<'CONF'
 name=splicefs-other
 program=otherd
 programs=otherd
+docs=README.md
 CONF
 printf 'gamma.d\n' > "$tree/programs/other/config-folders"
 # A program.conf that leaves a fact out.
-printf 'program=x\nprograms=x\n' > "$tree/programs/empty/program.conf"
+printf 'program=x\nprograms=x\ndocs=x\n' > "$tree/programs/empty/program.conf"
 
 # $1 the folder the library is read from (the root of a repository), $2 PROGRAM, $3 the facts
-# wanted: name, program, programs, confdir and confsubdirs on one line (the folders joined by a
-# comma).
+# wanted: name, program, programs, docs, confdir and confsubdirs on one line (the folders joined
+# by a comma).
 reads() {
     got="$(cd "$1" && PROGRAM="$2" VERSION=v1.2.3 PACKAGE_DATE=20261112 sh -c \
-        '. "$1/scripts/package-lib.sh"; echo "$name|$program|$programs|$confdir|$(echo $confsubdirs | tr " " ,)"' \
+        '. "$1/scripts/package-lib.sh"; echo "$name|$program|$programs|$docs|$confdir|$(echo $confsubdirs | tr " " ,)"' \
         sh "$root" 2>&1)" || true
     if [ "$got" = "$3" ]; then
         printf 'ok   program.conf of %-6s %s\n' "$2" "$3"
@@ -67,14 +69,34 @@ refuses_program() {
     fi
 }
 
-reads "$tree" demo 'splicefs-demo|demod|demod democtl|/etc/splicefs/demo|alpha.d,beta.d'
-reads "$tree" other 'splicefs-other|otherd|otherd|/etc/splicefs/other|gamma.d'
-reads "$root" server 'splicefs-server|splicefsd|splicefsd|/etc/splicefs/server|conf.d,shares.d'
+reads "$tree" demo 'splicefs-demo|demod|demod democtl|README.md guide/setup.md|/etc/splicefs/demo|alpha.d,beta.d'
+reads "$tree" other 'splicefs-other|otherd|otherd|README.md|/etc/splicefs/other|gamma.d'
+reads "$root" server 'splicefs-server|splicefsd|splicefsd|README.md CHANGELOG.md docs/configuration.md|/etc/splicefs/server|conf.d,shares.d'
 refuses_program 'PROGRAM is not set' -u PROGRAM
 refuses_program 'programs/nothing/program.conf' PROGRAM=nothing
 refuses_program 'not a program name' PROGRAM=../demo
 refuses_program 'not a program name' PROGRAM=demo/
 refuses_program 'programs/empty/program.conf does not set name' PROGRAM=empty
+
+# The documents a package ships are named in program.conf and found in the source tree SRC. $1
+# the paths or the message wanted, the rest the arguments of env that set up the case.
+docs_of() {
+    want="$1"
+    shift
+    # The inner shell expands $1, which is the root of the repository.
+    # shellcheck disable=SC2016
+    got="$(cd "$tree" && env "$@" PROGRAM=demo VERSION=v1.2.3 PACKAGE_DATE=20261112 sh -c \
+        '. "$1/scripts/package-lib.sh"; package_docs' sh "$root" 2>&1)" || true
+    if [ "$got" = "$want" ]; then
+        printf 'ok   package_docs with %s: %s\n' "$*" "$want"
+    else
+        printf 'FAIL package_docs with %s: want "%s" got "%s"\n' "$*" "$want" "$got"
+        failed=$((failed + 1))
+    fi
+}
+
+docs_of '/work/demo/README.md /work/demo/guide/setup.md' SRC=/work/demo
+docs_of 'FAIL: SRC is not set: it is the source tree of the program at this version' -u SRC
 
 # $1 VERSION, $2 deb and rpm version, $3 Alpine version, $4 FreeBSD version (PACKAGE_DATE is
 # 20261112).

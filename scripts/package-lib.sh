@@ -18,21 +18,34 @@ case "$PROGRAM" in
     *) ;;
 esac
 # The definitions of the program: what the packages hold, and program.conf, which says what the
-# program is (name, program and programs). This is the one place that says it.
+# program is (name, program, programs and docs). This is the one place that says it.
 defs="programs/$PROGRAM"
 [ -f "$defs/program.conf" ] || fail "$defs/program.conf is missing: $PROGRAM is not a program of this repository"
 # The folder is chosen by PROGRAM at run time, so there is no file for ShellCheck to follow.
 # shellcheck source=/dev/null
 . "$defs/program.conf"
-for fact in name program programs; do
+for fact in name program programs docs; do
     eval "[ -n \"\${$fact:-}\" ]" || fail "$defs/program.conf does not set $fact"
 done
 
-# name and program are set by program.conf, which ShellCheck cannot follow.
+# What program.conf sets is unknown to ShellCheck, which cannot follow it.
 # shellcheck disable=SC2154
 confdir="/etc/splicefs/${name#splicefs-}"
 # One folder name per line; see the file for why the package ships them empty.
 confsubdirs="$(grep -v -e '^#' -e '^$' "$defs/config-folders")"
+
+# Prints the documents of the package as paths in the source tree SRC, separated by spaces. They
+# are named in program.conf and are not kept in this repository, because they change with every
+# version of the program.
+package_docs() {
+    [ -n "${SRC:-}" ] || fail "SRC is not set: it is the source tree of the program at this version"
+    list=""
+    # The names are ours and hold no spaces, so the list is split on purpose. docs is set by
+    # program.conf.
+    # shellcheck disable=SC2154
+    for doc in $docs; do list="$list${list:+ }$SRC/$doc"; done
+    echo "$list"
+}
 
 # Writes the service unit as the packages ship it to the file $1. The unit in the repository
 # is written for a manual install under /usr/local; the packages put the program in /usr/bin.
