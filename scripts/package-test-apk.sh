@@ -10,7 +10,7 @@ dir="${1:?usage: package-test-apk.sh PACKAGE_DIR}"
 # shellcheck source=package-test-lib.sh
 . scripts/package-test-lib.sh
 init="/etc/init.d/$program"
-apk="$dir/alpine/$(apk --print-arch)/$name-$apkver-r0.apk"
+apk="$dir/alpine/$(apk --print-arch)/$name-$apkver-r$apkrel.apk"
 [ -f "$apk" ] || fail "$apk does not exist; run make packages first"
 
 # The build key is a throwaway, so the signature cannot be checked here.

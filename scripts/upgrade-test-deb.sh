@@ -35,7 +35,9 @@ case "$mode" in
     upgrade)
         old="${2:?usage: upgrade-test-deb.sh upgrade OLD NEW}"
         new="${3:?usage: upgrade-test-deb.sh upgrade OLD NEW}"
-        # A user installs a downloaded file with apt, which also fetches what it needs.
+        # A user installs a downloaded file with apt, which also fetches what it needs (the client
+        # needs fuse3); a fresh system has no package lists until the first update.
+        apt-get update -qq >/dev/null || fail "deb upgrade: apt-get update failed"
         apt-get install -y -qq "$old" >/dev/null || fail "deb upgrade: installing the old package failed"
         write_markers deb
         apt-get install -y -qq "$new" >/dev/null || fail "deb upgrade: installing the new package over the old one failed"
@@ -44,7 +46,8 @@ case "$mode" in
         listing="$(mktemp)"
         list_package "$new" > "$listing"
         user="$(sed -n 's/^User=//p' "$unit")"
-        verify_upgrade deb "$user" "$listing"
+        installed="$(dpkg-query -W -f='${Version}' "$name")"
+        verify_upgrade deb "$user" "$listing" "$installed" "$debver"
         ;;
     *)
         echo "usage: upgrade-test-deb.sh list PACKAGE | upgrade OLD NEW" >&2

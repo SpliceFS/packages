@@ -1,6 +1,6 @@
 # shellcheck shell=sh
 # Sourced by scripts/upgrade-test-deb.sh, -rpm.sh and -apk.sh, which run inside a container
-# of a test system with PROGRAM, VERSION and PACKAGE_DATE in the environment. The scripts that source this file read these variables; this file reads
+# of a test system with PROGRAM, VERSION, PACKAGE_DATE and REVISION in the environment. The scripts that source this file read these variables; this file reads
 # none of them.
 # shellcheck disable=SC2034
 #
@@ -17,6 +17,7 @@
 # is a difference in the package and never in the way it was read.
 : "${VERSION:?VERSION is not set}"
 : "${PACKAGE_DATE:?PACKAGE_DATE is not set}"
+: "${REVISION:?REVISION is not set}"
 # shellcheck source=package-lib.sh
 . scripts/package-lib.sh
 
@@ -59,8 +60,12 @@ script_line() {
 
 # The checks after the new package was installed over the old one, which also had its
 # configuration file and data written by the administrator. $1 is the package format, only
-# for the messages, $2 the user the service runs as, $3 the listing of the new package.
+# for the messages, $2 the user the service runs as, $3 the listing of the new package, $4 the
+# version of the package the package manager now has installed, as it writes it, and $5 the
+# version of the package that was built, as the format writes it (scripts/package-lib.sh). They
+# are equal only when the upgrade installed the new package, revision included.
 verify_upgrade() {
+    [ "$4" = "$5" ] || fail "$1 upgrade: the installed package is $4, not the new package $5"
     "$program" --version | grep -qF "$VERSION" ||
         fail "$1 upgrade: $program --version does not report $VERSION"
     grep -qxF "$marker" "$kept" || fail "$1 upgrade: the marker line is gone from $kept"

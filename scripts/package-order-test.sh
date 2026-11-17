@@ -3,13 +3,26 @@
 # package manager: dpkg in Debian, rpm in Rocky Linux, apk in Alpine, each in its own
 # container. Runs on the host (make package-order-test, part of make package-test, so CI and
 # the release job run it). Every version in the list below must compare as older than the
-# next one, and apk must accept every Alpine version as valid.
+# next one, and apk must accept every Alpine version as valid. A version is a version of the
+# program and a revision of the package, so the list shows that a revision sorts above the
+# release itself and below the next release. FreeBSD's pkg version -t is not here: it runs on
+# FreeBSD only, where scripts/freebsd-lib-test.sh and the FreeBSD machine are the place for it.
 # The container is the first system of its format in packaging/test-systems, as in the upgrade
 # test. It is not booted, because the package manager alone answers the question.
 # Environment: PACKAGE_DATE as for the build. The versions do not depend on the program, but
 # package-lib.sh needs one to read, so PROGRAM is the first program of programs/ unless it is set.
 # Inside a container the script is called as: package-order-test.sh inside FORMAT VERSION...
 set -eu
+
+# rpm compares the version first and, when they are equal, the release, each with its own
+# algorithm. Both arguments are VERSION-RELEASE; a version holds no hyphen. Prints < when $1 is
+# older, else what rpm answered.
+rpm_compare() {
+    r="$(rpm --eval "%{lua:print(rpm.vercmp('${1%%-*}', '${2%%-*}'))}")"
+    if [ "$r" = 0 ]; then r="$(rpm --eval "%{lua:print(rpm.vercmp('${1#*-}', '${2#*-}'))}")"; fi
+    if [ "$r" = -1 ]; then r='<'; fi
+    printf '%s' "$r"
+}
 
 if [ "${1:-}" = inside ]; then
     format="$2"
@@ -27,8 +40,7 @@ if [ "${1:-}" = inside ]; then
                 deb)
                     if dpkg --compare-versions "$prev" lt "$v"; then r='<'; else r=other; fi ;;
                 rpm)
-                    r="$(rpm --eval "%{lua:print(rpm.vercmp('$prev', '$v'))}")"
-                    if [ "$r" = -1 ]; then r='<'; fi ;;
+                    r="$(rpm_compare "$prev" "$v")" ;;
                 apk)
                     r="$(apk version -t "$prev" "$v")" ;;
                 *)
@@ -56,10 +68,13 @@ if [ -z "${PROGRAM:-}" ]; then
 fi
 export PROGRAM
 
-# Ascending order of what the release process produces. Each pre-release is older than its
-# release, and a build with uncommitted changes is newer than the version it started from.
-versions="v0.9.0 v1.2.3-alpha v1.2.3-beta.2 v1.2.3-rc.1 v1.2.3-rc.1-dirty
-v1.2.3-rc.2 v1.2.3 v1.2.3-dirty v1.2.4-rc.1 v1.2.4"
+# Ascending order of what the release process produces, each as VERSION:REVISION. Each
+# pre-release is older than its release, each revision is newer than the one before it and older
+# than the next version of the program, and a build with uncommitted changes is newer than the
+# version it started from.
+versions="v0.9.0:0 v1.2.3-alpha:0 v1.2.3-beta.2:0 v1.2.3-rc.1:0 v1.2.3-rc.1:1
+v1.2.3-rc.1-dirty:0 v1.2.3-rc.2:0 v1.2.3:0 v1.2.3:1 v1.2.3:2 v1.2.3:10 v1.2.3-dirty:0
+v1.2.4-rc.1:0 v1.2.4:0 v1.2.4:1"
 
 failed=0
 for format in deb rpm apk; do
@@ -67,8 +82,15 @@ for format in deb rpm apk; do
     [ -n "$image" ] || { echo "FAIL packaging/test-systems has no $format system" >&2; exit 1; }
     list=""
     for v in $versions; do
-        got="$(VERSION="$v" FORMAT="$format" sh -c \
-            '. scripts/package-lib.sh; eval "echo \$${FORMAT}ver"')"
+        # What the format's tool is given is the whole version of a package: the revision is
+        # part of it for deb, the release for rpm, and -r for Alpine.
+        got="$(VERSION="${v%:*}" REVISION="${v#*:}" FORMAT="$format" sh -c '
+            . scripts/package-lib.sh
+            case "$FORMAT" in
+                deb) echo "$debver" ;;
+                rpm) echo "$rpmver-$rpmrel" ;;
+                *) echo "$apkver-r$apkrel" ;;
+            esac')"
         list="$list $got"
     done
     # $list is split on purpose: one argument per version, none contains a space.

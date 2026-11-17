@@ -651,13 +651,18 @@ run "9. setup.sh --remove: setup, removal and a changed file, for every family, 
 run "9. part.sh: the timer every package target runs through" sh scripts/part-test.sh
 run "9. package-record.sh: the version make packages built, read by the tests" sh scripts/package-record-test.sh
 run "9. upgrade-diff.sh: when the packaging of two versions differs" sh scripts/upgrade-diff-test.sh
+run "9. next-revision.sh: the revision a build needs to upgrade what is published" sh scripts/next-revision-test.sh
 run "9. freebsd-lib.sh: the FreeBSD machines, their device, job folder and package check" \
   sh scripts/freebsd-lib-test.sh
 run "9. freebsd-repo-files.sh: the input archive of a FreeBSD machine holds the key and is removed" \
   sh scripts/freebsd-repo-files-test.sh
 run "9. freebsd-service-test.sh: the FreeBSD packages leave the service off, and tell how to turn it on" \
   sh scripts/freebsd-service-test.sh
+run "9. freebsd-parts.sh: the FreeBSD repository folders of a release packed and unpacked, nothing rolled back" \
+  sh scripts/freebsd-parts-test.sh
 run "9. release-bin.sh: release archives proven and unpacked to the layout of dist/bin" sh scripts/release-bin-test.sh
+run "9. publish-program.sh: the repositories of a program uploaded in order, nothing published lost" sh scripts/publish-program-test.sh
+run "9. require-env.sh: a release that lacks a secret stops and names it" sh scripts/require-env-test.sh
 
 if [ "$FAILS" -eq 0 ]; then
   echo "all checks passed"
