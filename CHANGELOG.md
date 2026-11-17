@@ -8,8 +8,9 @@ The change log of all parts of SpliceFS, side by side: https://splicefs.org/chan
 
 ## [0.4.18] - 2026-11-17
 
-- Internal: a packaging change merged here is published as a package revision of the current
-  release.
+- Installing a SpliceFS package no longer starts or turns on its service; start it with the system's
+  service manager (see "After the install"). An upgrade restarts only a running service, and
+  removing a package stops and turns off its service.
 
 ## [0.4.17] - 2026-11-17
 

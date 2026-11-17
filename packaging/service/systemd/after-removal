@@ -1,0 +1,4 @@
+# The unit file is gone, so the list of units is read again.
+if [ -d /run/systemd/system ]; then
+    systemctl daemon-reload || true
+fi

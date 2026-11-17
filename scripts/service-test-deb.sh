@@ -6,12 +6,23 @@
 
 unit="$program.service"
 
+package_file() {
+    echo "/pkg/${name}_${debver}_${platform#linux/}.deb"
+}
+
 install_package() {
-    pkg="/pkg/${name}_${debver}_${platform#linux/}.deb"
+    pkg="$(package_file)"
     docker exec "$1" test -f "$pkg" || fail "$pkg does not exist; run make packages first"
     # apt resolves the dependencies of a local file; dpkg -i alone would not.
     docker exec -e DEBIAN_FRONTEND=noninteractive "$1" sh -c \
         "apt-get update -qq && apt-get install -y -qq $pkg" >/dev/null
+}
+
+# The same file over the installed one: dpkg runs the upgrade path, with the old version's prerm
+# and the new version's postinst.
+upgrade_package() {
+    pkg="$(package_file)"
+    docker exec -e DEBIAN_FRONTEND=noninteractive "$1" dpkg -i "$pkg" >/dev/null
 }
 
 remove_package() {
@@ -26,17 +37,30 @@ service_enabled() {
     docker exec "$1" systemctl is-enabled --quiet "$unit"
 }
 
+# The commands of the install page, which is also where they are written down.
+service_start_enable() {
+    docker exec "$1" systemctl enable --now "$unit"
+}
+
+service_stop() {
+    docker exec "$1" systemctl stop "$unit"
+}
+
 service_restart() {
     docker exec "$1" systemctl restart "$unit"
 }
 
+service_pid() {
+    docker exec "$1" systemctl show -p MainPID --value "$unit"
+}
+
 # Reads the owner of the running process from /proc, which every system has, whatever ps it ships.
 service_user() {
+    pid="$(service_pid "$1")" || return 1
     docker exec "$1" sh -c '
-        pid="$(systemctl show -p MainPID --value "$1")"
-        [ "${pid:-0}" -gt 0 ] || exit 1
-        uid="$(sed -n "s/^Uid:[[:space:]]*\([0-9]*\).*/\1/p" "/proc/$pid/status")"
-        getent passwd "$uid" | cut -d: -f1' sh "$unit"
+        [ "${1:-0}" -gt 0 ] || exit 1
+        uid="$(sed -n "s/^Uid:[[:space:]]*\([0-9]*\).*/\1/p" "/proc/$1/status")"
+        getent passwd "$uid" | cut -d: -f1' sh "$pid"
 }
 
 service_report() {

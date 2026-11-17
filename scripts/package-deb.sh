@@ -38,7 +38,8 @@ for arch in amd64 arm64; do
     sed -e "s/@NAME@/$name/" -e "s/@VERSION@/$debver/" -e "s/@ARCH@/$arch/" -e "s/@SIZE@/$size/" \
         "$defs/deb/control" > "$root/DEBIAN/control"
     for script in postinst prerm postrm; do
-        install -m 755 "$defs/deb/$script" "$root/DEBIAN/$script"
+        package_script systemd "$defs/deb/$script" > "$root/DEBIAN/$script"
+        chmod 755 "$root/DEBIAN/$script"
     done
 
     dpkg-deb --root-owner-group --build "$root" "$out/${name}_${debver}_${arch}.deb" >/dev/null

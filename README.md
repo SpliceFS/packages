@@ -33,6 +33,31 @@ sudo apt-get install splicefs-client    # the client
 The commands for dnf, zypper, apk and pkg (FreeBSD) are on the page. The script is safe to run
 again. Manual steps for each system are on the page as well.
 
+## After the install
+
+Installing a Linux package installs the service and does not start it or turn it on. Start it,
+and have it start at boot, with the service manager of the system. The server's service is
+`splicefsd` and the client's is `splicefs`.
+
+systemd (Debian, Ubuntu, Rocky Linux, Amazon Linux, openSUSE):
+
+```
+sudo systemctl enable --now splicefsd    # the server
+sudo systemctl enable --now splicefs     # the client
+```
+
+OpenRC (Alpine), as root:
+
+```
+rc-update add splicefsd default && rc-service splicefsd start    # the server
+rc-update add splicefs default && rc-service splicefs start      # the client
+```
+
+An upgrade restarts a service that was running and leaves a stopped one stopped; it never turns
+a service on or off. Removing the package stops the service and turns it off; its data and the
+`splicefs` user stay. In a container without a running service manager the package only
+installs its files.
+
 ## Remove the repository
 
 `sh setup.sh --remove` takes away what the setup added, and nothing else: the repository
@@ -112,7 +137,7 @@ make e2e      # runs the setup script in a container of every supported system
 make e2e-freebsd  # runs the setup script in a FreeBSD machine of every supported release (FREEBSD=15.1 for one)
 make packages PROGRAM=server BIN=<programs> SRC=<source> VERSION=v1.2.3   # builds deb, rpm and apk into dist/server (PROGRAM=client for the client)
 make package-test PROGRAM=server   # installs and removes each package on every server image (ONLY=deb or ONLY=<image> for one)
-make service-test PROGRAM=server   # proves the service starts, answers, restarts and stops, on every image
+make service-test PROGRAM=server   # proves the service installs idle, starts when told, answers, restarts, upgrades and stops, on every image
 make upgrade-test PROGRAM=server  # installs the newest published release, then upgrades to the packages in dist (only when the packaging changed)
 make repo PROGRAM=server           # builds the signed apt, rpm and Alpine repositories into dist/server/repo
 make repo-test PROGRAM=server      # installs from them with signature checks on
@@ -171,6 +196,9 @@ ref of the `uses` line.
   a line, a package test hook in `programs/<program>/package-test-extra.sh`, and what a working
   service means in `programs/<program>/service-check.sh`.
 - `packaging/test-systems`: the server images the packages are tested on.
+- `packaging/service/<manager>/`: what installing, upgrading and removing do to the service under
+  systemd and OpenRC, once for every program and package format. The install scripts of a
+  program name a step on a line of its own (`@service:after-files@`) and the build fills it in.
 - `setup.sh.in`: the setup script template, with the keys and base URL filled in at build.
 - `dist/`: build output, not committed.
 

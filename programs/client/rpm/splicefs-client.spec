@@ -57,34 +57,17 @@ if [ ! -L /sbin ]; then
         ln -sf /usr/bin/splicefsctl /sbin/mount.splicefs
     fi
 fi
-# $1 is 1 on a first install and 2 on an upgrade. A container or a chroot has no running
-# systemd; the files are installed and there is nothing to start.
-if [ -d /run/systemd/system ]; then
-    systemctl daemon-reload
-    if [ "$1" -eq 1 ]; then
-        systemctl enable splicefs.service
-        systemctl start splicefs.service ||
-            echo "splicefs did not start; see: journalctl -u splicefs" >&2
-    else
-        # A broken configuration must not turn an upgrade into a failed transaction.
-        systemctl try-restart splicefs.service ||
-            echo "splicefs did not restart; see: journalctl -u splicefs" >&2
-    fi
-fi
+@service:after-files@
 
 %preun
 # $1 is 0 when the package is removed for good, not replaced by another version.
-if [ "$1" -eq 0 ] && [ -d /run/systemd/system ]; then
-    systemctl disable --now splicefs.service || true
-fi
 if [ "$1" -eq 0 ]; then
     # The link made at install time for systems where /sbin is its own folder.
     if [ ! -L /sbin ] && [ "$(readlink /sbin/mount.splicefs 2>/dev/null)" = /usr/bin/splicefsctl ]; then
         rm -f /sbin/mount.splicefs
     fi
+    @service:before-removal@
 fi
 
 %postun
-if [ -d /run/systemd/system ]; then
-    systemctl daemon-reload || true
-fi
+@service:after-removal@

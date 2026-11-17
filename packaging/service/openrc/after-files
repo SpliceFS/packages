@@ -1,0 +1,9 @@
+# A container has no running OpenRC, and then there is nothing to restart.
+if [ -e /run/openrc/softlevel ]; then
+    # Installing never adds the service to a runlevel or starts it: the administrator does
+    # that. --ifstarted restarts only a service that is running, so an upgrade restarts what ran
+    # before it and a stopped service stays stopped.
+    # A broken configuration must not turn an upgrade into a failed install.
+    rc-service --ifstarted @SERVICE@ restart ||
+        echo "@SERVICE@ did not restart; see /var/log/@SERVICE@.log" >&2
+fi

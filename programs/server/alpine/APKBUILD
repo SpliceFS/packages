@@ -11,7 +11,7 @@ arch="x86_64 aarch64"
 license="MIT"
 # The binary is compiled and tested before this step, and it is already stripped.
 options="!check !strip"
-install="$pkgname.pre-install $pkgname.post-install $pkgname.post-upgrade $pkgname.pre-deinstall"
+install="$pkgname.pre-install $pkgname.post-upgrade $pkgname.pre-deinstall"
 
 package() {
 	install -D -m 755 "$STAGE/splicefsd" "$pkgdir/usr/bin/splicefsd"
