@@ -20,7 +20,7 @@ lint: site
 		programs/*/deb/postinst programs/*/deb/prerm programs/*/deb/postrm \
 		programs/*/alpine/*.post-install programs/*/alpine/*.post-upgrade \
 		programs/*/alpine/*.pre-deinstall programs/*/alpine/*.pre-install programs/*/package-test-extra.sh \
-		programs/*/service-check.sh
+		programs/*/service-check.sh programs/*/freebsd/check-lib.sh programs/*/freebsd/*.rc
 
 # Signs the built script with the key file named by SIGNING_KEY_FILE and proves the signature
 # with the public key in keys/ only. Needs gpg.
@@ -47,15 +47,13 @@ e2e:
 	sh tests/run.sh
 
 # Runs the setup script as root in a virtual machine of every FreeBSD release in
-# packaging/freebsd/images, which has no Linux container. The machine runs under QEMU inside
-# LINUX_IMAGE; this needs Docker, curl and xz, nothing else. FREEBSD=15.1 limits the run to
-# one release. Where the machine has to be emulated (any computer but Linux on amd64) a run
-# takes many minutes.
-LINUX_IMAGE ?= golang:1.27
-FREEBSD ?=
+# packaging/freebsd/releases, which has no Linux container. The machine runs under QEMU in the
+# prepared image of its release (FREEBSD_IMAGE); this needs Docker and KVM (Linux on amd64), and
+# a computer without /dev/kvm stops at once, because an emulated machine takes many times as
+# long. FREEBSD=15.1 limits the run to one release.
 .PHONY: e2e-freebsd
-e2e-freebsd:
-	LINUX_IMAGE=$(LINUX_IMAGE) FREEBSD=$(FREEBSD) tests/freebsd.sh
+e2e-freebsd: freebsd-kvm
+	LINUX_IMAGE=$(GO_IMAGE) FREEBSD_IMAGE=$(FREEBSD_IMAGE) FREEBSD=$(FREEBSD) tests/freebsd.sh
 
 # --- The packages of a program ------------------------------------------------------------------
 # The package definitions of each program are in programs/PROGRAM, with its program.conf. What is
@@ -76,6 +74,12 @@ e2e-freebsd:
 # belongs to the caller and not to root. Every package format is built by its own distribution's
 # tools in its own image, so a package built here is the package CI builds.
 GO_IMAGE ?= ghcr.io/splicefs/go:v1
+# The image of a FreeBSD release, which runs the FreeBSD machine of that release: a FreeBSD disk
+# that has been booted once and has pkg set up (amd64 only), with QEMU. @RELEASE@ is where the
+# release goes; the releases are listed in packaging/freebsd/releases.
+FREEBSD_IMAGE ?= ghcr.io/splicefs/freebsd-@RELEASE@:v2
+# Empty runs every release in the list; 15.1, for example, only that one.
+FREEBSD ?=
 RPM_IMAGE ?= ghcr.io/splicefs/rpm-build:v1
 APK_IMAGE ?= ghcr.io/splicefs/apk-build:v1
 PROGRAM ?=
@@ -94,7 +98,7 @@ RUN_OPTS :=
 DOCKER_RUN = docker run --rm --user "$(shell id -u):$(shell id -g)" $(RUN_OPTS) -v "$(CURDIR)":/repo -w /repo \
 	-v "$(abspath $(BIN))":/in/bin:ro -v "$(abspath $(SRC))":/in/src:ro
 
-.PHONY: packages package-deb package-rpm package-apk package-inputs keys
+.PHONY: packages package-deb package-rpm package-apk package-freebsd freebsd-kvm package-inputs keys
 
 # The packages of every format. Each format is a target of its own. When all of them are built, the
 # version they were built as is recorded in dist/PROGRAM/version, which is where the tests that
@@ -123,6 +127,27 @@ package-rpm: package-inputs
 package-apk: RUN_OPTS = $(KEYS_MOUNT)
 package-apk: package-inputs keys
 	scripts/part.sh package-apk $(DOCKER_RUN) $(APK_IMAGE) env $(PACKAGE_VARS) sh scripts/package-apk.sh /repo/$(PACKAGE_OUT)
+
+# FreeBSD cannot run in a container, so the FreeBSD packages are built, installed and checked in a
+# virtual machine of each release in packaging/freebsd/releases (scripts/package-freebsd.sh). The
+# machine is amd64: it builds the packages for amd64 and arm64, installs the amd64 one and starts
+# its service, and the arm64 package is checked from the file. It also signs the FreeBSD
+# repositories (dist/PROGRAM/repo/freebsd) with the keys of make keys. It needs Docker and KVM; a
+# computer without /dev/kvm stops at once. FREEBSD=15.1 limits the run to one release. It is not
+# part of make packages because of that need. Like the other formats it takes PROGRAM, BIN
+# (the freebsd-amd64 and freebsd-arm64 programs of it), SRC (only to date a build that is not a
+# release: FreeBSD packages hold no documents) and VERSION, and it records the version the way
+# make packages does.
+package-freebsd: freebsd-kvm package-inputs keys
+	scripts/part.sh package-freebsd env PROGRAM=$(PROGRAM) VERSION=$(VERSION) PACKAGE_DATE=$(PACKAGE_DATE) \
+		BIN="$(abspath $(BIN))" KEYS_DIR="$(CURDIR)/dist/keys" LINUX_IMAGE=$(GO_IMAGE) FREEBSD_IMAGE=$(FREEBSD_IMAGE) FREEBSD=$(FREEBSD) \
+		sh scripts/package-freebsd.sh $(PACKAGE_OUT)
+	PROGRAM=$(PROGRAM) VERSION=$(VERSION) PACKAGE_DATE=$(PACKAGE_DATE) sh -c '. scripts/package-record.sh && write_package_record'
+
+# First in every target that starts a FreeBSD machine, so that a computer that cannot is found
+# before anything is built.
+freebsd-kvm:
+	scripts/freebsd-require-kvm.sh
 
 # Decides which keys everything is signed with and puts them in ./dist/keys.
 keys:
