@@ -30,6 +30,7 @@ cd "$root"
 . scripts/package-record.sh
 use_recorded_version
 . scripts/package-lib.sh
+. scripts/published-lib.sh
 : "${release_repo:?$defs/program.conf does not set release_repo, the repository the program is released from}"
 
 releases="https://github.com/$release_repo/releases"
@@ -40,22 +41,17 @@ case "$platform" in
     *) fail "no package CPU type for $platform" ;;
 esac
 
-# Both downloads insist on HTTPS, also after a redirect, so that a redirect can never hand
-# over a package from a plain address.
-# The tag of the newest release. GitHub answers with the releases page itself when there is
-# none; a network failure is a failure of this script and not a reason to skip.
-final_url="$(curl -fsSIL --proto =https --proto-redir =https --retry 3 -o /dev/null -w '%{url_effective}' "$releases/latest")" ||
+# The tag of the newest release; empty when there is none. The functions of published-lib.sh are
+# tests whose status is the answer, so set -e being off inside them changes nothing.
+# shellcheck disable=SC2310
+tag="$(latest_release_tag "$release_repo")" ||
     fail "could not ask $releases/latest for the newest release"
-case "$final_url" in
-    */releases/tag/*) tag="${final_url##*/}" ;;
-    *) tag="" ;;
-esac
 
 # What the published files are called is what package-lib.sh makes of the tag.
 published_dir="$root/dist/$PROGRAM/published"
 if [ -n "$tag" ]; then
-    names="$(VERSION="$tag" PACKAGE_DATE="$PACKAGE_DATE" sh -c \
-        '. scripts/package-lib.sh; echo "$debver $rpmver $apkver"')" ||
+    # shellcheck disable=SC2310
+    names="$(release_versions "$tag")" ||
         fail "could not work out the file names of the published version $tag"
     read -r old_debver old_rpmver old_apkver <<LIST
 $names
@@ -108,31 +104,23 @@ for format in deb rpm apk; do
     fi
     case "$format" in
         deb)
-            old_file="${name}_${old_debver}_$deb_arch.deb"
             new_file="${name}_${debver}_$deb_arch.deb"
             ;;
         rpm)
-            old_file="$name-$old_rpmver-1.$rpm_arch.rpm"
             new_file="$name-$rpmver-1.$rpm_arch.rpm"
             ;;
         *)
-            old_file="$name-$old_apkver-r0.$apk_arch.apk"
             new_file="alpine/$apk_arch/$name-$apkver-r0.apk"
             ;;
     esac
     [ -f "dist/$PROGRAM/$new_file" ] || fail "dist/$PROGRAM/$new_file does not exist; run make packages first"
 
-    mkdir -p "$published_dir"
-    if [ ! -f "$published_dir/$old_file" ]; then
-        # Written under another name first, so an interrupted download is never mistaken
-        # for the package.
-        if ! curl -fsSL --proto =https --proto-redir =https --retry 3 -o "$published_dir/$old_file.part" "$releases/download/$tag/$old_file" ||
-            ! mv "$published_dir/$old_file.part" "$published_dir/$old_file"; then
-            rm -f "$published_dir/$old_file.part"
-            echo "FAIL $format: could not download $releases/download/$tag/$old_file"
-            failed=$((failed + 1))
-            continue
-        fi
+    old_file="$(release_file_name "$format" "$old_debver" "$old_rpmver" "$old_apkver")"
+    # shellcheck disable=SC2310
+    if ! download_release_file "$release_repo" "$tag" "$old_file" "$published_dir"; then
+        echo "FAIL $format: could not download $releases/download/$tag/$old_file"
+        failed=$((failed + 1))
+        continue
     fi
 
     # A registry failure must not look like a failed upgrade.
