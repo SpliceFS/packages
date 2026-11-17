@@ -82,7 +82,9 @@ get_signed = ("curl -fsSLo ~/splicefs-setup.sh.asc %s/setup.sh.asc\n"
               "gpg --import ~/splicefs.asc\n") % (base, base)
 verify_signed = ("gpg --verify ~/splicefs-setup.sh.asc &&\n"
                  "  gpg --output ~/splicefs-setup.sh --decrypt ~/splicefs-setup.sh.asc\n")
-expected = [curl, wget, fetch, get_signed, verify_signed] + [step[k] for k in ("apt", "dnf", "zypper", "apk", "pkg")]
+# The removal section repeats the three download commands of step 1 with --remove added.
+remove = [b.replace("splicefs-setup.sh\n", "splicefs-setup.sh --remove\n") for b in (curl, wget, fetch)]
+expected = [curl, wget, fetch, get_signed, verify_signed] + remove + [step[k] for k in ("apt", "dnf", "zypper", "apk", "pkg")]
 bad = 0
 if len(blocks) != len(expected):
     print("page has %d code blocks, expected %d" % (len(blocks), len(expected))); bad += 1
