@@ -2,12 +2,17 @@
 # Everything below is a function and the last line calls main, so a download that is cut
 # short runs nothing at all.
 #
-# Usage: sh setup.sh
+# Usage: sh setup.sh [--remove]
 #
 # Sets up the SpliceFS package repository for this system: the signing key and the package
 # sources. It installs no package and refreshes no package index. When it is done it prints the
 # system's own commands to run next. Safe to run again: a file is rewritten only when its
 # content differs.
+#
+# With --remove it takes away what the setup added: the package sources and the signing key, and
+# nothing else. It removes no package; when it is done it prints the system's own commands for
+# that. A file is removed only when its content is exactly what the setup writes. Safe to run
+# again.
 #
 # Before it changes anything it downloads the published setup.sh and compares it with its own
 # file. A copy that is incomplete, was changed or is not the latest stops there. For that it must
@@ -26,9 +31,23 @@ umask 022
 # shellcheck disable=SC2317,SC2329
 BASE_URL='@BASE_URL@'
 
+# Where each family keeps the repository definition and the signing key. The setup writes these
+# files and --remove removes them, so each path is written down once. The one that ends in _TMP
+# is outside the keys folder, because apk reads every file in that folder as a key.
+APT_KEY=/etc/apt/keyrings/splicefs.asc
+APT_REPO=/etc/apt/sources.list.d/splicefs.sources
+RPM_KEY=/etc/pki/rpm-gpg/RPM-GPG-KEY-splicefs
+DNF_REPO=/etc/yum.repos.d/splicefs.repo
+ZYPPER_REPO=/etc/zypp/repos.d/splicefs.repo
+APK_KEY=/etc/apk/keys/splicefs.rsa.pub
+APK_KEY_TMP=/etc/apk/splicefs.rsa.pub.new
+APK_REPO=/etc/apk/repositories.d/splicefs.list
+PKG_KEY=/usr/local/etc/pkg/keys/splicefs.rsa.pub
+PKG_REPO=/usr/local/etc/pkg/repos/splicefs.conf
+
 usage() {
-  echo "usage: sh setup.sh" >&2
-  echo "This script only sets up the package repository; the packages are installed with the system's own package manager." >&2
+  echo "usage: sh setup.sh [--remove]" >&2
+  echo "Without an argument the script sets up the package repository and the signing key. With --remove it removes them again. It never installs or removes a package; that is done with the system's own package manager." >&2
 }
 
 die() {
@@ -36,39 +55,81 @@ die() {
   exit 1
 }
 
+warn() {
+  echo "warning: $*" >&2
+}
+
+# Prints yes when the two files have the same bytes, and no when they do not. It prints instead
+# of returning a status, so a caller in a condition does not turn off set -e for this function.
+# Compared in the shell when cmp is missing: cmp and diff are absent on some minimal systems.
+same_file() {
+  if command -v cmp >/dev/null 2>&1; then
+    if cmp -s "$1" "$2"; then echo yes; else echo no; fi
+  else
+    sf_first=$(cat "$1")
+    sf_second=$(cat "$2")
+    if [ "$sf_first" = "$sf_second" ]; then echo yes; else echo no; fi
+  fi
+}
+
+# The content is what the function named by the third argument prints, so --remove can ask for
+# the same text. The function is called here and not at the end of a pipe, because a pipe would
+# run this function in a subshell, and the cleanup trap would not know the temporary file.
 # The new content goes to a temporary file first, so an interrupted run never leaves a
 # half-written PATH, and an unchanged file keeps its timestamp. The temporary file must be on
 # the same filesystem as PATH for the final mv to be atomic.
 write_file() {
   wf_path=$1
   wf_mode=$2
-  WF_TMP=${3:-$wf_path.new}
+  wf_content=$3
+  WF_TMP=${4:-$wf_path.new}
   if [ -d "$wf_path" ]; then
     die "$wf_path is a folder; move it away and run this script again"
   fi
-  cat > "$WF_TMP"
-  # Compared in the shell when cmp is missing: cmp and diff are absent on some minimal systems.
+  "$wf_content" > "$WF_TMP"
+  wf_same=no
   if [ -f "$wf_path" ]; then
-    if command -v cmp >/dev/null 2>&1; then
-      wf_same=0
-      cmp -s "$WF_TMP" "$wf_path" || wf_same=1
-    else
-      wf_same=0
-      wf_new=$(cat "$WF_TMP")
-      wf_old=$(cat "$wf_path")
-      [ "$wf_new" = "$wf_old" ] || wf_same=1
-    fi
-    if [ "$wf_same" -eq 0 ]; then
-      rm -f "$WF_TMP"
-      WF_TMP=
-      chmod "$wf_mode" "$wf_path"
-      return 0
-    fi
+    wf_same=$(same_file "$WF_TMP" "$wf_path")
+  fi
+  if [ "$wf_same" = yes ]; then
+    rm -f "$WF_TMP"
+    WF_TMP=
+    chmod "$wf_mode" "$wf_path"
+    return 0
   fi
   chmod "$wf_mode" "$WF_TMP"
   mv "$WF_TMP" "$wf_path"
   WF_TMP=
   echo "updated $wf_path"
+}
+
+# Removes PATH, but only when its content is what write_file would write there; the second
+# argument is the function that prints it. That is the rule for a file being ours: the setup
+# rewrites a changed file without asking, but a removal cannot be undone, and a file with other
+# content may be the person's own or another tool's. It is left in place, with a warning. A file
+# that is not there needs nothing, so a second run is quiet. The third argument is as for
+# write_file.
+remove_file() {
+  rf_path=$1
+  rf_content=$2
+  if [ ! -e "$rf_path" ] && [ ! -L "$rf_path" ]; then
+    return 0
+  fi
+  WF_TMP=${3:-$rf_path.new}
+  "$rf_content" > "$WF_TMP"
+  rf_same=no
+  if [ -f "$rf_path" ]; then
+    rf_same=$(same_file "$WF_TMP" "$rf_path")
+  fi
+  if [ "$rf_same" = yes ]; then
+    rm -f "$rf_path"
+    echo "removed $rf_path"
+  else
+    warn "$rf_path is not what the setup script writes, so it was left in place;" \
+      "remove it yourself if you do not need it"
+  fi
+  rm -f "$WF_TMP"
+  WF_TMP=
 }
 
 # The path is only known at run time, so ShellCheck cannot follow the sourced file.
@@ -114,12 +175,6 @@ check_tools() {
   case "$FAMILY" in
     apt)
       command -v apt-get >/dev/null 2>&1 || die "apt-get not found"
-      # The repository is https. This script installs no package, so the missing bundle is
-      # reported here, before anything is written, instead of as a failed apt-get update later.
-      if [ ! -f /etc/ssl/certs/ca-certificates.crt ]; then
-        die "/etc/ssl/certs/ca-certificates.crt is missing, and apt needs it for https sources;" \
-          "install the ca-certificates package, then run this script again"
-      fi
       ;;
     dnf)
       # yum takes the same repository file and the same install arguments.
@@ -133,10 +188,6 @@ check_tools() {
       ;;
     zypper)
       command -v zypper >/dev/null 2>&1 || die "zypper not found"
-      if command -v transactional-update >/dev/null 2>&1; then
-        die "this system installs packages with transactional-update;" \
-          "the manual steps at $BASE_URL/ apply"
-      fi
       ;;
     apk)
       command -v apk >/dev/null 2>&1 || die "apk not found"
@@ -147,6 +198,30 @@ check_tools() {
       ;;
     *)
       # detect_family sets FAMILY to one of the five values above, so nothing is left to check.
+      ;;
+  esac
+}
+
+# What only the setup needs, so a removal still works on a system that has lost the
+# certificates or gained transactional-update since.
+check_setup_system() {
+  case "$FAMILY" in
+    apt)
+      # The repository is https. This script installs no package, so the missing bundle is
+      # reported here, before anything is written, instead of as a failed apt-get update later.
+      if [ ! -f /etc/ssl/certs/ca-certificates.crt ]; then
+        die "/etc/ssl/certs/ca-certificates.crt is missing, and apt needs it for https sources;" \
+          "install the ca-certificates package, then run this script again"
+      fi
+      ;;
+    zypper)
+      if command -v transactional-update >/dev/null 2>&1; then
+        die "this system installs packages with transactional-update;" \
+          "the manual steps at $BASE_URL/ apply"
+      fi
+      ;;
+    *)
+      # The other families have nothing more to check.
       ;;
   esac
 }
@@ -163,83 +238,65 @@ check_cpu() {
   esac
 }
 
-# The keys travel inside this script, so installing needs no second download.
-write_openpgp_key() {
-  write_file "$1" 0644 <<'KEY_EOF'
+# The keys travel inside this script, so installing needs no second download. Each text is
+# printed by a function, so the setup can write it and --remove can compare with it.
+openpgp_key() {
+  cat <<'KEY_EOF'
 @OPENPGP_KEY@
 KEY_EOF
 }
 
-# The same RSA key is checked by Alpine's apk and by FreeBSD's pkg. The second argument is
-# where the file is written before it is moved into place. Alpine gives one, because apk
-# reads every file in its keys folder as a key; without it the file is written next to its
-# final place.
-write_rsa_key() {
-  write_file "$1" 0644 "${2:-$1.new}" <<'KEY_EOF'
+# The same RSA key is checked by Alpine's apk and by FreeBSD's pkg.
+rsa_key() {
+  cat <<'KEY_EOF'
 @ALPINE_KEY@
 KEY_EOF
 }
 
-setup_apt() {
-  install -m 0755 -d /etc/apt/keyrings
-  write_openpgp_key /etc/apt/keyrings/splicefs.asc
-  write_file /etc/apt/sources.list.d/splicefs.sources 0644 <<EOF
+apt_sources() {
+  cat <<EOF
 Types: deb
 URIs: $BASE_URL/server/apt $BASE_URL/client/apt
 Suites: stable
 Components: main
-Signed-By: /etc/apt/keyrings/splicefs.asc
+Signed-By: $APT_KEY
 EOF
 }
 
-# The backslash keeps $basearch literal, because dnf and zypper expand it themselves.
-write_rpm_repo() {
-  wr_path=$1
-  wr_extra=$2
-  write_file "$wr_path" 0644 <<EOF
+# The backslash keeps $basearch literal, because dnf and zypper expand it themselves. The
+# argument is the lines that differ between the two.
+rpm_repo() {
+  cat <<EOF
 [splicefs-server]
 name=SpliceFS server
 baseurl=$BASE_URL/server/rpm/\$basearch
 enabled=1
-$wr_extra
-gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-splicefs
+$1
+gpgkey=file://$RPM_KEY
 
 [splicefs-client]
 name=SpliceFS client
 baseurl=$BASE_URL/client/rpm/\$basearch
 enabled=1
-$wr_extra
-gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-splicefs
+$1
+gpgkey=file://$RPM_KEY
 EOF
 }
 
-setup_dnf() {
-  install -m 0755 -d /etc/pki/rpm-gpg
-  write_openpgp_key /etc/pki/rpm-gpg/RPM-GPG-KEY-splicefs
-  # The key is known to rpm from the moment the repository is added, not from the first
-  # install. Importing a key that is already known is harmless.
-  rpm --import /etc/pki/rpm-gpg/RPM-GPG-KEY-splicefs
-  write_rpm_repo /etc/yum.repos.d/splicefs.repo 'gpgcheck=1
+dnf_repo() {
+  rpm_repo 'gpgcheck=1
 repo_gpgcheck=1'
 }
 
-setup_zypper() {
-  install -m 0755 -d /etc/pki/rpm-gpg
-  write_openpgp_key /etc/pki/rpm-gpg/RPM-GPG-KEY-splicefs
-  # Importing a key that is already known is harmless, so no check is needed first.
-  rpm --import /etc/pki/rpm-gpg/RPM-GPG-KEY-splicefs
-  write_rpm_repo /etc/zypp/repos.d/splicefs.repo 'autorefresh=1
+zypper_repo() {
+  rpm_repo 'autorefresh=1
 gpgcheck=1
 repo_gpgcheck=1
 pkg_gpgcheck=1'
 }
 
-setup_apk() {
-  # The temporary file stays out of the keys folder, because apk reads every file in it.
-  mkdir -p /etc/apk/keys
-  write_rsa_key /etc/apk/keys/splicefs.rsa.pub /etc/apk/splicefs.rsa.pub.new
-  mkdir -p /etc/apk/repositories.d
-  write_file /etc/apk/repositories.d/splicefs.list 0644 <<EOF
+apk_list() {
+  cat <<EOF
 $BASE_URL/server/alpine
 $BASE_URL/client/alpine
 EOF
@@ -248,71 +305,171 @@ EOF
 # The backslash keeps the ABI variable literal in the file, because pkg replaces it itself with
 # the ABI of the system it runs on. The key's path is named in the repository file, so the
 # keys folder holds nothing but the key.
-write_pkg_repo() {
-  write_file /usr/local/etc/pkg/repos/splicefs.conf 0644 <<EOF
+pkg_conf() {
+  cat <<EOF
 splicefs-server: {
   url: "$BASE_URL/server/freebsd/\${ABI}",
   mirror_type: "none",
   signature_type: "pubkey",
-  pubkey: "/usr/local/etc/pkg/keys/splicefs.rsa.pub",
+  pubkey: "$PKG_KEY",
   enabled: yes
 }
 splicefs-client: {
   url: "$BASE_URL/client/freebsd/\${ABI}",
   mirror_type: "none",
   signature_type: "pubkey",
-  pubkey: "/usr/local/etc/pkg/keys/splicefs.rsa.pub",
+  pubkey: "$PKG_KEY",
   enabled: yes
 }
 EOF
 }
 
+# The armor of a key without its header lines, its checksum line and its line breaks: what is
+# left is the key itself, which is the same wherever the armor was written.
+key_body() {
+  grep -v -e '^-----' -e '^Version:' -e '^=' -e '^$' | tr -d ' \n'
+}
+
+# rpm keeps the key that rpm --import read as a package called gpg-pubkey, and the description
+# of that package is the key again. The key is found by that text, so the keys of other makers
+# stay. This is the only package that this script ever removes.
+remove_rpm_key() {
+  rk_want=$(openpgp_key | key_body)
+  rpm -qa gpg-pubkey --qf '%{NAME}-%{VERSION}-%{RELEASE}\n' | while read -r rk_pkg; do
+    rk_have=$(rpm -q --qf '%{DESCRIPTION}' "$rk_pkg" | key_body)
+    if [ "$rk_have" = "$rk_want" ]; then
+      rpm -e "$rk_pkg"
+      echo "removed $rk_pkg from the rpm database"
+    fi
+  done
+}
+
+# Each remove_ function takes away what the setup_ function of its family wrote, the
+# repository first, because it names the key.
+setup_apt() {
+  install -m 0755 -d "${APT_KEY%/*}"
+  write_file "$APT_KEY" 0644 openpgp_key
+  write_file "$APT_REPO" 0644 apt_sources
+}
+
+remove_apt() {
+  remove_file "$APT_REPO" apt_sources
+  remove_file "$APT_KEY" openpgp_key
+}
+
+setup_dnf() {
+  install -m 0755 -d "${RPM_KEY%/*}"
+  write_file "$RPM_KEY" 0644 openpgp_key
+  # The key is known to rpm from the moment the repository is added, not from the first
+  # install. Importing a key that is already known is harmless.
+  rpm --import "$RPM_KEY"
+  write_file "$DNF_REPO" 0644 dnf_repo
+}
+
+remove_dnf() {
+  remove_file "$DNF_REPO" dnf_repo
+  remove_rpm_key
+  remove_file "$RPM_KEY" openpgp_key
+}
+
+setup_zypper() {
+  install -m 0755 -d "${RPM_KEY%/*}"
+  write_file "$RPM_KEY" 0644 openpgp_key
+  # Importing a key that is already known is harmless, so no check is needed first.
+  rpm --import "$RPM_KEY"
+  write_file "$ZYPPER_REPO" 0644 zypper_repo
+}
+
+remove_zypper() {
+  remove_file "$ZYPPER_REPO" zypper_repo
+  remove_rpm_key
+  remove_file "$RPM_KEY" openpgp_key
+}
+
+setup_apk() {
+  # The temporary file stays out of the keys folder, because apk reads every file in it.
+  mkdir -p "${APK_KEY%/*}"
+  write_file "$APK_KEY" 0644 rsa_key "$APK_KEY_TMP"
+  mkdir -p "${APK_REPO%/*}"
+  write_file "$APK_REPO" 0644 apk_list
+}
+
+remove_apk() {
+  remove_file "$APK_REPO" apk_list
+  remove_file "$APK_KEY" rsa_key "$APK_KEY_TMP"
+}
+
 setup_pkg() {
-  mkdir -p /usr/local/etc/pkg/keys
-  write_rsa_key /usr/local/etc/pkg/keys/splicefs.rsa.pub
-  mkdir -p /usr/local/etc/pkg/repos
-  write_pkg_repo
+  mkdir -p "${PKG_KEY%/*}"
+  write_file "$PKG_KEY" 0644 rsa_key
+  mkdir -p "${PKG_REPO%/*}"
+  write_file "$PKG_REPO" 0644 pkg_conf
+}
+
+remove_pkg() {
+  remove_file "$PKG_REPO" pkg_conf
+  remove_file "$PKG_KEY" rsa_key
 }
 
 # The commands are the system's own, so the person can run them again later, for example to
 # add the other package. Alpine and FreeBSD have no sudo by default, and their manual steps are
-# written for root, so apk and pkg are printed without it.
-next_steps() {
+# written for root, so apk and pkg are printed without it. The words are left in PM, PM_UPDATE,
+# PM_ADD and PM_REMOVE.
+package_commands() {
   case "$FAMILY" in
     apt)
-      ns_pm='sudo apt-get'
-      ns_update=update
-      ns_add=install
+      PM='sudo apt-get'
+      PM_UPDATE=update
+      PM_ADD=install
+      PM_REMOVE=remove
       ;;
     dnf)
-      ns_pm="sudo $RPM_TOOL"
-      ns_update=makecache
-      ns_add=install
+      PM="sudo $RPM_TOOL"
+      PM_UPDATE=makecache
+      PM_ADD=install
+      PM_REMOVE=remove
       ;;
     zypper)
-      ns_pm='sudo zypper'
-      ns_update=refresh
-      ns_add=install
+      PM='sudo zypper'
+      PM_UPDATE=refresh
+      PM_ADD=install
+      PM_REMOVE=remove
       ;;
     apk)
-      ns_pm=apk
-      ns_update=update
-      ns_add=add
+      PM=apk
+      PM_UPDATE=update
+      PM_ADD=add
+      PM_REMOVE=del
       ;;
     pkg)
-      ns_pm=pkg
-      ns_update=update
-      ns_add=install
+      PM=pkg
+      PM_UPDATE=update
+      PM_ADD=install
+      PM_REMOVE=delete
       ;;
     *)
       # detect_family sets FAMILY to one of the five values above, so every value is handled.
       ;;
   esac
+}
+
+next_steps() {
+  package_commands
   echo "The SpliceFS package repository is set up. Next:"
   echo
-  echo "  $ns_pm $ns_update"
-  echo "  $ns_pm $ns_add splicefs-server    # the server"
-  echo "  $ns_pm $ns_add splicefs-client    # the client"
+  echo "  $PM $PM_UPDATE"
+  echo "  $PM $PM_ADD splicefs-server    # the server"
+  echo "  $PM $PM_ADD splicefs-client    # the client"
+}
+
+# The packages stay installed, and the package manager can remove them without the repository,
+# so these commands are right before and after --remove.
+remove_steps() {
+  package_commands
+  echo "The packages are not removed by this script. To remove them:"
+  echo
+  echo "  $PM $PM_REMOVE splicefs-server    # the server"
+  echo "  $PM $PM_REMOVE splicefs-client    # the client"
 }
 
 # The command lines that download the script and run it, indented for printing. The argument
@@ -443,16 +600,36 @@ cleanup() {
   fi
 }
 
+# Both sources are always set up so either package can be installed with the system's own
+# command.
+run_setup() {
+  check_setup_system
+  check_cpu
+  "setup_$FAMILY"
+  echo
+  next_steps
+}
+
+run_remove() {
+  "remove_$FAMILY"
+  echo
+  remove_steps
+}
+
 main() {
   WF_TMP=
   CS_TMP=
   trap cleanup EXIT
   trap 'exit 130' INT
   trap 'exit 143' TERM
-  if [ "$#" -ne 0 ]; then
-    usage
-    exit 2
-  fi
+  case "$#:${1:-}" in
+    0:) main_action=setup ;;
+    1:--remove) main_action=remove ;;
+    *)
+      usage
+      exit 2
+      ;;
+  esac
   main_uid=$(id -u)
   if [ "$main_uid" -ne 0 ]; then
     die "run this script as root, for example with sudo"
@@ -460,14 +637,7 @@ main() {
   check_self
   detect_family
   check_tools
-  check_cpu
-
-  # Both sources are always set up so either package can be installed with the system's own
-  # command.
-  "setup_$FAMILY"
-
-  echo
-  next_steps
+  "run_$main_action"
 }
 
 main "$@"

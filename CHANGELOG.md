@@ -8,8 +8,8 @@ The change log of all parts of SpliceFS, side by side: https://splicefs.org/chan
 
 ## [0.4.14] - 2026-11-17
 
-- Internal: this repository can publish a released program's packages, after building, signing and
-  testing them.
+- `sh setup.sh --remove` removes the SpliceFS repository and signing key that setup.sh added; remove
+  the packages first with the commands it prints.
 
 ## [0.4.13] - 2026-11-17
 
