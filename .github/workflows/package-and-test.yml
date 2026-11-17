@@ -137,85 +137,22 @@ jobs:
             packages/dist/keys/
           if-no-files-found: error
 
-  # One job for each package format and CPU type. A step that fails does not stop the next
-  # one: each test says what is broken, and one run should show all of it.
-  package-tests:
-    name: Package tests (${{ matrix.format }}, ${{ matrix.arch }})
+  # Installs, starts, upgrades and installs from the repository, on every system of
+  # packaging/test-systems. The jobs are in a workflow of their own, which the release of a
+  # program calls too, so that a release runs the same tests on the packages it publishes.
+  tests:
+    name: Tests
     needs: packages
-    runs-on: ${{ matrix.runner }}
-    strategy:
-      fail-fast: false
-      matrix:
-        format: [deb, rpm, apk]
-        arch: [amd64, arm64]
-        include:
-          - arch: amd64
-            runner: ubuntu-latest
-          - arch: arm64
-            runner: ubuntu-24.04-arm
-    env:
-      PROGRAM: ${{ inputs.program }}
-      FORMAT: ${{ matrix.format }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: SpliceFS/packages
-          ref: ${{ inputs.packages-ref }}
-          path: packages
-          persist-credentials: false
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: packages-${{ inputs.program }}-${{ matrix.arch }}
-          path: packages/dist
-      - name: Install and remove the package in a clean system of every release
-        working-directory: packages
-        run: make package-test PROGRAM="$PROGRAM" ONLY="$FORMAT"
-      # The containers above have no service manager running. These do: process 1 is
-      # systemd or OpenRC, and the service must start by itself, come back after a reboot
-      # and stop when the package is removed.
-      - name: Start the service under the real service manager of every release
-        if: ${{ !cancelled() }}
-        working-directory: packages
-        run: make service-test PROGRAM="$PROGRAM" ONLY="$FORMAT"
-      - name: Install from the repository with signature checks on
-        if: ${{ !cancelled() }}
-        working-directory: packages
-        run: make repo-test PROGRAM="$PROGRAM" ONLY="$FORMAT"
-
-  upgrade-test:
-    name: Upgrade (${{ matrix.arch }})
-    needs: packages
-    runs-on: ${{ matrix.runner }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - runner: ubuntu-latest
-            arch: amd64
-          - runner: ubuntu-24.04-arm
-            arch: arm64
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: SpliceFS/packages
-          ref: ${{ inputs.packages-ref }}
-          path: packages
-          persist-credentials: false
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: packages-${{ inputs.program }}-${{ matrix.arch }}
-          path: packages/dist
-      - name: Upgrade from the last published version, when the packaging changed
-        working-directory: packages
-        env:
-          PROGRAM: ${{ inputs.program }}
-        run: make upgrade-test PROGRAM="$PROGRAM"
+    uses: ./.github/workflows/test-packages.yml
+    with:
+      program: ${{ inputs.program }}
+      packages-ref: ${{ inputs.packages-ref }}
 
   # The one result a caller needs. A job that did not run counts as failed: a job is skipped
   # only when one it needs failed. A new job is added to the list when it is added above.
   result:
     name: Result
-    needs: [source, packages, package-tests, upgrade-test]
+    needs: [source, packages, tests]
     if: ${{ always() }}
     runs-on: ubuntu-latest
     steps:
