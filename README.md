@@ -35,8 +35,8 @@ again. Manual steps for each system are on the page as well.
 
 ## After the install
 
-Installing a Linux package installs the service and does not start it or turn it on. Start it,
-and have it start at boot, with the service manager of the system. The server's service is
+Installing a package installs the service and does not start it or turn it on. Start it, and
+have it start at boot, with the service manager of the system. The server's service is
 `splicefsd` and the client's is `splicefs`.
 
 systemd (Debian, Ubuntu, Rocky Linux, Amazon Linux, openSUSE):
@@ -53,10 +53,28 @@ rc-update add splicefsd default && rc-service splicefsd start    # the server
 rc-update add splicefs default && rc-service splicefs start      # the client
 ```
 
-An upgrade restarts a service that was running and leaves a stopped one stopped; it never turns
-a service on or off. Removing the package stops the service and turns it off; its data and the
-`splicefs` user stay. In a container without a running service manager the package only
+FreeBSD (pkg), as root:
+
+```
+sysrc splicefsd_enable=YES && service splicefsd start    # the server
+sysrc splicefs_enable=YES && service splicefs start      # the client
+```
+
+On Linux an upgrade restarts a service that was running and leaves a stopped one stopped; it never
+turns a service on or off. Removing the package stops the service and turns it off; its data and
+the `splicefs` user stay. In a container without a running service manager the package only
 installs its files.
+
+On FreeBSD an upgrade leaves a service that was running running, still the old version, because
+pkg ends every program a package script starts and so a package cannot restart one. Restart it
+yourself with `service splicefsd restart` (the client: `service splicefs restart`). Removing the
+package stops the service and leaves `/etc/rc.conf` alone, as other FreeBSD packages do; delete
+the setting afterwards:
+
+```
+sysrc -x splicefsd_enable    # the server
+sysrc -x splicefs_enable     # the client
+```
 
 ## Remove the repository
 

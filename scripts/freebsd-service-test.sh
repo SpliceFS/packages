@@ -167,4 +167,18 @@ done <<PROGRAMS
 $programs
 PROGRAMS
 
+# --- the documents --------------------------------------------------------------------------
+
+# The page writes && as &amp;&amp;.
+page="$(sed 's/&amp;/\&/g' site/index.html)"
+readme="$(cat README.md)"
+while read -r program service; do
+    for command in "sysrc ${service}_enable=YES && service $service start" "sysrc -x ${service}_enable"; do
+        holds "README.md says: $command" "$command" "$readme"
+        holds "the install page says: $command" "$command" "$page"
+    done
+done <<PROGRAMS
+$programs
+PROGRAMS
+
 [ "$failed" -eq 0 ]
