@@ -46,6 +46,16 @@ package_links() {
     done
 }
 
+# Prints the name of a new folder that holds the links of the program and nothing else, for the
+# formats whose definition copies a tree over the root of the package. The folder is readable by
+# everyone because the copy gives its mode to the root of the package.
+package_link_tree() {
+    linktree="$(mktemp -d)"
+    chmod 755 "$linktree"
+    package_links "$linktree"
+    echo "$linktree"
+}
+
 # Prints the documents of the package as paths in the source tree SRC, separated by spaces. They
 # are named in program.conf and are not kept in this repository, because they change with every
 # version of the program.

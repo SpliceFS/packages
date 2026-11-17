@@ -21,6 +21,7 @@ for arch in amd64 arm64; do
     chmod 755 "$root"
     install -d "$root/DEBIAN" "$root$confdir"
     for folder in $confsubdirs; do install -d "$root$confdir/$folder"; done
+    package_links "$root"
     # programs is set by program.conf, which ShellCheck cannot follow. The names hold no
     # spaces, so the list is split on purpose.
     # shellcheck disable=SC2154

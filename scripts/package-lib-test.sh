@@ -130,6 +130,19 @@ links_of "$root" server ''
 # The client's mount helper: mount(8) runs mount.splicefs, and the control tool is that helper.
 links_of "$root" client '/usr/sbin/mount.splicefs -> /usr/bin/splicefsctl,'
 
+# The formats whose definition copies a tree in (rpm, Alpine) get the links as a folder of their
+# own, which is readable by everyone because it is copied over the root of the package.
+tree_of="$(cd "$tree" && PROGRAM=demo VERSION=v1.2.3 PACKAGE_DATE=20261112 sh -c \
+    '. "$1/scripts/package-lib.sh"; package_link_tree' sh "$root" 2>&1)" || true
+if [ "$(readlink "$tree_of/usr/sbin/mount.demo" 2>/dev/null)" = /usr/bin/democtl ] &&
+    [ "$(find "$tree_of" -maxdepth 0 -perm 755)" = "$tree_of" ]; then
+    echo "ok   package_link_tree holds the links in a folder with mode 755"
+else
+    printf 'FAIL package_link_tree: %s\n' "$tree_of"
+    failed=$((failed + 1))
+fi
+rm -rf "$tree_of"
+
 # $1 VERSION, $2 deb and rpm version, $3 Alpine version, $4 FreeBSD version (PACKAGE_DATE is
 # 20261112).
 check() {

@@ -1,7 +1,8 @@
 # Maintainer: SpliceFS <anthony@splicefs.org>
-# abuild only wraps files here. scripts/package-apk.sh fills in the version and says where
-# the compiled program (STAGE) and the source tree (SRC) are.
-pkgname=splicefs-client
+# abuild only wraps files here. scripts/package-apk.sh fills in the name and the version and says
+# where the compiled program (STAGE), the definitions of the program (DEFS), the links
+# (LINK_ROOT), the license (LICENSE_FILE) and the documents (DOCS) are.
+pkgname=@NAME@
 pkgver=@VERSION@
 pkgrel=0
 pkgdesc="Client of the SpliceFS read-only multi-source filesystem"
@@ -16,14 +17,15 @@ install="$pkgname.post-install $pkgname.post-upgrade $pkgname.pre-deinstall"
 package() {
 	install -D -m 755 "$STAGE/splicefs" "$pkgdir/usr/bin/splicefs"
 	install -D -m 755 "$STAGE/splicefsctl" "$pkgdir/usr/bin/splicefsctl"
-	install -D -m 755 "$SRC/packaging/openrc/splicefs.initd" "$pkgdir/etc/init.d/splicefs"
-	# mount runs this for "mount -t splicefs" and for fstab lines of that type.
-	install -d "$pkgdir/usr/sbin"
-	ln -s /usr/bin/splicefsctl "$pkgdir/usr/sbin/mount.splicefs"
+	install -D -m 755 "$DEFS/openrc/splicefs.initd" "$pkgdir/etc/init.d/splicefs"
+	# The links of programs/client/links: mount runs mount.splicefs for "mount -t splicefs" and
+	# for fstab lines of that type.
+	cp -a "$LINK_ROOT"/. "$pkgdir/"
 	# Empty on purpose: the administrator's files go here and no package file ever does.
 	install -d "$pkgdir/etc/splicefs/client/conf.d" "$pkgdir/etc/splicefs/client/clusters.d" \
 		"$pkgdir/etc/splicefs/client/mounts.d"
-	install -D -m 644 "$SRC/LICENSE" "$pkgdir/usr/share/doc/$pkgname/LICENSE"
-	install -m 644 "$SRC/README.md" "$SRC/CHANGELOG.md" "$SRC/docs/configuration.md" \
-		"$pkgdir/usr/share/doc/$pkgname/"
+	install -D -m 644 "$LICENSE_FILE" "$pkgdir/usr/share/doc/$pkgname/LICENSE"
+	# DOCS is a list of paths without spaces, split on purpose.
+	# shellcheck disable=SC2086
+	install -m 644 $DOCS "$pkgdir/usr/share/doc/$pkgname/"
 }

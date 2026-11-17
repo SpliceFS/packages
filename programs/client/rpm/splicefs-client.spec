@@ -1,6 +1,7 @@
-# rpmbuild only wraps files here. scripts/package-rpm.sh passes in where the compiled
-# program (stage), the service unit (unit) and the source tree (src) are.
-Name:           splicefs-client
+# rpmbuild only wraps files here. scripts/package-rpm.sh passes in the package name (pkg_name),
+# where the compiled program (stage), the service unit (unit), the links (link_root and link_list)
+# and the documents (docs) are.
+Name:           %{pkg_name}
 Version:        %{pkg_version}
 Release:        1
 Summary:        Client of the SpliceFS read-only multi-source filesystem
@@ -26,19 +27,17 @@ disk.
 install -D -m 755 %{stage}/splicefs %{buildroot}/usr/bin/splicefs
 install -D -m 755 %{stage}/splicefsctl %{buildroot}/usr/bin/splicefsctl
 install -D -m 644 %{unit} %{buildroot}/usr/lib/systemd/system/splicefs.service
-# mount(8) runs this for "mount -t splicefs" and for fstab lines of that type.
-install -d %{buildroot}/usr/sbin
-ln -s /usr/bin/splicefsctl %{buildroot}/usr/sbin/mount.splicefs
+# The links of programs/client/links: mount(8) runs mount.splicefs for "mount -t splicefs" and
+# for fstab lines of that type.
+cp -a %{link_root}/. %{buildroot}/
 install -d %{buildroot}/etc/splicefs/client/conf.d %{buildroot}/etc/splicefs/client/clusters.d \
     %{buildroot}/etc/splicefs/client/mounts.d
-install -D -m 644 %{src}/LICENSE %{buildroot}/usr/share/doc/splicefs-client/LICENSE
-install -m 644 %{src}/README.md %{src}/CHANGELOG.md %{src}/docs/configuration.md \
-    %{buildroot}/usr/share/doc/splicefs-client/
+install -D -m 644 %{license_file} %{buildroot}/usr/share/doc/%{name}/LICENSE
+install -m 644 %{docs} %{buildroot}/usr/share/doc/%{name}/
 
-%files
+%files -f %{link_list}
 /usr/bin/splicefs
 /usr/bin/splicefsctl
-/usr/sbin/mount.splicefs
 /usr/lib/systemd/system/splicefs.service
 %dir /etc/splicefs
 %dir /etc/splicefs/client
@@ -46,7 +45,7 @@ install -m 644 %{src}/README.md %{src}/CHANGELOG.md %{src}/docs/configuration.md
 %dir /etc/splicefs/client/conf.d
 %dir /etc/splicefs/client/clusters.d
 %dir /etc/splicefs/client/mounts.d
-/usr/share/doc/splicefs-client
+/usr/share/doc/%{name}
 
 %post
 # mount(8) looks for its helpers in /sbin. Where /sbin is a folder of its own and not a link
