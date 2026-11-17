@@ -139,7 +139,11 @@ remove_file() {
 # folder that is not there.
 remove_empty_folder() {
   ref_dir=$1
-  if [ -d "$ref_dir" ] && [ ! -L "$ref_dir" ] && [ -z "$(ls -A "$ref_dir")" ]; then
+  if [ ! -d "$ref_dir" ] || [ -L "$ref_dir" ]; then
+    return 0
+  fi
+  ref_content=$(ls -A "$ref_dir")
+  if [ -z "$ref_content" ]; then
     rmdir "$ref_dir"
     echo "removed the empty folder $ref_dir"
   fi

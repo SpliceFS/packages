@@ -112,11 +112,12 @@ says() { grep -q -e "$1" "$TMP/out"; }
 db_keys() { (cd "$root/rpmdb" && echo *); }
 erase_calls() { grep -c '^-e ' "$RPMLOG" || true; }
 
-# The folder that holds the key (token key) or the repository file (token repo) of the family.
+# Sets folder to the folder that holds the key (token key) or the repository file (token repo)
+# of the family.
 folder_of() {
   case "$1" in
-    key) echo "${key%/*}" ;;
-    *) echo "${repo%/*}" ;;
+    key) folder=${key%/*} ;;
+    *) folder=${repo%/*} ;;
   esac
 }
 
@@ -130,18 +131,23 @@ check_folders() {
   makes=$2
   rm -rf "$root"
   mkdir -p "$root/rpmdb" "$root$3"
-  for token in $has; do mkdir -p "$(folder_of "$token")"; done
+  for token in $has; do
+    folder_of "$token"
+    mkdir -p "$folder"
+  done
   before=$(snap_all)
   run_fn "setup_$fam"
   for token in $has $makes; do
-    expect "setup leaves $token folder there" test -d "$(folder_of "$token")"
+    folder_of "$token"
+    expect "setup leaves the $token folder there" test -d "$folder"
   done
   run_fn "remove_$fam"
   expect "removal exits 0 when the setup made folders" ok
   now=$(snap_all)
   expect "setup then removal leaves every path as it was, the made folders gone" same "$now" "$before"
   for token in $makes; do
-    expect "removal reports the $token folder it removed" says "^removed the empty folder $(folder_of "$token")\$"
+    folder_of "$token"
+    expect "removal reports the $token folder it removed" says "^removed the empty folder $folder\$"
   done
   run_fn "remove_$fam"
   expect "a second removal prints nothing" quiet

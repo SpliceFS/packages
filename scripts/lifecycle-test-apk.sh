@@ -20,3 +20,8 @@ repo_upgrade() {
 package_installed() {
     docker exec "$1" apk info -e "$name" >/dev/null 2>&1
 }
+
+# The file of steps/ that uninstalls on this system.
+uninstall_file() {
+    echo steps/uninstall-apk.sh
+}

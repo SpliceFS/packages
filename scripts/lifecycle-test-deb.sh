@@ -22,3 +22,8 @@ repo_upgrade() {
 package_installed() {
     docker exec "$1" sh -c 'dpkg-query -W -f="\${Status}" "$1" 2>/dev/null | grep -q "^install ok installed$"' sh "$name"
 }
+
+# The file of steps/ that uninstalls on this system.
+uninstall_file() {
+    echo steps/uninstall-apt.sh
+}

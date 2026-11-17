@@ -32,3 +32,9 @@ repo_upgrade() {
 package_installed() {
     docker exec "$1" rpm -q "$name" >/dev/null 2>&1
 }
+
+# The file of steps/ that uninstalls on this system: dnf or zypper, as for the other functions.
+uninstall_file() {
+    docker exec "$1" sh -c '
+        if command -v dnf >/dev/null 2>&1; then echo steps/uninstall-dnf.sh; else echo steps/uninstall-zypper.sh; fi'
+}

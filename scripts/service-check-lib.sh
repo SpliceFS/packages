@@ -87,6 +87,11 @@ check_reboot() {
 
 check_removal() {
     remove_package "$1" || fail "removing the package failed"
+    check_stopped_after_removal "$1"
+}
+
+# What holds after the package is gone, however it was removed.
+check_stopped_after_removal() {
     must "the service is still active after the package was removed" wait_for 10 inactive "$1"
     refuse "the service still answers after the package was removed" answers "$1"
     # wait_booted is one test whose status is the answer, so set -e being off inside it changes nothing.

@@ -2,7 +2,8 @@
 # after the removal (scripts/lifecycle-snapshot.sh, scripts/lifecycle-test.sh). One path to a
 # line, then why. Everything below a path is left out; the path itself is compared. A path that
 # ends in * is a name that starts that way. Nothing of SpliceFS may be listed here: a file of
-# ours that stays behind is what the test is for.
+# ours that stays behind is what the test is for. A log file of ours below /var/log is compared
+# although /var/log is left out (scripts/lifecycle-snapshot.sh).
 /var/log          logs: the system and the package managers write them while they run
 /var/cache        caches of the package managers
 /var/lib/apt      the package manager's own state: the index apt-get update downloads
@@ -12,4 +13,8 @@
 /lib/apk          the package manager's own state: the apk database and its scripts
 /var/lib/NetworkManager  the state NetworkManager writes by itself while the system runs (Rocky Linux)
 /var/tmp/systemd-private-*  the private temporary folders systemd makes for its services, named at random
-/etc/ld.so.cache  the cache ldconfig writes of the libraries it finds; it is rewritten when any package installs a library
+/etc/ld.so.cache*  the cache ldconfig writes of the libraries it finds; it is rewritten when any package installs a library
+/etc/passwd-*     the backup that useradd and userdel make of the account file: it holds the state before the last change, so it differs after any user was added and deleted
+/etc/shadow-*     the same backup of the password file
+/etc/group-*      the same backup of the group file
+/etc/gshadow-*    the same backup of the group password file

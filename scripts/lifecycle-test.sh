@@ -2,7 +2,7 @@
 # Tests the whole life of the packages on every system in packaging/test-systems, in ONE boot of
 # the server image per system, the way a person would use them: set up our repository, install
 # the published release of both programs, upgrade to the new packages, remove them, install the
-# new ones fresh, remove them, take our repository away again, and find the system as it was.
+# new ones fresh, uninstall as the documentation says, and find the system as it was.
 # Runs on the host after make packages (make lifecycle-test); it needs Docker, curl, python3 and
 # openssl. The steps, in one booted system:
 #   1. the file list and the checksums of /etc are written down (scripts/lifecycle-snapshot.sh);
@@ -13,8 +13,10 @@
 #      are checked, restarted and rebooted (the container restarts);
 #   5. with both programs installed, one is removed and the other still works;
 #   6. the other is removed, and nothing of ours is installed or running;
-#   7. the new version is installed fresh, checked, and removed;
-#   8. sh setup.sh --remove;
+#   7. the new version is installed fresh over what the removals left, and checked;
+#   8. the documented uninstall (steps/uninstall-<family>.sh, the files the install page and the
+#      README show): the packages, the data, the configuration, the user and the group, and
+#      sh setup.sh --remove, run as they are written; nothing of ours is installed or running;
 #   9. the file list and the checksums of /etc are the same as in step 1, apart from the paths of
 #      scripts/lifecycle-excluded.
 # The test repository is the published release plus the new packages (scripts/lifecycle-repo.sh,
@@ -148,6 +150,20 @@ check_nothing_of_ours() {
     echo "ok: nothing of ours is installed or running"
 }
 
+# Runs the uninstall file of this system's package family exactly as it is written, as a person
+# would: root, the setup script from step 1 in the home folder, and "yes" for the questions the
+# package manager asks. The file says sudo, which root does not have in a container, so sudo is
+# a function that runs its arguments. The first failing command ends the run.
+documented_uninstall() {
+    file="$(uninstall_file "$1")" || fail "no uninstall file for this system"
+    must "copying the setup script to the home folder failed" docker exec "$1" sh -c 'cp /site/setup.sh ~/splicefs-setup.sh'
+    yes | docker exec -i -e DEBIAN_FRONTEND=noninteractive "$1" sh -c 'set -e; sudo() { "$@"; }; . "/src/$1"' sh "$file" ||
+        fail "the commands of $file failed"
+    echo "ok: the commands of $file ran"
+    # The copy stands in for the download of the person, who deletes it themselves.
+    must "removing the copy of the setup script failed" docker exec "$1" sh -c 'rm ~/splicefs-setup.sh'
+}
+
 # Writes the snapshot of the system into the file $2 on the host.
 take_snapshot() {
     docker exec "$1" sh /src/scripts/lifecycle-snapshot.sh >"$2" || fail "the snapshot of the system failed"
@@ -198,19 +214,19 @@ run_lifecycle() {
     as_new client check_removal "$c"
     check_nothing_of_ours "$c"
 
-    echo "step 7: the new version is installed fresh and removed"
+    echo "step 7: the new version is installed fresh"
     for p in $packaged; do
         as_new "$p" must "installing $p failed" repo_install "$c"
         as_new "$p" in_system "$c" check_versions check_links check_config_folders check_extras
         as_new "$p" check_service_after_install "$c"
     done
+
+    echo "step 8: the documented uninstall"
+    as_new server documented_uninstall "$c"
     for p in $packaged; do
-        as_new "$p" check_removal "$c"
+        as_new "$p" check_stopped_after_removal "$c"
     done
     check_nothing_of_ours "$c"
-
-    echo "step 8: sh setup.sh --remove"
-    must "setup.sh --remove failed" docker exec "$c" sh /site/setup.sh --remove
 
     echo "step 9: the system is as it was"
     take_snapshot "$c" "$work/after"
