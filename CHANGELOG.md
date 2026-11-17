@@ -6,6 +6,10 @@ the setup script and the page at packages.splicefs.org.
 
 The change log of all parts of SpliceFS, side by side: https://splicefs.org/changelog/
 
+## [0.4.10] - 2026-11-17
+
+- Internal: this repository can build the client packages from built programs.
+
 ## [0.4.9] - 2026-11-17
 
 - Internal: this repository can build the server packages from built programs.

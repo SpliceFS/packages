@@ -19,7 +19,7 @@ lint: site
 	shellcheck --shell=sh dist/site/setup.sh steps/*.sh scripts/*.sh tests/*.sh \
 		programs/*/deb/postinst programs/*/deb/prerm programs/*/deb/postrm \
 		programs/*/alpine/*.post-install programs/*/alpine/*.post-upgrade \
-		programs/*/alpine/*.pre-deinstall programs/*/alpine/*.pre-install
+		programs/*/alpine/*.pre-deinstall programs/*/alpine/*.pre-install programs/*/package-test-extra.sh
 
 # Signs the built script with the key file named by SIGNING_KEY_FILE and proves the signature
 # with the public key in keys/ only. Needs gpg.

@@ -13,8 +13,12 @@ out="${1:?usage: package-rpm.sh OUTPUT_DIR}"
 docs="$(package_docs)"
 
 unit="$(mktemp)"
-trap 'rm -f "$unit"' EXIT
+link_root="$(package_link_tree)"
+link_list="$(mktemp)"
+trap 'rm -rf "$unit" "$link_root" "$link_list"' EXIT
 package_unit "$unit"
+# What %files lists for the links, one path to a line.
+(cd "$link_root" && find . -type l | sed 's/^\.//') > "$link_list"
 
 for arch in amd64 arm64; do
     case "$arch" in
@@ -29,6 +33,8 @@ for arch in amd64 arm64; do
         --define "pkg_version $rpmver" \
         --define "stage $BIN/linux-$arch" \
         --define "unit $unit" \
+        --define "link_root $link_root" \
+        --define "link_list $link_list" \
         --define "license_file $SRC/LICENSE" \
         --define "docs $docs" \
         "$defs/rpm/$name.spec"

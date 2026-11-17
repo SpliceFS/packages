@@ -21,6 +21,9 @@ cp /keys/splicefs.rsa /keys/splicefs.rsa.pub "$keydir/"
 chmod 600 "$keydir/splicefs.rsa"
 export PACKAGER_PRIVKEY="$keydir/splicefs.rsa"
 
+link_root="$(package_link_tree)"
+trap 'rm -rf "$link_root"' EXIT
+
 for arch in amd64 arm64; do
     case "$arch" in
         amd64) apkarch=x86_64 ;;
@@ -36,7 +39,7 @@ for arch in amd64 arm64; do
         cd "$work"
         # CARCH labels the package for the CPU type of the binary inside it; nothing is
         # compiled here, so no cross compiler is involved.
-        CARCH="$apkarch" STAGE="$BIN/linux-$arch" DEFS="$OLDPWD/$defs" LICENSE_FILE="$SRC/LICENSE" \
+        CARCH="$apkarch" STAGE="$BIN/linux-$arch" DEFS="$OLDPWD/$defs" LINK_ROOT="$link_root" LICENSE_FILE="$SRC/LICENSE" \
             DOCS="$docs" REPODEST="$work/repo" abuild -F -q rootpkg
     )
     mkdir -p "$out/alpine/$apkarch"

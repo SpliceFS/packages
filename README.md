@@ -86,7 +86,7 @@ make check    # builds, then runs every check
 make e2e-prepare  # builds ../server and ../client with throwaway keys into dist/e2e
 make e2e      # runs the setup script in a container of every supported system
 make e2e-freebsd  # runs the setup script in a FreeBSD machine of every supported release (FREEBSD=15.1 for one)
-make packages PROGRAM=server BIN=<programs> SRC=<source> VERSION=v1.2.3   # builds deb, rpm and apk into dist/server
+make packages PROGRAM=server BIN=<programs> SRC=<source> VERSION=v1.2.3   # builds deb, rpm and apk into dist/server (PROGRAM=client for the client)
 ```
 
 `make check` needs `python3`. It also uses `node`, `dash` and `bash` when they are installed.
@@ -103,6 +103,8 @@ make packages PROGRAM=server BIN=<programs> SRC=<source> VERSION=v1.2.3   # buil
   and its `program.conf`, which says what the program is: package name, service program,
   programs, documents. `BIN` is a folder of compiled programs, one folder `<os>-<arch>` each, and
   `SRC` the program's source tree at that version, which holds the documents the packages ship.
+  A program that installs links names them in `programs/<program>/links`, one `<link> <target>`
+  a line, and a package test hook in `programs/<program>/package-test-extra.sh`.
 - `packaging/test-systems`: the server images the packages are tested on.
 - `setup.sh.in`: the setup script template, with the keys and base URL filled in at build.
 - `dist/`: build output, not committed.

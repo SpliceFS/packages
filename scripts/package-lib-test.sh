@@ -72,6 +72,7 @@ refuses_program() {
 reads "$tree" demo 'splicefs-demo|demod|demod democtl|README.md guide/setup.md|/etc/splicefs/demo|alpha.d,beta.d'
 reads "$tree" other 'splicefs-other|otherd|otherd|README.md|/etc/splicefs/other|gamma.d'
 reads "$root" server 'splicefs-server|splicefsd|splicefsd|README.md CHANGELOG.md docs/configuration.md|/etc/splicefs/server|conf.d,shares.d'
+reads "$root" client 'splicefs-client|splicefs|splicefs splicefsctl|README.md CHANGELOG.md docs/configuration.md|/etc/splicefs/client|conf.d,clusters.d,mounts.d'
 refuses_program 'PROGRAM is not set' -u PROGRAM
 refuses_program 'programs/nothing/program.conf' PROGRAM=nothing
 refuses_program 'not a program name' PROGRAM=../demo
@@ -97,6 +98,51 @@ docs_of() {
 
 docs_of '/work/demo/README.md /work/demo/guide/setup.md' SRC=/work/demo
 docs_of 'FAIL: SRC is not set: it is the source tree of the program at this version' -u SRC
+
+# The links a program installs are named in its own links file, "<link> <target>" a line, and
+# are made by one function for every package format. $1 the folder the library is read from, $2 the
+# program, $3 what is wanted: the links under the root it is given, as "<link> -> <target>" items
+# each followed by a comma, or nothing.
+links_of() {
+    # The inner shell expands $1 and $2, which are the root of the repository and the link root.
+    # shellcheck disable=SC2016
+    got="$(cd "$1" && PROGRAM="$2" VERSION=v1.2.3 PACKAGE_DATE=20261112 sh -c \
+        '. "$1/scripts/package-lib.sh"; package_links "$2"; cd "$2" && find . -type l | LC_ALL=C sort |
+            while read -r l; do echo "${l#.} -> $(readlink "$l")"; done | tr "\n" ,' \
+        sh "$root" "$linkroot" 2>&1)" || true
+    rm -rf "${linkroot:?}"/*
+    if [ "$got" = "$3" ]; then
+        printf 'ok   package_links of %-6s %s\n' "$2" "$3"
+    else
+        printf 'FAIL package_links of %s: want "%s" got "%s"\n' "$2" "$3" "$got"
+        failed=$((failed + 1))
+    fi
+}
+
+printf '# a comment\n\n/usr/sbin/mount.demo /usr/bin/democtl\n/usr/lib/demo/helper /usr/bin/demod\n' \
+    > "$tree/programs/demo/links"
+linkroot="$tree/linkroot"
+mkdir "$linkroot"
+links_of "$tree" demo '/usr/lib/demo/helper -> /usr/bin/demod,/usr/sbin/mount.demo -> /usr/bin/democtl,'
+# A program without a links file has no links, and that is no error.
+links_of "$tree" other ''
+links_of "$root" server ''
+# The client's mount helper: mount(8) runs mount.splicefs, and the control tool is that helper.
+links_of "$root" client '/usr/sbin/mount.splicefs -> /usr/bin/splicefsctl,'
+
+# The formats whose definition copies a tree in (rpm, Alpine) get the links as a folder of their
+# own, which is readable by everyone because it is copied over the root of the package.
+tree_of="$(cd "$tree" && PROGRAM=demo VERSION=v1.2.3 PACKAGE_DATE=20261112 sh -c \
+    '. "$1/scripts/package-lib.sh"; package_link_tree' sh "$root" 2>&1)" || true
+target_of="$(readlink "$tree_of/usr/sbin/mount.demo" 2>/dev/null)" || target_of=""
+mode_of="$(find "$tree_of" -maxdepth 0 -perm 755 2>/dev/null)" || mode_of=""
+if [ "$target_of" = /usr/bin/democtl ] && [ "$mode_of" = "$tree_of" ]; then
+    echo "ok   package_link_tree holds the links in a folder with mode 755"
+else
+    printf 'FAIL package_link_tree: %s\n' "$tree_of"
+    failed=$((failed + 1))
+fi
+rm -rf "$tree_of"
 
 # $1 VERSION, $2 deb and rpm version, $3 Alpine version, $4 FreeBSD version (PACKAGE_DATE is
 # 20261112).
