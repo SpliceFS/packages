@@ -52,7 +52,8 @@ case "$mode" in
         listing="$(mktemp)"
         list_package "$new" > "$listing"
         user="$(sed -n 's/^User=//p' "$unit")"
-        verify_upgrade rpm "$user" "$listing"
+        installed="$(rpm -q --qf '%{VERSION}-%{RELEASE}' "$name")"
+        verify_upgrade rpm "$user" "$listing" "$installed" "$rpmver-$rpmrel"
         ;;
     *)
         echo "usage: upgrade-test-rpm.sh list PACKAGE | upgrade OLD NEW" >&2

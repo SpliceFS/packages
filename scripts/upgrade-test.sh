@@ -2,7 +2,11 @@
 # Tests the upgrade of the program PROGRAM from the newest published version to the one in
 # dist/PROGRAM, but only when the packaging changed: a version whose packages differ from the
 # published ones only in the programs (and the changelog) cannot break an upgrade, so there is
-# nothing to test. Runs on the host after make packages (make upgrade-test, CI). For each
+# nothing to test. When the packaging changed and the new packages are of the same program
+# version as the published ones, they must be a later revision of it (make packages REVISION=N),
+# because a package of the same version and revision is no upgrade: rpm refuses it, and deb and
+# apk reinstall it without a word, which would hide the problem. Runs on the host after make
+# packages (make upgrade-test, CI). For each
 # package format, for this machine's CPU type, it
 #   1. downloads the newest published package of that format from the GitHub release of the
 #      repository the program is released from (release_repo in programs/PROGRAM/program.conf)
@@ -13,7 +17,8 @@
 #   3. when they differ, installs the published package in a clean container, writes a
 #      configuration line and a data file, installs the new package over it the way a user
 #      upgrades, and checks that both survived, the service user exists, the new version is
-#      installed and every file the new package lists is there (scripts/upgrade-test-<format>.sh).
+#      installed, with the version and revision that were built, and every file the new package
+#      lists is there (scripts/upgrade-test-<format>.sh).
 # Environment: PROGRAM; the version comes from dist/PROGRAM/version, which make packages wrote
 # (scripts/package-record.sh), and a VERSION given must be that one; PLATFORM (linux/amd64 or
 # linux/arm64) tests that CPU type by emulation, empty means this machine's own. It keeps going
@@ -51,13 +56,17 @@ case "$final_url" in
     *) tag="" ;;
 esac
 
-# What the published files are called is what package-lib.sh makes of the tag.
+# The packages attached to the release of a program are the revision 0 of that version: they
+# are made when the program is released. A later revision of the same version is a change to the
+# packaging alone and goes to the package repository, never to the release. So the published
+# packages this test upgrades from are revision 0, and what they are called is what
+# package-lib.sh makes of the tag and that revision.
+released_revision=0
 published_dir="$root/dist/$PROGRAM/published"
 if [ -n "$tag" ]; then
-    names="$(VERSION="$tag" REVISION=0 PACKAGE_DATE="$PACKAGE_DATE" sh -c \
-        '. scripts/package-lib.sh; echo "$debver $rpmver $apkver"')" ||
-        fail "could not work out the file names of the published version $tag"
-    read -r old_debver old_rpmver old_apkver <<LIST
+    # A version that package_versions refuses ends the script here, with its message.
+    names="$(package_versions "$tag" "$released_revision" "$PACKAGE_DATE")"
+    read -r old_debver old_rpmver old_rpmrel old_apkver old_apkrel _ <<LIST
 $names
 LIST
 fi
@@ -112,12 +121,12 @@ for format in deb rpm apk; do
             new_file="${name}_${debver}_$deb_arch.deb"
             ;;
         rpm)
-            old_file="$name-$old_rpmver-1.$rpm_arch.rpm"
-            new_file="$name-$rpmver-1.$rpm_arch.rpm"
+            old_file="$name-$old_rpmver-$old_rpmrel.$rpm_arch.rpm"
+            new_file="$name-$rpmver-$rpmrel.$rpm_arch.rpm"
             ;;
         *)
-            old_file="$name-$old_apkver-r0.$apk_arch.apk"
-            new_file="alpine/$apk_arch/$name-$apkver-r0.apk"
+            old_file="$name-$old_apkver-r$old_apkrel.$apk_arch.apk"
+            new_file="alpine/$apk_arch/$name-$apkver-r$apkrel.apk"
             ;;
     esac
     [ -f "dist/$PROGRAM/$new_file" ] || fail "dist/$PROGRAM/$new_file does not exist; run make packages first"
@@ -181,6 +190,12 @@ for format in deb rpm apk; do
     fi
     echo "$format: the packaging changed since $tag, running the upgrade test:"
     printf '%s\n' "$differences"
+    # The same program version needs a later revision, or the format sees no upgrade.
+    if [ "$VERSION" = "$tag" ] && [ "$REVISION" -le "$released_revision" ]; then
+        echo "FAIL $format: the packaging changed since $tag, which is the version of these packages too, but their revision is $REVISION and the published ones are revision $released_revision: build them with REVISION=$((released_revision + 1)) or more"
+        failed=$((failed + 1))
+        continue
+    fi
 
     set +e
     in_container "upgrade-test-$format.sh" upgrade "/out/published/$old_file" "/out/$new_file" > "$log" 2>&1
