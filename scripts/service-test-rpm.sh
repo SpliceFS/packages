@@ -13,7 +13,7 @@ install_package() {
         linux/amd64) arch=x86_64 ;;
         *) fail "no rpm for platform $platform" ;;
     esac
-    pkg="/pkg/$name-$rpmver-1.$arch.rpm"
+    pkg="/pkg/$name-$rpmver-$rpmrel.$arch.rpm"
     docker exec "$1" test -f "$pkg" || fail "$pkg does not exist; run make packages first"
     # The system's package manager resolves the dependencies of a local file; rpm -i alone
     # would not. The build key is a throwaway, so zypper must be told to accept an unsigned

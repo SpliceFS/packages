@@ -19,6 +19,9 @@ name: Package and test
 # Without bin-artifact the workflow tests the newest release of the program instead: it
 # downloads the release archives, proves them, and builds from the source at the release tag.
 # This repository's own CI does that, so that a change to the packaging is tested on its own.
+# The packages are then of a version that is published already, so they are built as the next
+# revision of it, which is what a change to the packaging alone would be when published; the
+# revision comes from the published repository (scripts/next-revision.sh), never from a file.
 #
 # Every key is a throwaway key made in the run: no secret is given to this workflow, and
 # nothing it makes is published.
@@ -121,9 +124,16 @@ jobs:
         working-directory: packages
         env:
           PROGRAM: ${{ inputs.program }}
+          NEWEST_RELEASE: ${{ inputs.bin-artifact == '' }}
         run: |
+          version="v$(cat "$GITHUB_WORKSPACE/src/VERSION")"
+          revision=0
+          if [ "$NEWEST_RELEASE" = true ]; then
+            revision="$(scripts/next-revision.sh "$PROGRAM" "$version")"
+          fi
+          echo "packaging $PROGRAM $version as revision $revision"
           make packages PROGRAM="$PROGRAM" BIN="$GITHUB_WORKSPACE/bin" SRC="$GITHUB_WORKSPACE/src" \
-            VERSION="v$(cat "$GITHUB_WORKSPACE/src/VERSION")"
+            VERSION="$version" REVISION="$revision"
       - name: Build the signed package repositories
         working-directory: packages
         env:

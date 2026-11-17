@@ -31,6 +31,7 @@ for arch in amd64 arm64; do
         --define "_topdir $top" \
         --define "pkg_name $name" \
         --define "pkg_version $rpmver" \
+        --define "pkg_release $rpmrel" \
         --define "stage $BIN/linux-$arch" \
         --define "unit $unit" \
         --define "link_root $link_root" \
@@ -38,6 +39,6 @@ for arch in amd64 arm64; do
         --define "license_file $SRC/LICENSE" \
         --define "docs $docs" \
         "$defs/rpm/$name.spec"
-    cp "$top/RPMS/$rpmarch/$name-$rpmver-1.$rpmarch.rpm" "$out/"
-    echo "built $name-$rpmver-1.$rpmarch.rpm"
+    cp "$top/RPMS/$rpmarch/$name-$rpmver-$rpmrel.$rpmarch.rpm" "$out/"
+    echo "built $name-$rpmver-$rpmrel.$rpmarch.rpm"
 done

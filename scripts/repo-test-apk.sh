@@ -15,7 +15,7 @@ mkdir -p /etc/apk/repositories.d
 echo /repo/alpine > /etc/apk/repositories.d/splicefs.list
 
 # The exact version is named because the repository may hold older builds.
-apk add --update-cache "$name=$apkver-r0" >/tmp/add.log 2>&1 || {
+apk add --update-cache "$name=$apkver-r$apkrel" >/tmp/add.log 2>&1 || {
     cat /tmp/add.log
     fail "install from the repository failed"
 }
@@ -26,7 +26,7 @@ check_programs_removed
 # Without the key the same repository must be refused.
 rm "$key"
 rm -rf /var/cache/apk/*
-if apk add --update-cache "$name=$apkver-r0" >/tmp/bad.log 2>&1; then
+if apk add --update-cache "$name=$apkver-r$apkrel" >/tmp/bad.log 2>&1; then
     cat /tmp/bad.log
     fail "apk accepted a repository whose key is not trusted"
 fi

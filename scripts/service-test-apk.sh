@@ -9,7 +9,7 @@ install_package() {
         linux/arm64) arch=aarch64 ;;
         *) arch=x86_64 ;;
     esac
-    pkg="/pkg/alpine/$arch/$name-$apkver-r0.apk"
+    pkg="/pkg/alpine/$arch/$name-$apkver-r$apkrel.apk"
     docker exec "$1" test -f "$pkg" || fail "$pkg does not exist; run make packages first"
     # The build key is a throwaway, so the signature cannot be checked here.
     docker exec "$1" apk add -q --allow-untrusted "$pkg" >/dev/null

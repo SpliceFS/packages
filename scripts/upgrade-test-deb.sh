@@ -44,7 +44,8 @@ case "$mode" in
         listing="$(mktemp)"
         list_package "$new" > "$listing"
         user="$(sed -n 's/^User=//p' "$unit")"
-        verify_upgrade deb "$user" "$listing"
+        installed="$(dpkg-query -W -f='${Version}' "$name")"
+        verify_upgrade deb "$user" "$listing" "$installed" "$debver"
         ;;
     *)
         echo "usage: upgrade-test-deb.sh list PACKAGE | upgrade OLD NEW" >&2

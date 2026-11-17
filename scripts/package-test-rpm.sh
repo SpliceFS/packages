@@ -10,7 +10,7 @@ dir="${1:?usage: package-test-rpm.sh PACKAGE_DIR}"
 # shellcheck source=package-test-lib.sh
 . scripts/package-test-lib.sh
 unit="/usr/lib/systemd/system/$program.service"
-rpm="$dir/$name-$rpmver-1.$(uname -m).rpm"
+rpm="$dir/$name-$rpmver-$rpmrel.$(uname -m).rpm"
 [ -f "$rpm" ] || fail "$rpm does not exist; run make packages first"
 
 # rpm alone cannot fetch dependencies; the system's package manager does when one is
