@@ -51,7 +51,10 @@ case "$1" in
 esac
 RPM
 chmod 755 "$TMP/bin/rpm"
-export RPMDB=$root/rpmdb RPMLOG=$TMP/rpm.log FAKEBIN=$TMP/bin
+RPMDB=$root/rpmdb
+RPMLOG=$TMP/rpm.log
+FAKEBIN=$TMP/bin
+export RPMDB RPMLOG FAKEBIN
 
 # Runs a function of the script, with the fake rpm first on the PATH. The script sets its own
 # PATH when it is sourced, so the fake is put in front afterwards.
@@ -63,15 +66,22 @@ var_of() {
   sh -c '. "$1"; eval "printf %s \"\${$2}\""' sh "$TMP/lib.sh" "$1"
 }
 
-# One line for each file: path, checksum, mode. With "all" the folders are listed too.
+# One line for each file: path, checksum, mode. ls is the one listing format that is the same
+# on macOS and Linux; stat is not.
 snap() {
-  if [ "${1:-}" = all ]; then
-    (cd "$root" && find . | LC_ALL=C sort)
-    return 0
-  fi
-  (cd "$root" && find . -type f | LC_ALL=C sort | while read -r f; do
-    printf '%s %s %s\n' "$f" "$(cksum < "$f")" "$(ls -l "$f" | cut -c1-10)"
-  done)
+  cd "$root" || return 1
+  find . -type f | LC_ALL=C sort | while read -r f; do
+    sum=$(cksum < "$f")
+    # shellcheck disable=SC2012
+    mode=$(ls -l "$f" | cut -c1-10)
+    echo "$f $sum $mode"
+  done
+}
+
+# Every path, the folders too.
+snap_all() {
+  cd "$root" || return 1
+  find . | LC_ALL=C sort
 }
 
 # A root as a system has it: the folders exist and hold files of other makers, and rpm knows a
@@ -98,7 +108,8 @@ same() { [ "$1" = "$2" ]; }
 ok() { [ "$RC" -eq 0 ]; }
 quiet() { ok && [ ! -s "$TMP/out" ]; }
 says() { grep -q -e "$1" "$TMP/out"; }
-db_keys() { ls "$root/rpmdb" | tr '\n' ' '; }
+# The keys rpm holds, as one line. The other maker's key is always there, so the glob matches.
+db_keys() { (cd "$root/rpmdb" && echo *); }
 erase_calls() { grep -c '^-e ' "$RPMLOG" || true; }
 
 # The setup and removal of one family. Arguments: family, the variable that holds the key's
@@ -114,39 +125,52 @@ check_family() {
   run_fn "setup_$fam"
   expect "setup exits 0" ok
   expect "setup writes the key and the repository" test -f "$key" -a -f "$repo"
-  expect "setup changes the root" test "$(snap)" != "$before"
+  after_setup=$(snap)
+  expect "setup changes the root" test "$after_setup" != "$before"
   run_fn "remove_$fam"
   expect "removal exits 0" ok
   expect "removal reports the repository file" says "^removed $repo\$"
   expect "removal reports the key file" says "^removed $key\$"
-  expect "setup then removal leaves every file and its content as it was" same "$(snap)" "$before"
+  now=$(snap)
+  expect "setup then removal leaves every file and its content as it was" same "$now" "$before"
   if [ "$rpmkey" = rpm ]; then
-    expect "the key is out of rpm and the other key is still there" same "$(db_keys)" 'gpg-pubkey-deadbeef-0 '
-    expect "rpm erased one key and no other package" same "$(erase_calls)" 1
+    keys=$(db_keys)
+    expect "the key is out of rpm and the other key is still there" same "$keys" 'gpg-pubkey-deadbeef-0'
+    erased=$(erase_calls)
+    expect "rpm erased one key and no other package" same "$erased" 1
   fi
   run_fn "remove_$fam"
-  expect "a second removal prints nothing and changes nothing" quiet
-  expect "a second removal leaves the root as it was" same "$(snap)" "$before"
+  expect "a second removal prints nothing" quiet
+  now=$(snap)
+  expect "a second removal leaves the root as it was" same "$now" "$before"
 
   rm -rf "$root"
   mkdir "$root"
   run_fn "remove_$fam"
   expect "removal on a clean root prints nothing" quiet
-  expect "removal on a clean root creates nothing" same "$(snap all)" '.'
+  now=$(snap_all)
+  expect "removal on a clean root creates nothing" same "$now" '.'
 
   for changed in repo key; do
     fresh_root
     run_fn "setup_$fam"
-    eval "file=\$$changed"
+    if [ "$changed" = repo ]; then
+      file=$repo
+      other=$key
+    else
+      file=$key
+      other=$repo
+    fi
     echo '# the person changed this' >> "$file"
     kept=$(cat "$file")
     run_fn "remove_$fam"
     expect "removal exits 0 although a file is kept" ok
-    expect "a changed $changed file is kept as it is" same "$(cat "$file")" "$kept"
+    now=$(cat "$file")
+    expect "a changed $changed file is kept as it is" same "$now" "$kept"
     expect "a changed $changed file gets a warning that names it" says "warning: $file"
-    if [ "$changed" = repo ]; then other=$key; else other=$repo; fi
     expect "the other file is still removed after a changed $changed file" test ! -e "$other"
-    expect "the files of other makers stay" same "$(find "$root" -name other-file | wc -l | tr -d ' ')" 2
+    others=$(find "$root" -name other-file | wc -l)
+    expect "the files of other makers stay" test "$others" -eq 2
   done
 }
 
