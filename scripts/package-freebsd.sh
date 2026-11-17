@@ -79,9 +79,10 @@ build_and_test() {
             cp "$bin/freebsd-$arch/$each" "$job/$each-$arch"
         done
     done
-    # The definitions of the program: its rc script is named after the service program.
-    cp "$defs/freebsd/$program.rc" "$defs/freebsd/manifest.in" "$defs/freebsd/plist" \
-        "$defs/freebsd/check-lib.sh" "$job/"
+    # The definitions of the program: its rc script is named after the service program. The
+    # packing list is made from program.conf and config-folders, so the job reads the same facts.
+    cp "$defs/freebsd/$program.rc" "$defs/freebsd/manifest.in" "$defs/freebsd/check-lib.sh" "$job/"
+    package_freebsd_plist > "$job/plist"
     echo "FreeBSD $release: building $name $pkgver for amd64 and arm64, installing the amd64 package"
     major="${release%%.*}"
     archive="$out/freebsd-input/$release.tar"

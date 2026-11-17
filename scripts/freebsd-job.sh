@@ -49,8 +49,10 @@ fail() {
 
 major="$(freebsd-version -u | cut -d. -f1)"
 
-# The programs the package installs are the bin/ lines of plist, so that file is the one place
-# that lists them for this job. The folders the package owns are its @dir lines.
+# plist is the packing list the host made from program.conf and config-folders
+# (package_freebsd_plist in scripts/package-lib.sh). The programs the package installs are its
+# bin/ lines and the folders the package owns are its @dir lines, so this job reads them from
+# there and lists nothing itself.
 programs="$(sed -n 's|^bin/||p' "$in/plist")"
 
 # One package per CPU type. goarch is how the build names the binary, abiarch how pkg names

@@ -165,6 +165,62 @@ else
 fi
 rm -rf "$tree_of"
 
+# The packing list of a FreeBSD package is made from program.conf and config-folders, byte for
+# byte, and is kept nowhere else. $1 the folder the library is read from, $2 the program, the
+# list wanted on standard input.
+plist_of() {
+    cat > "$tree/plist.want"
+    # The inner shell expands $1, which is the root of the repository.
+    # shellcheck disable=SC2016
+    (cd "$1" && PROGRAM="$2" VERSION=v1.2.3 PACKAGE_DATE=20261112 sh -c \
+        '. "$1/scripts/package-lib.sh"; package_freebsd_plist' sh "$root") > "$tree/plist.got" 2>&1 || true
+    if cmp -s "$tree/plist.want" "$tree/plist.got"; then
+        printf 'ok   package_freebsd_plist of %s\n' "$2"
+    else
+        printf 'FAIL package_freebsd_plist of %s: want\n' "$2"
+        cat "$tree/plist.want"
+        echo got
+        cat "$tree/plist.got"
+        failed=$((failed + 1))
+    fi
+}
+
+# The fixture differs from the real programs in every fact the list is made from.
+plist_of "$tree" demo <<'PLIST'
+bin/demod
+bin/democtl
+etc/rc.d/demod
+@dir etc/splicefs/demo/alpha.d
+@dir etc/splicefs/demo/beta.d
+@dir etc/splicefs/demo
+@dir etc/splicefs
+PLIST
+plist_of "$tree" other <<'PLIST'
+bin/otherd
+etc/rc.d/otherd
+@dir etc/splicefs/other/gamma.d
+@dir etc/splicefs/other
+@dir etc/splicefs
+PLIST
+plist_of "$root" server <<'PLIST'
+bin/splicefsd
+etc/rc.d/splicefsd
+@dir etc/splicefs/server/conf.d
+@dir etc/splicefs/server/shares.d
+@dir etc/splicefs/server
+@dir etc/splicefs
+PLIST
+plist_of "$root" client <<'PLIST'
+bin/splicefs
+bin/splicefsctl
+etc/rc.d/splicefs
+@dir etc/splicefs/client/conf.d
+@dir etc/splicefs/client/clusters.d
+@dir etc/splicefs/client/mounts.d
+@dir etc/splicefs/client
+@dir etc/splicefs
+PLIST
+
 # $1 VERSION, $2 deb and rpm version, $3 Alpine version, $4 FreeBSD version (PACKAGE_DATE is
 # 20261112).
 check() {

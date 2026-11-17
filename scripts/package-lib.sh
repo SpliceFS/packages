@@ -74,6 +74,22 @@ package_docs() {
     echo "$list"
 }
 
+# Prints the packing list that pkg create reads for the FreeBSD package, paths relative to
+# /usr/local. Every line is made from a fact that program.conf and config-folders hold: the
+# programs, the rc script that is named after the service program, and the configuration folders.
+# A folder comes before the one that holds it, so that pkg removes the inner one first. The
+# folder of all SpliceFS programs is shared by the server and the client, and pkg removes it
+# only when it is empty.
+# What program.conf sets is unknown to ShellCheck, which cannot follow it.
+# shellcheck disable=SC2154
+package_freebsd_plist() {
+    for plist_program in $programs; do echo "bin/$plist_program"; done
+    echo "etc/rc.d/$program"
+    for plist_folder in $confsubdirs; do echo "@dir ${confdir#/}/$plist_folder"; done
+    echo "@dir ${confdir#/}"
+    echo "@dir $(dirname "${confdir#/}")"
+}
+
 # Writes the service unit as the packages ship it to the file $1. The unit in the repository
 # is written for a manual install under /usr/local; the packages put the program in /usr/bin.
 package_unit() {
