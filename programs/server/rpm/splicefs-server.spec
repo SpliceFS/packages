@@ -1,6 +1,6 @@
-# rpmbuild only wraps files here. scripts/package-rpm.sh passes in where the compiled
-# program (stage), the service unit (unit) and the source tree (src) are.
-Name:           splicefs-server
+# rpmbuild only wraps files here. scripts/package-rpm.sh passes in the package name (pkg_name),
+# where the compiled program (stage), the service unit (unit) and the documents (docs) are.
+Name:           %{pkg_name}
 Version:        %{pkg_version}
 Release:        1
 Summary:        Server of the SpliceFS read-only multi-source filesystem
@@ -28,9 +28,8 @@ nodes. It only reads; it never writes to a shared directory.
 install -D -m 755 %{stage}/splicefsd %{buildroot}/usr/bin/splicefsd
 install -D -m 644 %{unit} %{buildroot}/usr/lib/systemd/system/splicefsd.service
 install -d %{buildroot}/etc/splicefs/server/conf.d %{buildroot}/etc/splicefs/server/shares.d
-install -D -m 644 %{src}/LICENSE %{buildroot}/usr/share/doc/splicefs-server/LICENSE
-install -m 644 %{src}/README.md %{src}/CHANGELOG.md %{src}/docs/configuration.md \
-    %{buildroot}/usr/share/doc/splicefs-server/
+install -D -m 644 %{license_file} %{buildroot}/usr/share/doc/%{name}/LICENSE
+install -m 644 %{docs} %{buildroot}/usr/share/doc/%{name}/
 
 %files
 /usr/bin/splicefsd
@@ -40,7 +39,7 @@ install -m 644 %{src}/README.md %{src}/CHANGELOG.md %{src}/docs/configuration.md
 # Empty on purpose: the administrator's files go here and no package file ever does.
 %dir /etc/splicefs/server/conf.d
 %dir /etc/splicefs/server/shares.d
-/usr/share/doc/splicefs-server
+/usr/share/doc/%{name}
 
 %pre
 # The server runs as its own user so that a bug in it has no more rights than reading
