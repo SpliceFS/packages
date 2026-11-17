@@ -6,6 +6,11 @@ the setup script and the page at packages.splicefs.org.
 
 The change log of all parts of SpliceFS, side by side: https://splicefs.org/changelog/
 
+## [0.4.14] - 2026-11-17
+
+- Internal: this repository can publish a released program's packages, after building, signing and
+  testing them.
+
 ## [0.4.12] - 2026-11-17
 
 - Internal: a reusable workflow packages and tests a program from its built programs; this
