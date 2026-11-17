@@ -654,6 +654,8 @@ run "9. freebsd-lib.sh: the FreeBSD machines, their device, job folder and packa
 run "9. freebsd-repo-files.sh: the input archive of a FreeBSD machine holds the key and is removed" \
   sh scripts/freebsd-repo-files-test.sh
 run "9. release-bin.sh: release archives proven and unpacked to the layout of dist/bin" sh scripts/release-bin-test.sh
+run "9. publish-program.sh: the repositories of a program uploaded in order, nothing published lost" sh scripts/publish-program-test.sh
+run "9. require-env.sh: a release that lacks a secret stops and names it" sh scripts/require-env-test.sh
 
 if [ "$FAILS" -eq 0 ]; then
   echo "all checks passed"
