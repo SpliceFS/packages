@@ -8,12 +8,20 @@ set -eu
 
 excluded="$(awk '!/^#/ && NF { print $1 }' "$(dirname "$0")/lifecycle-excluded")"
 
-# index() finds the folder and everything below it, not another folder that starts with the
-# same letters, because the slash is part of the pattern.
+# A listed path is left out with everything below it; the slash is part of the match, so another
+# folder that starts with the same letters stays. A listed path that ends in * is a name that
+# only starts that way (the folders systemd names at random): it is left out with what is below.
 paths() {
     find / -xdev -print | LC_ALL=C sort | EXCLUDED="$excluded" awk '
-        BEGIN { n = split(ENVIRON["EXCLUDED"], prefix, "\n") }
-        { for (i = 1; i <= n; i++) if (index($0, prefix[i] "/") == 1) next; print }'
+        BEGIN { n = split(ENVIRON["EXCLUDED"], entry, "\n") }
+        {
+            for (i = 1; i <= n; i++) {
+                if (substr(entry[i], length(entry[i])) == "*") {
+                    if (index($0, substr(entry[i], 1, length(entry[i]) - 1)) == 1) next
+                } else if (index($0, entry[i] "/") == 1) next
+            }
+            print
+        }'
 }
 
 all_paths="$(paths)"

@@ -29,7 +29,9 @@ set -eu
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$root"
-programs="server client"
+# The programs of the packages repository, as folders of programs/. package-lib.sh sets "programs"
+# itself (the program files of one of them), so this list has another name.
+packaged="server client"
 # package-lib.sh needs a program to be read, and the helpers this script takes from it (boot_system,
 # wait_booted, pull_image, system_selected) do not depend on which one it is.
 PROGRAM=server
@@ -40,7 +42,7 @@ use_recorded_version
 . scripts/site-server-lib.sh
 
 platform="${PLATFORM:-$(docker version --format '{{.Server.Os}}/{{.Server.Arch}}')}"
-for p in $programs; do
+for p in $packaged; do
     [ -f "dist/lifecycle/$p/published" ] || fail "dist/lifecycle/$p/published does not exist: run make lifecycle-repo first"
     [ -d "dist/lifecycle/$p/repo" ] || fail "dist/lifecycle/$p/repo does not exist: run make lifecycle-repo first"
 done
@@ -138,7 +140,7 @@ no_process_of_ours() {
 # Both programs are removed, which means: not installed according to the package manager, no
 # program file left in /usr/bin, nothing running.
 check_nothing_of_ours() {
-    for p in $programs; do
+    for p in $packaged; do
         as_new "$p" refuse "$p is still installed after it was removed" package_installed "$1"
         as_new "$p" in_system "$1" check_programs_removed
     done
@@ -174,14 +176,14 @@ run_lifecycle() {
     as_new server must "refreshing the package index failed" repo_refresh "$c"
 
     echo "step 3: the published release is installed from the repository"
-    for p in $programs; do
+    for p in $packaged; do
         as_published "$p" must "installing the published $p failed" repo_install "$c"
         as_published "$p" in_system "$c" check_versions
         as_published "$p" check_service_after_install "$c"
     done
 
     echo "step 4: the upgrade to the new packages"
-    for p in $programs; do
+    for p in $packaged; do
         as_new "$p" must "upgrading $p failed" repo_upgrade "$c"
         as_new "$p" in_system "$c" check_versions
         as_new "$p" check_service_after_upgrade "$c"
@@ -197,12 +199,12 @@ run_lifecycle() {
     check_nothing_of_ours "$c"
 
     echo "step 7: the new version is installed fresh and removed"
-    for p in $programs; do
+    for p in $packaged; do
         as_new "$p" must "installing $p failed" repo_install "$c"
         as_new "$p" in_system "$c" check_versions check_links check_config_folders check_extras
         as_new "$p" check_service_after_install "$c"
     done
-    for p in $programs; do
+    for p in $packaged; do
         as_new "$p" check_removal "$c"
     done
     check_nothing_of_ours "$c"
@@ -230,7 +232,7 @@ site="$work/site"
 start_site_server "$site" "$work"
 KEYS_DIR="$root/dist/keys" BASE_URL="http://host.docker.internal:$site_port" SITE_DIR="$site" \
     sh scripts/build-site.sh >"$work/build.log" 2>&1 || { cat "$work/build.log" >&2; exit 1; }
-for p in $programs; do cp -R "dist/lifecycle/$p/repo" "$site/$p"; done
+for p in $packaged; do cp -R "dist/lifecycle/$p/repo" "$site/$p"; done
 
 # A here-document keeps the counters in this shell; a pipe would run the loop in a subshell.
 while read -r format image; do
@@ -261,7 +263,7 @@ while read -r format image; do
     # The options of both programs: the server publishes its port. run_options prints whole
     # options and nothing else, so it is left unquoted on purpose.
     options=""
-    for p in $programs; do
+    for p in $packaged; do
         options="$options $(as_new "$p" run_options)"
     done
     started=0
