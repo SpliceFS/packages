@@ -1,6 +1,6 @@
 # shellcheck shell=sh
 # Sourced by scripts/upgrade-test-deb.sh, -rpm.sh and -apk.sh, which run inside a container
-# of a test system with PROGRAM, VERSION and PACKAGE_DATE in the environment. The scripts that source this file read these variables; this file reads
+# of a test system with PROGRAM, VERSION, PACKAGE_DATE and REVISION in the environment. The scripts that source this file read these variables; this file reads
 # none of them.
 # shellcheck disable=SC2034
 #
@@ -17,6 +17,7 @@
 # is a difference in the package and never in the way it was read.
 : "${VERSION:?VERSION is not set}"
 : "${PACKAGE_DATE:?PACKAGE_DATE is not set}"
+: "${REVISION:?REVISION is not set}"
 # shellcheck source=package-lib.sh
 . scripts/package-lib.sh
 

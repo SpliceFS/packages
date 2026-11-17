@@ -2,7 +2,7 @@
 # where the compiled program (stage), the service unit (unit) and the documents (docs) are.
 Name:           %{pkg_name}
 Version:        %{pkg_version}
-Release:        1
+Release:        %{pkg_release}
 Summary:        Server of the SpliceFS read-only multi-source filesystem
 License:        MIT
 URL:            https://github.com/SpliceFS/server

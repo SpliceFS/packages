@@ -26,7 +26,7 @@ repo_gpgcheck=1
 gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-splicefs
 REPO
     # The exact version is named because the repository may hold older builds.
-    pm_install() { dnf install -y "$name-$rpmver"; }
+    pm_install() { dnf install -y "$name-$rpmver-$rpmrel"; }
     pm_clean() { dnf clean all >/dev/null 2>&1; }
 else
     repofile=/etc/zypp/repos.d/splicefs.repo
@@ -45,7 +45,7 @@ REPO
         cat /tmp/refresh.log
         fail "zypper refresh failed on the good repository"
     }
-    pm_install() { zypper --non-interactive install "$name=$rpmver"; }
+    pm_install() { zypper --non-interactive install "$name=$rpmver-$rpmrel"; }
     pm_clean() { zypper --non-interactive clean --all >/dev/null 2>&1; }
 fi
 

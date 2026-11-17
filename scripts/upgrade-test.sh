@@ -54,7 +54,7 @@ esac
 # What the published files are called is what package-lib.sh makes of the tag.
 published_dir="$root/dist/$PROGRAM/published"
 if [ -n "$tag" ]; then
-    names="$(VERSION="$tag" PACKAGE_DATE="$PACKAGE_DATE" sh -c \
+    names="$(VERSION="$tag" REVISION=0 PACKAGE_DATE="$PACKAGE_DATE" sh -c \
         '. scripts/package-lib.sh; echo "$debver $rpmver $apkver"')" ||
         fail "could not work out the file names of the published version $tag"
     read -r old_debver old_rpmver old_apkver <<LIST
@@ -85,7 +85,7 @@ in_container() {
     # Each step runs only when the one before it worked; the conditions are tests whose
     # status is the answer.
     # shellcheck disable=SC2310
-    if boot_system --name "$container" --platform "$platform" -e PROGRAM -e VERSION -e PACKAGE_DATE \
+    if boot_system --name "$container" --platform "$platform" -e PROGRAM -e VERSION -e PACKAGE_DATE -e REVISION \
         -v "$root":/src:ro -v "$root/dist/$PROGRAM":/out:ro -w /src "$image" &&
         wait_booted "$format" "$container"; then
         status=0

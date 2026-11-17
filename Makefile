@@ -65,6 +65,11 @@ e2e-freebsd: freebsd-kvm
 #   SRC       the source tree of the program at this version. Its LICENSE and the documents named
 #             in program.conf go into the packages; they change with every version.
 #   VERSION   the version of the program, as it was released: v1.2.3 or v1.2.3-rc.1.
+#   REVISION  the revision of the packages, 0 (the default) or more. A change to the packaging
+#             alone, with the same release of the program, is packaged as the next revision of
+#             that release: the way distributions number it (deb 1.2.3-1, rpm release 2, Alpine
+#             -r1, FreeBSD 1.2.3_1). Revision 0 is named as the packages published before
+#             revisions existed. scripts/package-lib.sh says how each format writes it.
 # The packages are written to dist/PROGRAM: deb, rpm, and Alpine packages in alpine/<cpu>. SIGNING_DIR
 # names a folder with the real signing keys (scripts/signing-keys.sh says which); without it throwaway
 # keys are generated, and a package signed with them must never be published.
@@ -86,12 +91,15 @@ PROGRAM ?=
 BIN ?=
 SRC ?=
 VERSION ?=
+REVISION ?= 0
 # Alpine versions cannot carry a commit, so a build with uncommitted changes carries the date of
 # its commit: here, of the commit of SRC.
 PACKAGE_DATE ?= $(shell git -C "$(SRC)" log -1 --format=%cd --date=format:%Y%m%d 2>/dev/null || date +%Y%m%d)
 PACKAGE_OUT = dist/$(PROGRAM)
 # What the package scripts read, with the folders where the image sees BIN and SRC.
-PACKAGE_VARS = PROGRAM=$(PROGRAM) VERSION=$(VERSION) PACKAGE_DATE=$(PACKAGE_DATE) BIN=/in/bin SRC=/in/src
+PACKAGE_VARS = PROGRAM=$(PROGRAM) VERSION=$(VERSION) PACKAGE_DATE=$(PACKAGE_DATE) REVISION=$(REVISION) BIN=/in/bin SRC=/in/src
+# What the version record is written from.
+RECORD_VARS = PROGRAM=$(PROGRAM) VERSION=$(VERSION) PACKAGE_DATE=$(PACKAGE_DATE) REVISION=$(REVISION)
 # The signing keys, read only, for the steps that sign or check with them.
 KEYS_MOUNT := -v "$(CURDIR)/dist/keys":/keys:ro
 RUN_OPTS :=
@@ -104,7 +112,7 @@ DOCKER_RUN = docker run --rm --user "$(shell id -u):$(shell id -g)" $(RUN_OPTS) 
 # version they were built as is recorded in dist/PROGRAM/version, which is where the tests that
 # follow read it (scripts/package-record.sh).
 packages: package-deb package-rpm package-apk
-	PROGRAM=$(PROGRAM) VERSION=$(VERSION) PACKAGE_DATE=$(PACKAGE_DATE) sh -c '. scripts/package-record.sh && write_package_record'
+	$(RECORD_VARS) sh -c '. scripts/package-record.sh && write_package_record'
 
 # Stops at once, with the name of what is missing, before any image starts. Docker would make a
 # folder that does not exist as root. A build removes the record of the version first, so that a
@@ -139,10 +147,10 @@ package-apk: package-inputs keys
 # release: FreeBSD packages hold no documents) and VERSION, and it records the version the way
 # make packages does.
 package-freebsd: freebsd-kvm package-inputs keys
-	scripts/part.sh package-freebsd env PROGRAM=$(PROGRAM) VERSION=$(VERSION) PACKAGE_DATE=$(PACKAGE_DATE) \
+	scripts/part.sh package-freebsd env PROGRAM=$(PROGRAM) VERSION=$(VERSION) PACKAGE_DATE=$(PACKAGE_DATE) REVISION=$(REVISION) \
 		BIN="$(abspath $(BIN))" KEYS_DIR="$(CURDIR)/dist/keys" LINUX_IMAGE=$(GO_IMAGE) FREEBSD_IMAGE=$(FREEBSD_IMAGE) FREEBSD=$(FREEBSD) \
 		sh scripts/package-freebsd.sh $(PACKAGE_OUT)
-	PROGRAM=$(PROGRAM) VERSION=$(VERSION) PACKAGE_DATE=$(PACKAGE_DATE) sh -c '. scripts/package-record.sh && write_package_record'
+	$(RECORD_VARS) sh -c '. scripts/package-record.sh && write_package_record'
 
 # First in every target that starts a FreeBSD machine, so that a computer that cannot is found
 # before anything is built.

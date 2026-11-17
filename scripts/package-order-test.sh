@@ -67,7 +67,7 @@ for format in deb rpm apk; do
     [ -n "$image" ] || { echo "FAIL packaging/test-systems has no $format system" >&2; exit 1; }
     list=""
     for v in $versions; do
-        got="$(VERSION="$v" FORMAT="$format" sh -c \
+        got="$(VERSION="$v" REVISION=0 FORMAT="$format" sh -c \
             '. scripts/package-lib.sh; eval "echo \$${FORMAT}ver"')"
         list="$list $got"
     done
