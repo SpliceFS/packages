@@ -3,13 +3,13 @@ name: Publish program
 # Publishes the packages of a released program of SpliceFS (server or client) to the package
 # site. The release of the program tells this workflow with a repository_dispatch of type
 # program-released (client_payload: program, tag), and a person can run it by hand with the same
-# two values. Only the jobs that sign or upload are in the publish environment, which holds
-# SIGNING_OPENPGP_SUBKEY, SIGNING_ALPINE_KEY and UPLOAD_SSH_KEY; each of them removes its key
-# files at its end.
+# two values and the reason. Only the jobs that sign or upload are in the publish environment,
+# which holds SIGNING_OPENPGP_SUBKEY, SIGNING_ALPINE_KEY and UPLOAD_SSH_KEY; each of them removes
+# its key files at its end.
 #
-#   verify -> wait -> revision -> packages -> tests ----+
-#   revision -> freebsd (one per release) --------------+--> publish -> homebrew, website
-#   verify, wait ---------------------------------------+
+#   verify -> wait -> revision -> packages -> tests ----------+
+#                                 packages -> freebsd (each) -+--> publish -> homebrew, website
+#   verify, wait ---------------------------------------------+
 #
 # The packages are built once, from the archives of the release (proven by their signature) and
 # the source of the program at the tag, and signed with the real keys. The tests run on those
@@ -18,10 +18,14 @@ name: Publish program
 # then the index files and their signatures.
 #
 # Revision: the packages of a release are revision 0. A change to the packaging alone is
-# published as the next revision of the current release (scripts/next-revision.sh), by a run that
-# publish-revisions.yml starts with this workflow's manual trigger; the run is the same as for a
-# release. The revision job computes the number once, after the wait, so that two runs of a
-# program that queue up never take the same one.
+# published as the next revision of the current release (scripts/next-revision.sh), by a run with
+# the reason packaging that publish-revisions.yml starts for each program when main changes; a
+# release has the reason release. The revision job computes the number once, after the wait, so
+# that two runs of a program that queue up never take the same one. The packages job builds them
+# and, for the reason packaging, compares them with the newest published revision of the release
+# (scripts/revision-listings.sh, scripts/revision-decide.sh). When nothing changed, no later job
+# runs and the run, which is green, says so in its summary: the decision is made here, after the
+# wait, so that two quick changes to main never publish two revisions of the same packaging.
 #
 # FreeBSD: one job for each release in packaging/freebsd/releases builds the packages of both
 # CPU types in a machine of that release, from the same verified archives, installs the amd64
@@ -40,6 +44,11 @@ on:
         description: The release of the program to publish, for example v1.2.3
         type: string
         required: true
+      reason:
+        description: release publishes the release itself; packaging publishes the next revision of it, and only when its packaging changed
+        type: choice
+        options: [release, packaging]
+        default: release
 
 # The program and the tag are in the name, so that the wait job can tell which runs publish the
 # same program.
@@ -62,6 +71,7 @@ jobs:
       program: ${{ steps.release.outputs.program }}
       tag: ${{ steps.release.outputs.tag }}
       repository: ${{ steps.release.outputs.repository }}
+      reason: ${{ steps.release.outputs.reason }}
       freebsd-releases: ${{ steps.freebsd.outputs.releases }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -73,6 +83,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           PROGRAM: ${{ github.event.client_payload.program || inputs.program }}
           TAG: ${{ github.event.client_payload.tag || inputs.tag }}
+          # The release itself comes with the dispatch of the release, which has no reason.
+          REASON: ${{ inputs.reason || 'release' }}
         run: |
           # program-conf.sh refuses a name that is not a program of programs/.
           . scripts/program-conf.sh
@@ -89,6 +101,7 @@ jobs:
             echo "program=$PROGRAM"
             echo "tag=$TAG"
             echo "repository=$release_repo"
+            echo "reason=$REASON"
           } >> "$GITHUB_OUTPUT"
       # Read once here, so that every job builds the same releases and a new release in the list
       # needs no edit of this file.
@@ -136,8 +149,8 @@ jobs:
   # The revision of the packages, once, for every job that builds them. A release that was just
   # made is revision 0 whatever the repository holds, so that a second delivery of the same
   # release is refused when it publishes (it would replace a published file) and never becomes a
-  # revision of its own. Every other run is a packaging change of a published release, and its
-  # revision is the one after the highest published; it is computed here, after the wait, because
+  # revision of its own. A run for a packaging change takes the revision after the highest
+  # published; it is computed here, after the wait, because
   # an earlier run of the program may be adding a revision right now. This job holds no key.
   revision:
     name: The revision of the packages
@@ -152,28 +165,33 @@ jobs:
       - name: The next revision of the release
         id: revision
         env:
-          EVENT: ${{ github.event_name }}
+          REASON: ${{ needs.verify.outputs.reason }}
           PROGRAM: ${{ needs.verify.outputs.program }}
           TAG: ${{ needs.verify.outputs.tag }}
         run: |
           revision=0
-          if [ "$EVENT" != repository_dispatch ]; then
+          if [ "$REASON" = packaging ]; then
             revision="$(scripts/next-revision.sh "$PROGRAM" "$TAG")"
           fi
-          echo "$PROGRAM $TAG is published as revision $revision"
+          echo "$PROGRAM $TAG is built as revision $revision"
           echo "revision=$revision" >> "$GITHUB_OUTPUT"
 
   # The deb, rpm and apk packages of both CPU types, signed with the real keys, and the signed
   # repositories the tests install from. Only the packages and the public keys are uploaded:
-  # dist/keys holds the private keys.
+  # dist/keys holds the private keys. A run for a packaging change stops after the build when the
+  # packages are the same as the newest published revision (output changed): every job that needs
+  # this one is then skipped, and so is every job that needs a skipped one.
   packages:
     name: Signed packages
     needs: [verify, revision]
     runs-on: ubuntu-latest
     environment: publish
+    outputs:
+      changed: ${{ steps.decide.outputs.changed }}
     env:
       PROGRAM: ${{ needs.verify.outputs.program }}
       TAG: ${{ needs.verify.outputs.tag }}
+      REASON: ${{ needs.verify.outputs.reason }}
       REVISION: ${{ needs.revision.outputs.revision }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -203,10 +221,32 @@ jobs:
           scripts/release-bin.sh "$TAG" "$PWD/release" "$PWD/bin"
       - name: Build the deb, rpm and apk packages
         run: make packages PROGRAM="$PROGRAM" BIN="$PWD/bin" SRC="$PWD/src" VERSION="$TAG" REVISION="$REVISION"
+      # A release is published as it is built. A change to the packaging is published only when the
+      # packages differ from the newest published revision of the release: right after the build,
+      # so that nothing else runs for a change that makes no difference.
+      - name: Did the packaging change since the newest published revision
+        id: decide
+        run: |
+          changed=true
+          if [ "$REASON" = packaging ]; then
+            scripts/revision-listings.sh "$PROGRAM" "$TAG" "$RUNNER_TEMP/listings"
+            status=0
+            scripts/revision-decide.sh "$PROGRAM" "$TAG" "$RUNNER_TEMP/listings" \
+              > "$RUNNER_TEMP/decision" 2> "$RUNNER_TEMP/reason" || status=$?
+            cat "$RUNNER_TEMP/reason"
+            [ "$status" = 0 ] || exit "$status"
+            if [ ! -s "$RUNNER_TEMP/decision" ]; then
+              changed=false
+              cat "$RUNNER_TEMP/reason" >> "$GITHUB_STEP_SUMMARY"
+            fi
+          fi
+          echo "changed=$changed" >> "$GITHUB_OUTPUT"
       - name: Build the signed package repositories
+        if: steps.decide.outputs.changed == 'true'
         run: make repo PROGRAM="$PROGRAM"
       # The public keys only, for the tests.
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: steps.decide.outputs.changed == 'true'
         with:
           name: signed-packages-${{ needs.verify.outputs.program }}
           path: |
@@ -223,12 +263,14 @@ jobs:
   # virtualization that ubuntu-latest offers. The machine builds the packages, installs the
   # amd64 one from the repository it signed with the Alpine key, starts its service and removes
   # it again, and refuses a repository signed with another key (make package-freebsd). It starts
-  # from the catalog that is published now, so the job waits until every earlier publish of the
-  # program has ended. Only the repository folders of its release are uploaded, in one tar
+  # from the catalog that is published now, so it runs after the revision job, which waited until
+  # every earlier publish of the program had ended. It is built only when the packages changed.
+  # Only the repository folders of its release are uploaded, in one tar
   # because the upload of an artifact refuses the colons in their names.
   freebsd:
     name: FreeBSD packages (${{ matrix.release }})
-    needs: [verify, wait, revision]
+    needs: [verify, revision, packages]
+    if: needs.packages.outputs.changed == 'true'
     runs-on: ubuntu-latest
     environment: publish
     strategy:
@@ -289,6 +331,7 @@ jobs:
   tests:
     name: Tests
     needs: [verify, packages]
+    if: needs.packages.outputs.changed == 'true'
     uses: ./.github/workflows/test-packages.yml
     with:
       program: ${{ needs.verify.outputs.program }}

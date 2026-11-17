@@ -1,17 +1,14 @@
 name: Publish revisions
 
-# A change to the packaging that reaches main is published at once as the next revision of the
-# current release of each program it changes (the packages of the release are revision 0, a
-# change to the packaging alone is revision 1, 2, ...). For every program of programs/ this
-# workflow builds the packages of the newest release the way publish-program.yml does, with
-# throwaway keys, and compares them with the newest published revision of that release
-# (scripts/revision-decide.sh). When they differ it starts publish-program.yml for that program
-# and release, which waits for the earlier runs of the program, takes the revision number after
-# the wait, builds, signs, tests and publishes. When nothing differs, as for a change to tests,
-# documents or workflows, nothing is started and the run says so.
+# A change that reaches main may change the packaging of the programs. For every program of
+# programs/ this workflow starts publish-program.yml for the newest release of the program with
+# the reason packaging. That run waits for the earlier runs of the program, builds the packages,
+# compares them with the newest published revision of the release, and publishes the next
+# revision only when they differ; when they do not, as for a change to tests, documents or
+# workflows, it ends green and says so. The decision is made there, after the wait, so that two
+# changes that follow each other quickly never publish two revisions of the same packaging.
 #
-# This workflow holds no key and publishes nothing itself. Every run is kept: a queue of runs
-# is never reduced to the newest one, because the decision of a run is about its own push.
+# This workflow builds nothing, holds no key and publishes nothing itself.
 on:
   push:
     branches: [main]
@@ -20,89 +17,29 @@ permissions:
   contents: read
 
 jobs:
-  programs:
-    name: The programs of this repository
-    runs-on: ubuntu-latest
-    outputs:
-      programs: ${{ steps.list.outputs.programs }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: List programs/ as JSON
-        id: list
-        run: |
-          list="$(ls programs)"
-          printf 'programs=%s\n' "$(printf '%s\n' "$list" | jq -R -n -c '[inputs | select(length > 0)]')" >> "$GITHUB_OUTPUT"
-
-  decide:
-    name: Does the packaging of ${{ matrix.program }} differ from what is published
-    needs: programs
+  start:
+    name: Start the publish of each program
     runs-on: ubuntu-latest
     permissions:
       contents: read
       actions: write
-    strategy:
-      fail-fast: false
-      matrix:
-        program: ${{ fromJSON(needs.programs.outputs.programs) }}
     env:
-      PROGRAM: ${{ matrix.program }}
       GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: The newest release of the program
-        id: release
+      - name: Start publish-program.yml for the newest release of each program
         run: |
-          # program-conf.sh refuses a name that is not a program of programs/.
-          . scripts/program-conf.sh
-          tag="$(gh release view --repo "$release_repo" --json tagName --jq .tagName)"
-          revision="$(scripts/next-revision.sh "$PROGRAM" "$tag")"
-          {
-            echo "repository=$release_repo"
-            echo "tag=$tag"
-            echo "published=$([ "$revision" != 0 ] && echo true || echo false)"
-          } >> "$GITHUB_OUTPUT"
-          if [ "$revision" = 0 ]; then
-            echo "$tag of $PROGRAM is not published yet: its own publish is not finished, nothing to revise"
-          fi
-      - name: Source of the program at the tag
-        if: steps.release.outputs.published == 'true'
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: ${{ steps.release.outputs.repository }}
-          ref: ${{ steps.release.outputs.tag }}
-          path: src
-          persist-credentials: false
-      - name: Programs of the release, proven by its signature
-        if: steps.release.outputs.published == 'true'
-        env:
-          TAG: ${{ steps.release.outputs.tag }}
-          REPOSITORY: ${{ steps.release.outputs.repository }}
-        run: |
-          gh release download "$TAG" --repo "$REPOSITORY" --dir release \
-            --pattern '*-linux-*.tar.gz' --pattern SHA256SUMS --pattern SHA256SUMS.asc
-          scripts/release-bin.sh "$TAG" "$PWD/release" "$PWD/bin"
-      # Built as the revision it would be published as. Throwaway keys: nothing of this is published.
-      - name: Build the packages as they are on main
-        if: steps.release.outputs.published == 'true'
-        env:
-          TAG: ${{ steps.release.outputs.tag }}
-        run: |
-          revision="$(scripts/next-revision.sh "$PROGRAM" "$TAG")"
-          make packages PROGRAM="$PROGRAM" BIN="$PWD/bin" SRC="$PWD/src" VERSION="$TAG" REVISION="$revision"
-      - name: Compare with the newest published revision, and start the publish when they differ
-        if: steps.release.outputs.published == 'true'
-        env:
-          TAG: ${{ steps.release.outputs.tag }}
-        run: |
-          scripts/revision-listings.sh "$PROGRAM" "$TAG" "$RUNNER_TEMP/listings"
-          decision="$(scripts/revision-decide.sh "$PROGRAM" "$TAG" "$RUNNER_TEMP/listings")"
-          if [ -z "$decision" ]; then
-            echo "The packaging of $PROGRAM is the same as what is published for $TAG: nothing is published"
-            exit 0
-          fi
-          echo "The packaging of $PROGRAM changed since what is published for $TAG: publishing a revision"
-          gh workflow run publish-program.yml --repo "$GITHUB_REPOSITORY" --ref main -f program="$PROGRAM" -f tag="$TAG"
+          for conf in programs/*/program.conf; do
+            PROGRAM="$(basename "$(dirname "$conf")")"
+            # The release repository of the program is the program's own fact, so each program
+            # is read in a shell of its own.
+            tag="$(
+              . scripts/program-conf.sh
+              gh release view --repo "$release_repo" --json tagName --jq .tagName
+            )"
+            echo "$PROGRAM $tag: publishing a revision if the packaging changed"
+            gh workflow run publish-program.yml --repo "$GITHUB_REPOSITORY" --ref main \
+              -f program="$PROGRAM" -f tag="$tag" -f reason=packaging
+          done
