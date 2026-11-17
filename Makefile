@@ -187,10 +187,12 @@ package-test: built-packages package-order-test
 	$(TEST_VARS) scripts/package-test.sh
 
 # Proves the service, not only the files: in a container per system that is booted as a server,
-# with that system's own service manager as process 1, installs the package and checks that the
-# service starts by itself, runs as its own user, does its job (what that means is in
-# programs/PROGRAM/service-check.sh), restarts, comes back after a reboot and stops when the
-# package is removed.
+# with that system's own service manager as process 1, installs the package and checks that it
+# is neither enabled nor running, then starts it with the documented commands and checks that it
+# runs as its own user, does its job (what that means is in programs/PROGRAM/service-check.sh),
+# restarts and comes back after a reboot. An upgrade restarts a running service and leaves a
+# stopped one stopped; removing the package stops and disables it; a new install after that is
+# idle again.
 .PHONY: service-test
 service-test: built-packages
 	$(TEST_VARS) scripts/service-test.sh

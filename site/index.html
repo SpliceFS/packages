@@ -382,7 +382,12 @@ pkg install splicefs-client    # the client
 
   <section class="after">
     <h2>After the install</h2>
-    <p>The service starts when the package is installed. Nothing has to be configured first: a server runs with no shares and a client with no mounts. Add yours as files, then reload the service:</p>
+    <p>Installing a Linux package installs the service and does not start it or turn it on. Start it, and have it start at boot, with the service manager of your system. The server's service is <code class="inline">splicefsd</code> and the client's is <code class="inline">splicefs</code>.</p>
+    <ul>
+      <li>systemd (Debian, Ubuntu, Rocky Linux, Amazon Linux, openSUSE): <code class="inline">sudo systemctl enable --now splicefsd</code> for the server, <code class="inline">sudo systemctl enable --now splicefs</code> for the client</li>
+      <li>OpenRC (Alpine), as root: <code class="inline">rc-update add splicefsd default &amp;&amp; rc-service splicefsd start</code> for the server, <code class="inline">rc-update add splicefs default &amp;&amp; rc-service splicefs start</code> for the client</li>
+    </ul>
+    <p>An upgrade restarts a service that was running and leaves a stopped one stopped. Removing the package stops the service and turns it off. Nothing has to be configured first: a server runs with no shares and a client with no mounts. Add yours as files, then reload the service:</p>
     <ul>
       <li>Server: one file per share in <code class="inline">/etc/splicefs/server/shares.d</code> <a href="https://github.com/SpliceFS/server/blob/main/docs/configuration.md">Server configuration</a></li>
       <li>Client: one file per cluster in <code class="inline">/etc/splicefs/client/clusters.d</code> and one per mount in <code class="inline">/etc/splicefs/client/mounts.d</code> <a href="https://github.com/SpliceFS/client/blob/main/docs/configuration.md">Client configuration</a></li>
