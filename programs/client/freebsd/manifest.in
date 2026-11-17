@@ -18,22 +18,44 @@ licenses: ["MIT"]
 categories: ["net"]
 scripts: {
   pre-deinstall: <<EOD
-# Stopping the client unmounts everything it mounted.
-service @PROGRAM@ onestop >/dev/null 2>&1 || true
+# Removing the package stops the service, which unmounts everything the client mounted. An
+# upgrade does not, because pkg ends every program a script starts, so a package cannot start
+# it again: a service that ran before the upgrade keeps running until the administrator
+# restarts it. pkg sets PKG_UPGRADE during an upgrade. The setting in rc.conf is the
+# administrator's and stays.
+if ! printenv PKG_UPGRADE >/dev/null; then
+    service @PROGRAM@ onestop >/dev/null 2>&1 || true
+fi
 EOD
 }
 messages: [
   {
     type: "install"
     message: <<EOD
-The SpliceFS client starts when the system boots. To start it now:
+The SpliceFS client is installed and does not run yet. To turn it on and start it:
 
-    service @PROGRAM@ start
+    sysrc @PROGRAM@_enable=YES && service @PROGRAM@ start
 
-pkg stops every program an install script starts, so the package cannot do this
-for you. To keep the client from starting at boot, put @PROGRAM@_enable="NO" in
-/etc/rc.conf. Clusters and mounts are configured in
-/usr/local/etc/splicefs/client.
+pkg ends every program an install script starts, so the package cannot start it for you.
+Clusters and mounts are configured in /usr/local/etc/splicefs/client.
+EOD
+  },
+  {
+    type: "upgrade"
+    message: <<EOD
+A running @PROGRAM@ keeps running the old version until you restart it:
+
+    service @PROGRAM@ restart
+
+pkg ends every program a package script starts, so the package cannot restart it for you.
+EOD
+  },
+  {
+    type: "remove"
+    message: <<EOD
+The package stopped @PROGRAM@ and left /etc/rc.conf alone. To delete its setting:
+
+    sysrc -x @PROGRAM@_enable
 EOD
   }
 ]

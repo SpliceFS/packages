@@ -6,10 +6,9 @@
 # KEYWORD: shutdown
 #
 # Settings for /etc/rc.conf:
-#   splicefs_enable   "NO" keeps the client from starting. The default is "YES", so that an
-#                     installed client runs after the next boot without any setting, which
-#                     is as close as FreeBSD lets a package come to "installing means
-#                     running": pkg stops whatever an install script starts.
+#   splicefs_enable   "YES" starts the client at boot and lets "service splicefs start" run
+#                     it. The default is "NO": installing the package starts nothing and
+#                     turns nothing on, and pkg would end a process its scripts started.
 
 # rc.subr reads rcvar, required_modules, command, command_args, extra_commands, start_precmd
 # and reload_cmd.
@@ -21,7 +20,7 @@ name=splicefs
 rcvar=splicefs_enable
 load_rc_config "$name"
 
-: "${splicefs_enable:=YES}"
+: "${splicefs_enable:=NO}"
 
 program=/usr/local/bin/splicefs
 logfile=/var/log/splicefs.log

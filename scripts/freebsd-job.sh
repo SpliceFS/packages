@@ -1,10 +1,12 @@
 #!/bin/sh
 # Runs inside the FreeBSD build machine as root, started by the first-boot script. The machine
 # is amd64 and its disk has pkg set up already. The job builds the packages for amd64 and arm64
-# with FreeBSD's own tools, installs the amd64 one and proves that the service runs; the arm64
-# package is built for its ABI and not installed. What "the service works" means for this
-# program comes from check-lib.sh in the input folder (programs/<program>/freebsd/check-lib.sh):
-# expected_user and answers.
+# with FreeBSD's own tools, installs the amd64 one and proves what it does about the service: it
+# installs it idle, the documented commands turn it on and start it, an upgrade leaves a running
+# one running, and removing the package stops it and leaves rc.conf alone. The arm64 package is
+# built for its ABI and not installed. What "the service works" means for this program comes
+# from check-lib.sh in the input folder (programs/<program>/freebsd/check-lib.sh): expected_user
+# and answers.
 #
 # It also builds the signed package repository. The input archive on the fourth disk holds
 # keys/splicefs.rsa(.pub) and the packages published before (repo/FreeBSD:<major>:<cpu>/All/).
@@ -56,10 +58,12 @@ major="$(freebsd-version -u | cut -d. -f1)"
 programs="$(sed -n 's|^bin/||p' "$in/plist")"
 
 # One package per CPU type. goarch is how the build names the binary, abiarch how pkg names
-# the CPU type in an ABI string.
+# the CPU type in an ABI string, and the package of version $3 is written into the folder $4.
 build() {
     goarch="$1"
     abiarch="$2"
+    package_version="$3"
+    package_folder="$4"
     stage="/tmp/stage-$goarch"
     rm -rf "$stage"
     install -d "$stage/usr/local/bin" "$stage/usr/local/etc/rc.d"
@@ -70,16 +74,16 @@ build() {
         install -m 0755 "$in/$each-$goarch" "$stage/usr/local/bin/$each"
     done
     install -m 0755 "$in/$program.rc" "$stage/usr/local/etc/rc.d/$program"
-    sed -e "s|@NAME@|$name|" -e "s|@PROGRAM@|$program|g" -e "s|@VERSION@|$version|" \
+    sed -e "s|@NAME@|$name|" -e "s|@PROGRAM@|$program|g" -e "s|@VERSION@|$package_version|" \
         -e "s|@ABI@|FreeBSD:$major:$abiarch|" "$in/manifest.in" > "/tmp/manifest-$goarch"
-    mkdir -p "$out/FreeBSD-$major-$abiarch"
+    mkdir -p "$package_folder"
     osversion="$(uname -K)"
     pkg -o ABI="FreeBSD:$major:$abiarch" -o OSVERSION="$osversion" create \
-        -M "/tmp/manifest-$goarch" -p "$in/plist" -r "$stage" -o "$out/FreeBSD-$major-$abiarch"
+        -M "/tmp/manifest-$goarch" -p "$in/plist" -r "$stage" -o "$package_folder"
 }
-build amd64 amd64
+build amd64 amd64 "$version" "$out/FreeBSD-$major-amd64"
 phase_done "build the amd64 package"
-build arm64 aarch64
+build arm64 aarch64 "$version" "$out/FreeBSD-$major-aarch64"
 phase_done "build the arm64 package"
 
 package="$out/FreeBSD-$major-amd64/$name-$version.pkg"
@@ -173,17 +177,33 @@ reload_works() {
 mkdir -p /usr/local/etc/pkg/repos
 write_repo_conf /usr/local/etc/pkg/repos/splicefs.conf splicefs "$repo_folder"
 pkg update -r splicefs
-pkg install -y -r splicefs "$name"
+pkg_output=/tmp/pkg-output
+# Runs pkg and shows what it said. The output is kept in $pkg_output, because the messages of
+# the package are part of what a person gets and the checks read them back.
+pkg_run() {
+    pkg "$@" > "$pkg_output" 2>&1 || { cat "$pkg_output"; fail "pkg $1 failed"; }
+    cat "$pkg_output"
+}
+pkg_run install -y -r splicefs "$name"
 phase_done "update the repository and install the package"
 for each in $programs; do
     [ -x "/usr/local/bin/$each" ] || fail "$each is not installed"
     "/usr/local/bin/$each" --version | grep -qF "$program_version" ||
         fail "$each --version does not report $program_version"
 done
-# pkg ends every process an install script leaves behind, so on FreeBSD a package cannot
-# start its service. What the package can and must do: the service is enabled without any
-# setting, so it starts at boot, and one command starts it now.
-service "$program" enabled || fail "the service is not enabled after the install"
+# Installing only installs: the service is neither turned on nor running until the
+# administrator does it, and the install message says how. pkg ends every process an install
+# script leaves behind, so a package could not start its service anyway. onestatus asks even
+# of a service that is not enabled.
+if service "$program" enabled; then fail "the service is enabled after the install"; fi
+if service "$program" onestatus >/dev/null 2>&1; then fail "the service is running after the install"; fi
+if grep -qs "^${program}_enable=" /etc/rc.conf; then fail "the install set ${program}_enable in rc.conf"; fi
+grep -qF "sysrc ${program}_enable=YES && service $program start" "$pkg_output" ||
+    fail "the install message does not say how to turn the service on and start it"
+echo "installed: not enabled, not running, and the message says how to turn it on"
+# The two commands of the install message, in its order.
+sysrc "${program}_enable=YES" || fail "sysrc could not turn the service on"
+service "$program" enabled || fail "the service is not enabled after sysrc"
 service "$program" start || { show; fail "the service did not start"; }
 wait_for 20 service "$program" status
 [ "$wait_status" -eq 0 ] || { show; fail "the service is not running after its start"; }
@@ -196,18 +216,51 @@ reload_works
 service "$program" restart >/dev/null || fail "restart failed"
 wait_for 20 answers
 [ "$wait_status" -eq 0 ] || { show; fail "the service does not do its job after a restart"; }
-echo "installed, enabled, started with one command, running as $expected_user, answering, reload and restart work"
+echo "turned on and started as the message says, running as $expected_user, answering, reload and restart work"
 phase_done "start the service and check it"
 
-# Removing the package stops the service and leaves nothing running.
-pkg delete -y "$name" >/dev/null
+# An upgrade leaves a running service running and never changes rc.conf. The package cannot
+# restart the service, because pkg ends every process a package script starts, so the running
+# program keeps its old version until the administrator restarts it, and the upgrade message
+# says so. The new package is the next revision of the same version, in a repository of its
+# own so that the published one stays as it is; pkg takes it as an upgrade of the installed one.
+upgrade_version="${version}_1"
+upgrade_folder=/tmp/upgrade-repo
+rm -rf "$upgrade_folder"
+build amd64 amd64 "$upgrade_version" "$upgrade_folder/All"
+pkg repo "$upgrade_folder" "rsa:$keys/splicefs.rsa" || fail "pkg repo could not sign the catalog of $upgrade_folder"
+write_repo_conf /usr/local/etc/pkg/repos/splicefsupgrade.conf splicefsupgrade "$upgrade_folder"
+pkg update -r splicefsupgrade
+pkg_run upgrade -y -r splicefsupgrade "$name"
+installed_version="$(pkg query %v "$name")"
+[ "$installed_version" = "$upgrade_version" ] || fail "the package is $installed_version, not upgraded to $upgrade_version"
+service "$program" status || { show; fail "the upgrade stopped the running service"; }
+wait_for 10 answers
+[ "$wait_status" -eq 0 ] || { show; fail "the service does not do its job after an upgrade"; }
+service "$program" enabled || fail "the upgrade turned the service off"
+grep -qF "service $program restart" "$pkg_output" || fail "the upgrade message does not say how to restart the service"
+# The restart the message names runs the new files.
+service "$program" restart >/dev/null || fail "restart after the upgrade failed"
+wait_for 20 answers
+[ "$wait_status" -eq 0 ] || { show; fail "the service does not do its job after the restart that follows an upgrade"; }
+echo "upgraded: the running service kept running, rc.conf stayed, the message says how to restart"
+phase_done "upgrade the package under a running service"
+
+# Removing the package stops the service and leaves nothing running. rc.conf is the
+# administrator's: the setting stays until the administrator deletes it, as the remove message
+# says.
+pkg_run delete -y "$name"
 # answers is one command whose status is the answer, so running it without set -e changes nothing.
 # shellcheck disable=SC2310
 if answers; then fail "the service still answers after the package was removed"; fi
 for each in $programs; do
     [ ! -e "/usr/local/bin/$each" ] || fail "remove left $each behind"
 done
-echo "removed: the service stopped"
+grep -qs "^${program}_enable=" /etc/rc.conf || fail "the removal deleted ${program}_enable from rc.conf"
+grep -qF "sysrc -x ${program}_enable" "$pkg_output" || fail "the remove message does not say how to delete the setting"
+sysrc -x "${program}_enable" || fail "sysrc could not delete the setting"
+if grep -qs "^${program}_enable=" /etc/rc.conf; then fail "sysrc -x left ${program}_enable in rc.conf"; fi
+echo "removed: the service stopped, rc.conf was left alone, and sysrc -x deletes the setting"
 phase_done "remove the package"
 
 # A repository that is not signed with our key is refused. Two copies of the repository are

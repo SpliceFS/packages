@@ -5,7 +5,7 @@ comment: "Server of the SpliceFS read-only multi-source filesystem"
 desc: <<EOD
 The SpliceFS server. A SpliceFS client mounts the folders of a cluster of these
 servers as one folder and reads each file from several servers at once.
-A freshly installed server shares nothing and runs after the next boot.
+A freshly installed server shares nothing, and it does not run until it is turned on.
 
 WWW: https://splicefs.org
 EOD
@@ -27,20 +27,42 @@ if ! pw usershow splicefs >/dev/null 2>&1; then
 fi
 EOD
   pre-deinstall: <<EOD
-service splicefsd onestop >/dev/null 2>&1 || true
+# Removing the package stops the service. An upgrade does not, because pkg ends every program
+# a script starts, so a package cannot start it again: a service that ran before the upgrade
+# keeps running until the administrator restarts it. pkg sets PKG_UPGRADE during an upgrade.
+# The setting in rc.conf is the administrator's and stays.
+if ! printenv PKG_UPGRADE >/dev/null; then
+    service @PROGRAM@ onestop >/dev/null 2>&1 || true
+fi
 EOD
 }
 messages: [
   {
     type: "install"
     message: <<EOD
-The SpliceFS server starts when the system boots. To start it now:
+The SpliceFS server is installed and does not run yet. To turn it on and start it:
 
-    service @PROGRAM@ start
+    sysrc @PROGRAM@_enable=YES && service @PROGRAM@ start
 
-pkg stops every program an install script starts, so the package cannot do this
-for you. To keep the server from starting at boot, put @PROGRAM@_enable="NO" in
-/etc/rc.conf.
+pkg ends every program an install script starts, so the package cannot start it for you.
+EOD
+  },
+  {
+    type: "upgrade"
+    message: <<EOD
+A running @PROGRAM@ keeps running the old version until you restart it:
+
+    service @PROGRAM@ restart
+
+pkg ends every program a package script starts, so the package cannot restart it for you.
+EOD
+  },
+  {
+    type: "remove"
+    message: <<EOD
+The package stopped @PROGRAM@ and left /etc/rc.conf alone. To delete its setting:
+
+    sysrc -x @PROGRAM@_enable
 EOD
   }
 ]
