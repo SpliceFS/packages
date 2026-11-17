@@ -19,7 +19,8 @@ lint: site
 	shellcheck --shell=sh dist/site/setup.sh steps/*.sh scripts/*.sh tests/*.sh \
 		programs/*/deb/postinst programs/*/deb/prerm programs/*/deb/postrm \
 		programs/*/alpine/*.post-install programs/*/alpine/*.post-upgrade \
-		programs/*/alpine/*.pre-deinstall programs/*/alpine/*.pre-install programs/*/package-test-extra.sh
+		programs/*/alpine/*.pre-deinstall programs/*/alpine/*.pre-install programs/*/package-test-extra.sh \
+		programs/*/service-check.sh
 
 # Signs the built script with the key file named by SIGNING_KEY_FILE and proves the signature
 # with the public key in keys/ only. Needs gpg.
@@ -95,17 +96,23 @@ DOCKER_RUN = docker run --rm --user "$(shell id -u):$(shell id -g)" $(RUN_OPTS) 
 
 .PHONY: packages package-deb package-rpm package-apk package-inputs keys
 
-# The packages of every format. Each format is a target of its own.
+# The packages of every format. Each format is a target of its own. When all of them are built, the
+# version they were built as is recorded in dist/PROGRAM/version, which is where the tests that
+# follow read it (scripts/package-record.sh).
 packages: package-deb package-rpm package-apk
+	PROGRAM=$(PROGRAM) VERSION=$(VERSION) PACKAGE_DATE=$(PACKAGE_DATE) sh -c '. scripts/package-record.sh && write_package_record'
 
 # Stops at once, with the name of what is missing, before any image starts. Docker would make a
-# folder that does not exist as root.
+# folder that does not exist as root. A build removes the record of the version first, so that a
+# build that stops half way never leaves a record that describes other packages than the ones in
+# dist.
 package-inputs:
 	@: $(foreach v,PROGRAM BIN SRC VERSION,$(if $($(v)),,$(error $(v) is not set; see the comment above PROGRAM)))
 	@for d in "$(BIN)" "$(SRC)" programs/"$(PROGRAM)"; do \
 		[ -d "$$d" ] || { echo "FAIL: $$d is not a folder"; exit 1; }; \
 	done
 	mkdir -p "$(PACKAGE_OUT)"
+	rm -f "$(PACKAGE_OUT)/version"
 
 package-deb: package-inputs
 	scripts/part.sh package-deb $(DOCKER_RUN) $(GO_IMAGE) env $(PACKAGE_VARS) sh scripts/package-deb.sh /repo/$(PACKAGE_OUT)
@@ -120,6 +127,82 @@ package-apk: package-inputs keys
 # Decides which keys everything is signed with and puts them in ./dist/keys.
 keys:
 	LINUX_IMAGE=$(GO_IMAGE) scripts/signing-keys.sh
+
+# --- The tests of the packages of a program -----------------------------------------------------
+# They test what make packages left in dist/PROGRAM, on the server images listed in
+# packaging/test-systems, and read the version from the record make packages wrote there. They
+# need Docker.
+#   ONLY      limits a run to one format (ONLY=deb) or to one image, as written in
+#             packaging/test-systems.
+#   PLATFORM  linux/amd64 or linux/arm64 tests that CPU type by emulation; empty tests this
+#             machine's own.
+#   VERSION   not needed. When given, it must be the recorded version, or the test stops.
+ONLY ?=
+PLATFORM ?=
+TEST_VARS = PROGRAM=$(PROGRAM) VERSION=$(VERSION) PLATFORM=$(PLATFORM) ONLY=$(ONLY)
+
+.PHONY: built-packages package-order-test package-test
+
+# Stops at once, with the name of what is missing, before any image starts.
+built-packages:
+	@: $(if $(PROGRAM),,$(error PROGRAM is not set; see the comment above PROGRAM))
+	@ls "dist/$(PROGRAM)"/*.deb "dist/$(PROGRAM)"/*.rpm "dist/$(PROGRAM)"/alpine/*/*.apk >/dev/null 2>&1 || \
+		{ echo "FAIL: no packages in dist/$(PROGRAM): run make packages first"; exit 1; }
+
+# Checks in a Debian, a Rocky Linux and an Alpine system that the versions of the packages sort
+# the way a release needs (a pre-release before its release) and that apk accepts them. It is a
+# prerequisite of package-test, not of check, because it needs Docker.
+package-order-test:
+	scripts/package-order-test.sh
+
+# Installs and removes the package in a clean, booted server of every system listed in
+# packaging/test-systems and reports each system's result.
+package-test: built-packages package-order-test
+	$(TEST_VARS) scripts/package-test.sh
+
+# Proves the service, not only the files: in a container per system that is booted as a server,
+# with that system's own service manager as process 1, installs the package and checks that the
+# service starts by itself, runs as its own user, does its job (what that means is in
+# programs/PROGRAM/service-check.sh), restarts, comes back after a reboot and stops when the
+# package is removed.
+.PHONY: service-test
+service-test: built-packages
+	$(TEST_VARS) scripts/service-test.sh
+
+# The part of the upgrade test that decides whether the packaging changed, checked against small
+# hand-made package listings. It needs no Docker, so it is part of check.
+.PHONY: upgrade-diff-test upgrade-test
+upgrade-diff-test:
+	scripts/upgrade-diff-test.sh
+
+# Installs the newest published release of the program (downloaded from the releases of the
+# repository named by release_repo in programs/PROGRAM/program.conf) in a clean, booted server of
+# the first system of each format in packaging/test-systems, writes a configuration line and a data
+# file, and installs the packages in dist/PROGRAM over it, the way a user upgrades. It checks that
+# both survived, the service user exists, the new version is installed and every file the new
+# package lists is there. It runs only for a format whose packaging changed since that release: a
+# version that differs only in the programs and the changelog cannot break an upgrade. It needs
+# Docker and the network.
+upgrade-test: built-packages
+	$(TEST_VARS) scripts/upgrade-test.sh
+
+# Signed package repositories in dist/PROGRAM/repo, made from the packages make packages left in
+# dist/PROGRAM (it builds none). Keys come from scripts/signing-keys.sh, which is the one place
+# that picks real or throwaway keys. Each format runs in the image of its own distribution's
+# tools, with the keys mounted read-only.
+REPO_RUN = docker run --rm --user "$(shell id -u):$(shell id -g)" $(KEYS_MOUNT) -v "$(CURDIR)":/repo -w /repo
+
+.PHONY: repo repo-test
+repo: built-packages keys
+	scripts/part.sh repo-apt $(REPO_RUN) $(GO_IMAGE) sh scripts/repo-apt.sh /repo/dist/$(PROGRAM)
+	scripts/part.sh repo-rpm $(REPO_RUN) $(RPM_IMAGE) sh scripts/repo-rpm.sh /repo/dist/$(PROGRAM)
+	scripts/part.sh repo-apk $(REPO_RUN) $(APK_IMAGE) sh scripts/repo-apk.sh /repo/dist/$(PROGRAM)
+
+# Installs from the repository on every system in packaging/test-systems with signature checks
+# on, and checks that a damaged repository is refused.
+repo-test: built-packages
+	@[ -d "dist/$(PROGRAM)/repo" ] || { echo "FAIL: no repository in dist/$(PROGRAM)/repo: run make repo first"; exit 1; }
+	$(TEST_VARS) scripts/package-test.sh repo
 
 clean:
 	rm -rf dist
