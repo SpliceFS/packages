@@ -5,8 +5,9 @@
 # into the running system, and checks that the service starts by itself, runs as its own user,
 # does its job, restarts, comes back after a reboot and stops when the package is removed. A
 # failing system does not stop the run, so one run shows every system that is broken. Runs on the
-# host (make service-test, CI); it needs Docker and curl. Environment: PROGRAM, VERSION and
-# PACKAGE_DATE as for the build; PLATFORM (linux/amd64 or linux/arm64) tests that CPU type by
+# host (make service-test, CI); it needs Docker and curl. Environment: PROGRAM; the version comes
+# from dist/PROGRAM/version, which make packages wrote (scripts/package-record.sh), and a VERSION
+# given must be that one; PLATFORM (linux/amd64 or linux/arm64) tests that CPU type by
 # emulation, empty means this machine's own; ONLY limits the run to one format or one image of
 # packaging/test-systems.
 #
@@ -26,10 +27,10 @@
 set -eu
 
 : "${PROGRAM:?PROGRAM is not set}"
-: "${VERSION:?VERSION is not set}"
-: "${PACKAGE_DATE:?PACKAGE_DATE is not set}"
 root="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$root"
+. scripts/package-record.sh
+use_recorded_version
 . scripts/package-lib.sh
 
 # What "the service works" means differs per program, so it lives with the program's definitions:

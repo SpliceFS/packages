@@ -6,9 +6,10 @@
 # "package" (the default) install-tests the packages of the program in dist/PROGRAM with
 # scripts/package-test-<format>.sh; "repo" tests the signed repository in dist/PROGRAM/repo with
 # scripts/repo-test-<format>.sh, which sees the repository at /repo and only the PUBLIC keys at
-# /keys. Environment: PROGRAM, VERSION and PACKAGE_DATE as for the build; PLATFORM (linux/amd64 or
-# linux/arm64) tests that CPU type by emulation, empty means this machine's own; ONLY limits the
-# run to one format or image.
+# /keys. Environment: PROGRAM; the version comes from dist/PROGRAM/version, which make packages
+# wrote (scripts/package-record.sh), and a VERSION given must be that one; PLATFORM (linux/amd64
+# or linux/arm64) tests that CPU type by emulation, empty means this machine's own; ONLY limits
+# the run to one format or image.
 set -eu
 
 kind="${1:-package}"
@@ -18,11 +19,11 @@ case "$kind" in
 esac
 
 : "${PROGRAM:?PROGRAM is not set}"
-: "${VERSION:?VERSION is not set}"
-: "${PACKAGE_DATE:?PACKAGE_DATE is not set}"
 root="$(cd "$(dirname "$0")/.." && pwd)"
 # package-lib.sh reads files relative to the repository root.
 cd "$root"
+. scripts/package-record.sh
+use_recorded_version
 . scripts/package-lib.sh
 # Named explicitly because after a run with another platform the local image tag can point
 # at the other CPU type, and an empty setting would then silently test the wrong one.

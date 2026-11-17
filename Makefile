@@ -96,17 +96,23 @@ DOCKER_RUN = docker run --rm --user "$(shell id -u):$(shell id -g)" $(RUN_OPTS) 
 
 .PHONY: packages package-deb package-rpm package-apk package-inputs keys
 
-# The packages of every format. Each format is a target of its own.
+# The packages of every format. Each format is a target of its own. When all of them are built, the
+# version they were built as is recorded in dist/PROGRAM/version, which is where the tests that
+# follow read it (scripts/package-record.sh).
 packages: package-deb package-rpm package-apk
+	PROGRAM=$(PROGRAM) VERSION=$(VERSION) PACKAGE_DATE=$(PACKAGE_DATE) sh -c '. scripts/package-record.sh && write_package_record'
 
 # Stops at once, with the name of what is missing, before any image starts. Docker would make a
-# folder that does not exist as root.
+# folder that does not exist as root. A build removes the record of the version first, so that a
+# build that stops half way never leaves a record that describes other packages than the ones in
+# dist.
 package-inputs:
 	@: $(foreach v,PROGRAM BIN SRC VERSION,$(if $($(v)),,$(error $(v) is not set; see the comment above PROGRAM)))
 	@for d in "$(BIN)" "$(SRC)" programs/"$(PROGRAM)"; do \
 		[ -d "$$d" ] || { echo "FAIL: $$d is not a folder"; exit 1; }; \
 	done
 	mkdir -p "$(PACKAGE_OUT)"
+	rm -f "$(PACKAGE_OUT)/version"
 
 package-deb: package-inputs
 	scripts/part.sh package-deb $(DOCKER_RUN) $(GO_IMAGE) env $(PACKAGE_VARS) sh scripts/package-deb.sh /repo/$(PACKAGE_OUT)
@@ -124,26 +130,24 @@ keys:
 
 # --- The tests of the packages of a program -----------------------------------------------------
 # They test what make packages left in dist/PROGRAM, on the server images listed in
-# packaging/test-systems, and take the PROGRAM and the VERSION that make packages was given (SRC
-# as well when the version carries the date of its commit). They need Docker.
+# packaging/test-systems, and read the version from the record make packages wrote there. They
+# need Docker.
 #   ONLY      limits a run to one format (ONLY=deb) or to one image, as written in
 #             packaging/test-systems.
 #   PLATFORM  linux/amd64 or linux/arm64 tests that CPU type by emulation; empty tests this
 #             machine's own.
+#   VERSION   not needed. When given, it must be the recorded version, or the test stops.
 ONLY ?=
 PLATFORM ?=
-TEST_VARS = PROGRAM=$(PROGRAM) VERSION=$(VERSION) PACKAGE_DATE=$(PACKAGE_DATE) PLATFORM=$(PLATFORM) ONLY=$(ONLY)
+TEST_VARS = PROGRAM=$(PROGRAM) VERSION=$(VERSION) PLATFORM=$(PLATFORM) ONLY=$(ONLY)
 
-.PHONY: built-packages test-inputs package-order-test package-test
+.PHONY: built-packages package-order-test package-test
 
 # Stops at once, with the name of what is missing, before any image starts.
 built-packages:
 	@: $(if $(PROGRAM),,$(error PROGRAM is not set; see the comment above PROGRAM))
 	@ls "dist/$(PROGRAM)"/*.deb "dist/$(PROGRAM)"/*.rpm "dist/$(PROGRAM)"/alpine/*/*.apk >/dev/null 2>&1 || \
 		{ echo "FAIL: no packages in dist/$(PROGRAM): run make packages first"; exit 1; }
-
-test-inputs: built-packages
-	@: $(if $(VERSION),,$(error VERSION is not set; it is the version make packages was given))
 
 # Checks in a Debian, a Rocky Linux and an Alpine system that the versions of the packages sort
 # the way a release needs (a pre-release before its release) and that apk accepts them. It is a
@@ -153,7 +157,7 @@ package-order-test:
 
 # Installs and removes the package in a clean, booted server of every system listed in
 # packaging/test-systems and reports each system's result.
-package-test: test-inputs package-order-test
+package-test: built-packages package-order-test
 	$(TEST_VARS) scripts/package-test.sh
 
 # Proves the service, not only the files: in a container per system that is booted as a server,
@@ -162,7 +166,7 @@ package-test: test-inputs package-order-test
 # programs/PROGRAM/service-check.sh), restarts, comes back after a reboot and stops when the
 # package is removed.
 .PHONY: service-test
-service-test: test-inputs
+service-test: built-packages
 	$(TEST_VARS) scripts/service-test.sh
 
 # Signed package repositories in dist/PROGRAM/repo, made from the packages make packages left in
@@ -179,7 +183,7 @@ repo: built-packages keys
 
 # Installs from the repository on every system in packaging/test-systems with signature checks
 # on, and checks that a damaged repository is refused.
-repo-test: test-inputs
+repo-test: built-packages
 	@[ -d "dist/$(PROGRAM)/repo" ] || { echo "FAIL: no repository in dist/$(PROGRAM)/repo: run make repo first"; exit 1; }
 	$(TEST_VARS) scripts/package-test.sh repo
 

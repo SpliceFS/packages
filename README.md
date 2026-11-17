@@ -87,15 +87,16 @@ make e2e-prepare  # builds ../server and ../client with throwaway keys into dist
 make e2e      # runs the setup script in a container of every supported system
 make e2e-freebsd  # runs the setup script in a FreeBSD machine of every supported release (FREEBSD=15.1 for one)
 make packages PROGRAM=server BIN=<programs> SRC=<source> VERSION=v1.2.3   # builds deb, rpm and apk into dist/server (PROGRAM=client for the client)
-make package-test PROGRAM=server VERSION=v1.2.3   # installs and removes each package on every server image (ONLY=deb or ONLY=<image> for one)
-make service-test PROGRAM=server VERSION=v1.2.3   # proves the service starts, answers, restarts and stops, on every image
-make repo PROGRAM=server                          # builds the signed apt, rpm and Alpine repositories into dist/server/repo
-make repo-test PROGRAM=server VERSION=v1.2.3      # installs from them with signature checks on
+make package-test PROGRAM=server   # installs and removes each package on every server image (ONLY=deb or ONLY=<image> for one)
+make service-test PROGRAM=server   # proves the service starts, answers, restarts and stops, on every image
+make repo PROGRAM=server           # builds the signed apt, rpm and Alpine repositories into dist/server/repo
+make repo-test PROGRAM=server      # installs from them with signature checks on
 make package-order-test                           # checks that the package versions sort right in dpkg, rpm and apk
 ```
 
-The tests need Docker and the packages that `make packages` left in `dist/<program>`; give them the
-same `VERSION` (and `SRC`, for a version with uncommitted changes).
+The tests need Docker and the packages that `make packages` left in `dist/<program>`. `make packages`
+records the version it built in `dist/<program>/version`, and the tests read it from there, so they
+are not given the version again. A `VERSION` given to a test that is not the recorded one is an error.
 
 `make check` needs `python3`. It also uses `node`, `dash` and `bash` when they are installed.
 
