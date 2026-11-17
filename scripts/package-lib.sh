@@ -34,6 +34,18 @@ confdir="/etc/splicefs/${name#splicefs-}"
 # One folder name per line; see the file for why the package ships them empty.
 confsubdirs="$(grep -v -e '^#' -e '^$' "$defs/config-folders")"
 
+# Makes the links the program installs under the folder $1, for the package formats that build a
+# tree of files. They are named in the links file of the program, "<link> <target>" a line, and a
+# program without the file has none. Every format gets its links from here, so that the file is
+# the one place that says them.
+package_links() {
+    [ -f "$defs/links" ] || return 0
+    grep -v -e '^#' -e '^$' "$defs/links" | while read -r link target; do
+        install -d "$1$(dirname "$link")"
+        ln -s "$target" "$1$link"
+    done
+}
+
 # Prints the documents of the package as paths in the source tree SRC, separated by spaces. They
 # are named in program.conf and are not kept in this repository, because they change with every
 # version of the program.

@@ -98,6 +98,35 @@ docs_of() {
 docs_of '/work/demo/README.md /work/demo/guide/setup.md' SRC=/work/demo
 docs_of 'FAIL: SRC is not set: it is the source tree of the program at this version' -u SRC
 
+# The links a program installs are named in its own links file, "<link> <target>" a line, and
+# are made by one function for every package format. $1 the folder the library is read from, $2 the
+# program, $3 what is wanted: the links under the root it is given, as "<link> -> <target>" items
+# each followed by a comma, or nothing.
+links_of() {
+    # The inner shell expands $1 and $2, which are the root of the repository and the link root.
+    # shellcheck disable=SC2016
+    got="$(cd "$1" && PROGRAM="$2" VERSION=v1.2.3 PACKAGE_DATE=20261112 sh -c \
+        '. "$1/scripts/package-lib.sh"; package_links "$2"; cd "$2" && find . -type l | LC_ALL=C sort |
+            while read -r l; do echo "${l#.} -> $(readlink "$l")"; done | tr "\n" ,' \
+        sh "$root" "$linkroot" 2>&1)" || true
+    rm -rf "${linkroot:?}"/*
+    if [ "$got" = "$3" ]; then
+        printf 'ok   package_links of %-6s %s\n' "$2" "$3"
+    else
+        printf 'FAIL package_links of %s: want "%s" got "%s"\n' "$2" "$3" "$got"
+        failed=$((failed + 1))
+    fi
+}
+
+printf '# a comment\n\n/usr/sbin/mount.demo /usr/bin/democtl\n/usr/lib/demo/helper /usr/bin/demod\n' \
+    > "$tree/programs/demo/links"
+linkroot="$tree/linkroot"
+mkdir "$linkroot"
+links_of "$tree" demo '/usr/lib/demo/helper -> /usr/bin/demod,/usr/sbin/mount.demo -> /usr/bin/democtl,'
+# A program without a links file has no links, and that is no error.
+links_of "$tree" other ''
+links_of "$root" server ''
+
 # $1 VERSION, $2 deb and rpm version, $3 Alpine version, $4 FreeBSD version (PACKAGE_DATE is
 # 20261112).
 check() {
