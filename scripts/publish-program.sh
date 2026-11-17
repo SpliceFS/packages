@@ -90,11 +90,17 @@ for f in apt/dists/stable/InRelease rpm/x86_64/repodata/repomd.xml.asc \
   alpine/aarch64/APKINDEX.tar.gz; do
   [ -f "$REPO/$f" ] || { echo "missing $REPO/$f, run make repo first" >&2; exit 1; }
 done
-# FreeBSD: the server release checks here that every FreeBSD release it builds for has its
-# catalog (freebsd/FreeBSD:<major>:<cpu>/meta.conf). This repository does not build FreeBSD
-# packages yet, so that check is added together with them. Until then what is published of
-# FreeBSD stays as it is: it is fetched with the rest, never deleted, and its index files go
-# in pass 2 like the others.
+# The FreeBSD versions come from the list the packages are built for, so they are written
+# down once. Each major version has one folder for each CPU type, and a release that left no
+# catalog for one of them would go out with the old catalog of that folder, without its package.
+majors=$(awk '!/^#/ && NF { split($1, v, "."); print v[1] }' \
+  "$ROOT/packaging/freebsd/releases" | sort -un)
+for major in $majors; do
+  for arch in amd64 aarch64; do
+    f=freebsd/FreeBSD:$major:$arch/meta.conf
+    [ -f "$REPO/$f" ] || { echo "missing $REPO/$f, run make package-freebsd first" >&2; exit 1; }
+  done
+done
 
 # A published package must never disappear, and the repository built from fetch holds every
 # old package, so a deletion means something went wrong. Only two kinds of file may go:

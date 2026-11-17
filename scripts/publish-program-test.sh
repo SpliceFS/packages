@@ -30,6 +30,23 @@ for f in apt/dists/stable/InRelease apt/dists/stable/Release apt/pool/main/s/spl
     mkdir -p "$base/$(dirname "$f")"
     echo "$f" > "$base/$f"
 done
+# The FreeBSD releases come from the list the packages are built for. Each major version has
+# one folder for each CPU type, with a package and the catalog files pkg repo writes.
+freebsd_dirs=""
+majors=$(awk '!/^#/ && NF { split($1, v, "."); print v[1] }' packaging/freebsd/releases | sort -un)
+for major in $majors; do
+    for arch in amd64 aarch64; do
+        d="freebsd/FreeBSD:$major:$arch"
+        freebsd_dirs="$freebsd_dirs $d"
+        mkdir -p "$base/$d/All"
+        echo "$d package" > "$base/$d/All/splicefs-server-1.pkg"
+        for f in meta meta.conf packagesite.pkg data.pkg meta.conf.sig; do
+            echo "$d $f" > "$base/$d/$f"
+        done
+    done
+done
+fb_first="${freebsd_dirs# }"
+fb_first="${fb_first%% *}"
 
 chmod_ok=1
 rsync --chmod=F644 --list-only "$tmp" >/dev/null 2>&1 || chmod_ok=0
@@ -99,6 +116,19 @@ else
     else
         fail "c send refused for the wrong reason or deleted the file"; sed 's/^/     /' "$tmp/out"
     fi
+
+    # (k) A published FreeBSD package that is missing locally is refused like any other.
+    oldfb="$fb_first/All/old-package-0.0.1.pkg"
+    echo old > "$tmp/target/$oldfb"
+    send "$base" "$tmp/target"
+    if [ "$send_status" -eq 0 ]; then
+        fail "k send went ahead although a published FreeBSD package is missing locally"
+    elif [ -f "$tmp/target/$oldfb" ] && grep -q "$oldfb" "$tmp/out"; then
+        pass "k send refused because a published FreeBSD package is missing locally"
+    else
+        fail "k refusal for a FreeBSD package missing locally"; sed 's/^/     /' "$tmp/out"
+    fi
+    rm "$tmp/target/$oldfb"
 fi
 
 # (d) fetch into an empty folder reproduces what is published. Without --chmod the published
@@ -138,6 +168,19 @@ if [ "$send_status" -ne 0 ] && [ ! -e "$tmp/neverthere2" ] && grep -q 'is not a 
     pass "g an unknown program is refused, and nothing is sent"
 else
     fail "g an unknown program"; sed 's/^/     /' "$tmp/out"
+fi
+
+# (j) A FreeBSD catalog that is missing stops the send before anything is sent, so a release
+# whose FreeBSD job did not leave its repository never goes out with the old catalog.
+cp -R "$base" "$tmp/nofb"
+rm "$tmp/nofb/$fb_first/meta.conf"
+send "$tmp/nofb" "$tmp/neverthere3"
+if [ "$send_status" -eq 0 ] || [ -e "$tmp/neverthere3" ]; then
+    fail "j send must refuse a repository without a FreeBSD meta.conf"
+elif grep -q "missing .*$fb_first/meta.conf" "$tmp/out" && grep -q 'make package-freebsd' "$tmp/out"; then
+    pass "j send refuses a repository without $fb_first/meta.conf, and sends nothing"
+else
+    fail "j send refused for the wrong reason"; sed 's/^/     /' "$tmp/out"
 fi
 
 # (h) The real upload path (no UPLOAD_TARGET) refuses a key that is not mode 600 and a missing
@@ -206,14 +249,16 @@ WRAP
     }
     files_in() { (cd "$1" && find . -type f | sed 's|^\./||' | sort); }
 
-    index_re='^(apt/dists/|rpm/[^/]+/repodata/|alpine/[^/]+/(APKINDEX\.tar\.gz|[^/]+\.(sig|asc))$)'
+    index_re='^(apt/dists/|rpm/[^/]+/repodata/|alpine/[^/]+/(APKINDEX\.tar\.gz|[^/]+\.(sig|asc))$'
+    index_re="$index_re"'|freebsd/[^/]+/(meta|meta\.conf|packagesite\.pkg|data\.pkg|[^/]+\.(sig|asc))$)'
     files_in "$base" > "$tmp/all_files"
     grep -E "$index_re" "$tmp/all_files" > "$tmp/index_files" || true
     grep -Ev "$index_re" "$tmp/all_files" > "$tmp/other_files" || true
     if grep -qx 'apt/dists/stable/InRelease' "$tmp/index_files" &&
         grep -q '^rpm/x86_64/repodata/repomd.xml.asc$' "$tmp/index_files" &&
         grep -q '^alpine/x86_64/APKINDEX.tar.gz$' "$tmp/index_files" &&
-        ! grep -q '\.deb$\|\.rpm$\|\.apk$' "$tmp/index_files" &&
+        grep -q '/packagesite.pkg$' "$tmp/index_files" &&
+        ! grep -q '\.deb$\|\.rpm$\|\.apk$\|/All/' "$tmp/index_files" &&
         grep -q '\.deb$' "$tmp/other_files"; then
         pass "i the index files are told apart from the packages"
     else
