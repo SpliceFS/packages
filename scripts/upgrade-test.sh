@@ -1,15 +1,17 @@
 #!/bin/sh
 # Tests the upgrade of the program PROGRAM from the published package the build recorded (the
-# newest on the package site when it recorded none) to the one in dist/PROGRAM, but only when the
+# newest on the package site when it recorded nothing) to the one in dist/PROGRAM, but only when the
 # packaging changed: a version whose packages differ from the published ones only in the programs
-# (and the changelog) cannot break an upgrade, so there is nothing to test. When the packaging
+# and the content of the documents (both come from the source of the program) cannot break an
+# upgrade, so there is nothing to test. When the packaging
 # changed and the new packages are of the same program version as the published ones, they must be
 # a later revision of it (make packages REVISION=N), because a package of the same version and
 # revision is no upgrade: rpm refuses it, and deb and apk reinstall it without a word, which would
 # hide the problem. Runs on the host after make packages (make upgrade-test, CI). For each
 # package format, for this machine's CPU type, it
 #   1. downloads the published package of that format from the package site, which is what people
-#      have installed (scripts/published-lib.sh), into dist/PROGRAM/published,
+#      have installed (scripts/published-lib.sh), into dist/PROGRAM/published, and proves it by
+#      the signed index of the site (scripts/published-verify.sh; apk does it when it installs),
 #   2. lists the files, scripts and declarations of the published and the new package inside
 #      a container of the format's first system in packaging/test-systems, and compares the
 #      two lists (scripts/upgrade-diff.sh),
@@ -44,7 +46,7 @@ case "$platform" in
 esac
 
 # The published version to start from, the one the build recorded; the newest on the site when the
-# record has none, and then empty when there is none. The functions of published-lib.sh are tests
+# record is empty. Empty when nothing is published. The functions of published-lib.sh are tests
 # whose status is the answer, so set -e being off inside them changes nothing.
 # shellcheck disable=SC2310
 from="$(upgrade_from_version)" ||
@@ -57,6 +59,10 @@ if [ -n "$from" ]; then
     # A version that package_release_of_debver refuses ends the script here, with its message.
     use_published_version "$from"
 fi
+
+# The documents are installed under their own names, whatever folder they have in the source.
+doc_names=""
+for doc in $docs; do doc_names="$doc_names $(basename "$doc")"; done
 
 log="$(mktemp)"
 old_list="$(mktemp)"
@@ -119,7 +125,7 @@ for format in deb rpm apk; do
     old_file="$(basename "$old_path")"
     # shellcheck disable=SC2310
     if ! download_published_file "$old_path" "$published_dir"; then
-        echo "FAIL $format: could not download $site_url/$old_path"
+        echo "FAIL $format: could not download and verify $site_url/$old_path"
         failed=$((failed + 1))
         continue
     fi
@@ -151,11 +157,11 @@ for format in deb rpm apk; do
         continue
     fi
 
-    # The programs and the changelog change in every version and are not compared. The names
-    # of the programs are separated by spaces on purpose.
+    # The programs and the content of the documents come from the source of the program and are
+    # not compared. The names are separated by spaces on purpose.
     set +e
     # shellcheck disable=SC2086
-    differences="$(sh scripts/upgrade-diff.sh "$old_list" "$new_list" $programs CHANGELOG.md)"
+    differences="$(sh scripts/upgrade-diff.sh "$old_list" "$new_list" $programs -- $doc_names)"
     compared=$?
     set -e
     if [ "$compared" -eq 0 ]; then

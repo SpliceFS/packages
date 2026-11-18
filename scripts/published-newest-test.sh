@@ -16,7 +16,8 @@ index() {
     awk '{ printf "Package: %s\nVersion: %s\nArchitecture: amd64\n\n", $1, $2 }' > "$work/$1"
 }
 
-# $1 case name, $2 index file, $3 PROGRAM, $4 the version that must be printed (empty: nothing).
+# $1 case name, $2 index file, $3 PROGRAM, $4 what must be printed: the version, or "none" when the
+# index lists no package of the program (an empty answer would read as a failed read).
 newest() {
     # The status of the script is the answer here, so set -e being off inside it changes nothing.
     got="$(INDEX_FILE="$work/$2" sh scripts/published-newest.sh "$3" 2>&1)" || true
@@ -77,10 +78,10 @@ newest "only the package of the program counts" other server 0.5.34
 index none <<'LIST'
 splicefs-client 0.5.34
 LIST
-newest "nothing is published of the program" none server ""
+newest "nothing is published of the program" none server none
 
 : > "$work/empty"
-newest "an empty index" empty server ""
+newest "an empty index" empty server none
 
 got="$(INDEX_FILE="$work/missing" sh scripts/published-newest.sh server 2>&1)" && status=0 || status=$?
 if [ "$status" -ne 0 ] && printf '%s' "$got" | grep -q 'could not read'; then

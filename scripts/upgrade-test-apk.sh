@@ -37,10 +37,16 @@ case "$mode" in
     upgrade)
         old="${2:?usage: upgrade-test-apk.sh upgrade OLD NEW}"
         new="${3:?usage: upgrade-test-apk.sh upgrade OLD NEW}"
-        # The published files are signed with a key that is not in this container, so the
-        # signature cannot be checked here; the repository tests check it.
-        apk add -q --allow-untrusted "$old" || fail "apk upgrade: installing the old package failed"
+        # The old package is the published one, so apk checks its signature against the repository
+        # key, as it does for a person who has installed that key; a package that was changed on the
+        # way is refused. The new one is signed with the key of its own build, which no published
+        # key is, so only that one is installed without the check. Both keys have the name apk looks
+        # a key up by, splicefs.rsa.pub, so the repository key is taken away first: with it in
+        # place apk calls the new signature bad, which --allow-untrusted does not let through.
+        cp keys/splicefs.rsa.pub /etc/apk/keys/ || fail "apk upgrade: could not install the repository key"
+        apk add -q "$old" || fail "apk upgrade: installing the old package failed (is it signed with the repository key?)"
         write_markers apk
+        rm -f /etc/apk/keys/splicefs.rsa.pub
         apk add -q --allow-untrusted "$new" || fail "apk upgrade: installing the new package over the old one failed"
         init="/etc/init.d/$program"
         # The files the new package lists must all be there after the upgrade.
