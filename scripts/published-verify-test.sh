@@ -9,17 +9,12 @@ set -eu
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
 work="$(mktemp -d)"
-# The agent of a gpg home that makes a key or a signature talks over a socket in the home, whose
-# path must be short (about 100 characters at most): on a system with a long temporary folder gpg
-# would wait ten seconds for an agent it cannot reach, for every key and signature. These homes are
-# in /tmp for that, and it is one home for both keys, because starting its agent is most of the time
-# a key or a signature takes. The script that verifies needs no agent.
-keys="$(mktemp -d /tmp/published-verify-test.XXXXXX)"
-cleanup() {
-    gpgconf --homedir "$keys/home" --kill gpg-agent >/dev/null 2>&1 || true
-    rm -rf "$work" "$keys"
-}
-trap cleanup EXIT
+# shellcheck source=short-tmp-lib.sh
+. "$root/scripts/short-tmp-lib.sh"
+# One home for both keys, because starting its agent is most of the time a key or a signature
+# takes. The script that verifies needs no agent.
+keys="$(short_tmp_dir)"
+trap 'remove_short_tmp "$keys"; rm -rf "$work"' EXIT
 failed=0
 
 # A copy of the repository that holds what the script reads: the scripts, how a program is read,
