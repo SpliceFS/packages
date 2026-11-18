@@ -48,14 +48,12 @@ jobs:
     uses: ./.github/workflows/build-packages.yml
     with:
       program: server
-      packages-ref: ${{ github.sha }}
 
   packages-client:
     name: Packages client
     uses: ./.github/workflows/build-packages.yml
     with:
       program: client
-      packages-ref: ${{ github.sha }}
 
   released-server:
     name: Released server
@@ -63,7 +61,6 @@ jobs:
     uses: ./.github/workflows/check-packages.yml
     with:
       program: server
-      packages-ref: ${{ github.sha }}
       source: ${{ toJSON(needs.packages-server.outputs) }}
 
   released-client:
@@ -72,7 +69,6 @@ jobs:
     uses: ./.github/workflows/check-packages.yml
     with:
       program: client
-      packages-ref: ${{ github.sha }}
       source: ${{ toJSON(needs.packages-client.outputs) }}
 
   # The whole life of the packages: set up the repository, install the published release of both

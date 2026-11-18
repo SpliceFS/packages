@@ -276,4 +276,3 @@ jobs:
     with:
       program: ${{ inputs.program }}
       artifact: signed-packages-${{ inputs.program }}
-      packages-ref: ${{ github.sha }}
