@@ -1,7 +1,7 @@
 #!/bin/sh
 # Proves that an ordinary user can run the client under their own account, with the commands of
-# "Run as yourself" (steps/user-mode-start.sh and steps/user-mode-use.sh, which make check
-# compares with the README and the install page). In a booted container of the first system of each
+# "Run as yourself" (steps/user-mode-start.sh and steps/user-mode-use.sh, the commands the install
+# page of the website shows). In a booted container of the first system of each
 # format in packaging/test-systems it installs the client package, starts a real server, adds an
 # ordinary user, and as that user runs the documented commands, which give no --config and no cache
 # setting: the client starts, mounts a folder of the server in the user's folder, a file reads, and
@@ -12,8 +12,8 @@
 # it held, and the user owns no file outside their own places.
 # Runs on the host (make user-mode-test); it needs Docker. Environment: the version comes from
 # dist/client/version (scripts/package-record.sh); SERVER_BIN is the folder that holds the
-# splicefsd program built for the CPU type of the container; PLATFORM and ONLY as for
-# scripts/service-test.sh.
+# programs of the server (splicefsd and splicefsdctl) built for the CPU type of the container;
+# PLATFORM and ONLY as for scripts/service-test.sh.
 #
 # What a container cannot show: that /dev/fuse is there on a host that has not loaded the FUSE
 # module (the test host must), and how a login session sets XDG_RUNTIME_DIR; without it the

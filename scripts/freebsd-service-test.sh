@@ -1,8 +1,8 @@
 #!/bin/sh
 # Tests what the FreeBSD packages do about the service, on the host: no machine, no pkg, no
 # root (part of make check). The rc scripts run against a stand-in for rc.subr, the install
-# scripts of the manifests run with stand-ins for service, sysrc and pw, and the documents are
-# read. What rc.subr and pkg really do is proved in the machine, by scripts/freebsd-job.sh.
+# scripts of the manifests run with stand-ins for service, sysrc and pw. What rc.subr and pkg
+# really do is proved in the machine, by scripts/freebsd-job.sh.
 set -eu
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -372,8 +372,8 @@ um_fuse=dir
 user_mode_machine
 holds "the machine refuses a /dev/fuse that the user cannot open" "cannot open" "$user_mode_said"
 
-# The steps in check-lib.sh are the ones this repository documents: every root step is in the
-# README, and the start block is the file steps/user-mode-start.sh.
+# The root steps live only in check-lib.sh (the install page, which shows them, is the website's);
+# the start block is the file steps/user-mode-start.sh.
 check_lib=programs/client/freebsd/check-lib.sh
 # Prints the lines of check-lib.sh inside the here-document that ends in the word $1.
 check_lib_text() {
@@ -384,12 +384,6 @@ root_steps="$(check_lib_text ROOT_STEPS)"
 start_steps="$(check_lib_text START_STEPS)"
 step_count="$(printf '%s\n' "$root_steps" | awk 'END { print NR }')"
 same "check-lib.sh holds the six root steps" 6 "$step_count"
-user_readme="$(cat README.md)"
-while IFS= read -r step; do
-    holds "README.md shows the root step: $step" "$step" "$user_readme"
-done <<STEPS
-$root_steps
-STEPS
 documented_start="$(cat steps/user-mode-start.sh)"
 same "the start block of check-lib.sh is steps/user-mode-start.sh" "$documented_start" "$start_steps"
 
@@ -491,28 +485,5 @@ while read -r program service; do
 done <<PROGRAMS
 $programs
 PROGRAMS
-
-# --- the documents --------------------------------------------------------------------------
-
-# The page writes && as &amp;&amp;.
-page="$(sed 's/&amp;/\&/g' site/index.html)"
-readme="$(cat README.md)"
-while read -r program service; do
-    for command in "sysrc ${service}_enable=YES && service $service start" "sysrc -x ${service}_enable"; do
-        holds "README.md says: $command" "$command" "$readme"
-        holds "the install page says: $command" "$command" "$page"
-    done
-done <<PROGRAMS
-$programs
-PROGRAMS
-
-# The fstab line of the client. The helper it names is the link that the package installs, so the
-# path is read from the links file, moved to /usr/local as the FreeBSD package does.
-helper="$(awk '!/^#/ && NF { print $1; exit }' programs/client/links | sed 's|^/usr/|/usr/local/|')"
-fstab_line="example:/ /mnt/files splicefs ro,late,failok,mountprog=$helper 0 0"
-for document in "README.md:$readme" "the install page:$page"; do
-    holds "${document%%:*} shows the FreeBSD fstab line, with the helper the package installs" \
-        "$fstab_line" "${document#*:}"
-done
 
 [ "$failed" -eq 0 ]

@@ -1,10 +1,9 @@
 #!/bin/sh
-# Tests, on the host and without Docker, what "Run as yourself" needs from the packaging and the
-# README (part of make check). A user can only run the client if the system's own FUSE helper
-# is there, so the client packages must depend on fuse3; and what the user needs from the system
-# (the FreeBSD sysctl, group and devfs rule) belongs to the administrator, so no package may set
-# it. The README must show the FreeBSD commands. The commands of the Linux part are the files
-# steps/user-mode-*.sh, which make check compares with the README and scripts/user-mode-test.sh
+# Tests, on the host and without Docker, what "Run as yourself" needs from the packaging (part of
+# make check). A user can only run the client if the system's own FUSE helper is there, so the
+# client packages must depend on fuse3; and what the user needs from the system (the FreeBSD
+# sysctl, group and devfs rule) belongs to the administrator, so no package may set it. The
+# commands of the Linux part are the files steps/user-mode-*.sh, which scripts/user-mode-test.sh
 # runs as an ordinary user.
 set -eu
 
@@ -44,31 +43,18 @@ holds "the rpm package requires fuse3" "Requires:       fuse3" "$rpm_spec"
 holds "the Alpine package depends on fuse3" 'depends="fuse3"' "$apkbuild"
 
 # The administrator's settings are never made by a package: not the FUSE helper's mode, not the
-# FreeBSD sysctl, group or devfs rule. The list names the package files only: check-lib.sh is no
-# package file, the FreeBSD machine runs it, and it runs these steps as the administrator.
+# FreeBSD sysctl, group or devfs rule.
+# Only the files that go into a package: programs/client/freebsd/check-lib.sh is the FreeBSD
+# machine's test, which sets these up on purpose to try the documented steps.
+package_files="$(git ls-files programs/client packaging/service | grep -v '/check-lib\.sh$')"
+# The list is one path per line and the paths hold no spaces.
+# shellcheck disable=SC2086
 absent "no client package file sets what a user needs from the system" \
-    'usermount|fusermount|sysctl|devfs|chmod u\+s|operator' \
-    programs/client/alpine programs/client/deb programs/client/rpm \
-    programs/client/openrc programs/client/systemd \
-    programs/client/freebsd/manifest.in programs/client/freebsd/splicefs.rc \
-    programs/client/links programs/client/program.conf programs/client/config-folders \
-    packaging/service
+    'usermount|fusermount|sysctl|devfs|chmod u\+s|operator' $package_files
 
 # The client finds the folders of an ordinary user by itself (client 0.5.36), so the commands name
 # neither a configuration folder nor a cache folder.
 absent "the commands of a user need no --config and no cache.dir" \
     '--config|cache' steps/user-mode-start.sh steps/user-mode-use.sh
-
-readme="$(cat README.md)"
-for command in \
-    "sysctl vfs.usermount=1" \
-    "echo 'vfs.usermount=1' >> /etc/sysctl.conf" \
-    "sysrc kld_list+=fusefs && kldload -n fusefs" \
-    "pw groupmod operator -m alice" \
-    "add path fuse mode 0660 group operator" \
-    "sysrc devfs_system_ruleset=fuse_users && service devfs restart" \
-    "modprobe fuse"; do
-    holds "README.md says: $command" "$command" "$readme"
-done
 
 [ "$failed" -eq 0 ]

@@ -12,8 +12,7 @@ tracked-files:
 
 # A script that lost its executable bit fails only where it is run directly, which is often a CI
 # job far from the commit that lost it. This finds it in every check. Libraries (-lib.sh) are
-# read by other scripts and never run; the files in steps/ are shown on the install page and run
-# by the tests through sh.
+# read by other scripts and never run; the files in steps/ are run by the tests through sh.
 .PHONY: script-modes
 script-modes:
 	@bad="$$(git ls-files -s -- 'scripts/*.sh' 'tests/*.sh' | awk '$$1 != "100755" && $$4 !~ /-lib\.sh$$/ {print $$4}')"; \
@@ -205,19 +204,21 @@ built-packages: built-apk-packages
 		{ echo "FAIL: no deb and rpm packages in dist/$(PROGRAM): run make packages first"; exit 1; }
 
 # Checks in a Debian, a Rocky Linux and an Alpine system that the versions of the packages sort
-# the way a release needs (a pre-release before its release) and that apk accepts them. It is a
-# prerequisite of package-test, not of check, because it needs Docker.
+# the way a release needs (a pre-release before its release) and that apk accepts them. It reads
+# no package, so CI runs it once for a change (ci.yml), not with the tests of each package. It is
+# not part of check, because it needs Docker.
 package-order-test:
 	scripts/package-order-test.sh
 
 # Signs the Alpine packages of dist/PROGRAM again with a new key (scripts/apk-resign.sh, which the
 # lifecycle test uses) and checks that apk accepts them with that key and refuses them without it.
+# CI runs it in the Alpine jobs of test-packages.yml, where the Alpine packages are.
 apk-resign-test: built-apk-packages
 	PROGRAM=$(PROGRAM) APK_IMAGE=$(APK_IMAGE) scripts/apk-resign-test.sh
 
 # Installs and removes the package in a clean, booted server of every system listed in
 # packaging/test-systems and reports each system's result.
-package-test: built-packages package-order-test apk-resign-test
+package-test: built-packages
 	$(TEST_VARS) scripts/package-test.sh
 
 # Proves the service, not only the files: in a container per system that is booted as a server,
@@ -233,7 +234,7 @@ service-test: built-packages
 
 # Proves that the client mounts from the boot mounts of the system, on every Alpine image of
 # packaging/test-systems (scripts/fstab-test.sh): installs the client package next to a real server
-# (SERVER_BIN, the folder with the splicefsd program for the CPU type of the container), writes an
+# (SERVER_BIN, the folder with the server programs for the CPU type of the container), writes an
 # fstab line, and checks that OpenRC's netmount service mounts it and unmounts it again.
 .PHONY: fstab-test
 SERVER_BIN ?=
@@ -313,22 +314,32 @@ repo-test: built-packages
 	$(TEST_VARS) scripts/package-test.sh repo
 
 # --- Publishing the repositories of a program ---------------------------------------------------
-# The publish of a program (the publish-one-program workflow) publishes what make repo made in
+# The publish job of the publish-program workflow publishes what make repo made in
 # dist/PROGRAM/repo to the folder of the program on the package site. UPLOAD_KEY_FILE and
 # UPLOAD_KNOWN_HOSTS_FILE (see scripts/publish-program.sh) come from the environment, so no secret
 # is ever in this file.
-.PHONY: program-fetch program-publish program-publish-check program-publish-test freebsd-pack freebsd-unpack
+.PHONY: program-fetch published-pack published-unpack program-publish program-publish-check program-publish-test freebsd-pack freebsd-unpack
 
 # Downloads what is published into dist/PROGRAM/repo first, so the repositories built next keep
-# every older version.
+# every older version. The run of a tag does it in one job only, for every program one after
+# another: the upload key reaches the whole site, which lets one rsync session in at a time.
 program-fetch:
 	scripts/publish-program.sh fetch
 
+# The other jobs of the run get what program-fetch downloaded from that job: published-pack puts
+# dist/PROGRAM/repo into one tar, and published-unpack makes dist/PROGRAM/repo from it again
+# (scripts/published-repo.sh).
+published-pack:
+	scripts/published-repo.sh pack $(PACKAGE_OUT)
+
+published-unpack:
+	scripts/published-repo.sh unpack $(PACKAGE_OUT)
+
 # The release builds the FreeBSD packages and publishes in different jobs. freebsd-pack puts what
 # the FreeBSD job of one release (FREEBSD=15.1) merged into dist/PROGRAM/repo into one tar, and
-# freebsd-unpack puts the tars of every release into the repository the publish job fetched
-# (scripts/freebsd-parts.sh). VERSION is the version that make package-freebsd built; unpacking
-# needs no version.
+# freebsd-unpack puts the tars of every release into the repository the publish job unpacked from
+# the published one (scripts/freebsd-parts.sh). VERSION is the version that make package-freebsd
+# built; unpacking needs no version.
 freebsd-pack:
 	$(RECORD_VARS) scripts/freebsd-parts.sh pack $(PACKAGE_OUT) $(FREEBSD)
 

@@ -8,331 +8,16 @@
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/16609/badge)](https://www.bestpractices.dev/projects/16609)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-The package site for SpliceFS: the install page, the setup script and the public signing
-keys. It is served at https://packages.splicefs.org.
+The package site for SpliceFS: the setup script, the public signing keys, the package
+repositories, and a page that sends a person to the website. It is served at
+https://packages.splicefs.org.
 
-## Install
+The install instructions are at https://splicefs.org/install/.
 
-Step 1: set up the package repository. The script registers the SpliceFS repository and its
-signing key. It installs no package. Its only argument is `--remove`, described below.
+## Signing key
 
-```
-curl --proto '=https' --tlsv1.2 -fsSL https://packages.splicefs.org/setup.sh -o ~/splicefs-setup.sh &&
-  sudo sh ~/splicefs-setup.sh
-```
-
-Step 2: install with the system's own package manager. The script prints these commands for
-your system when it is done. On Debian and Ubuntu they are:
-
-```
-sudo apt-get update
-sudo apt-get install splicefs-server    # the server
-sudo apt-get install splicefs-client    # the client
-```
-
-The commands for dnf, zypper, apk and pkg (FreeBSD) are on the page. The script is safe to run
-again. Manual steps for each system are on the page as well.
-
-## After the install
-
-Installing a package installs the service and does not start it or turn it on. Start it, and
-have it start at boot, with the service manager of the system. The server's service is
-`splicefsd` and the client's is `splicefs`.
-
-systemd (Debian, Ubuntu, Rocky Linux, Amazon Linux, openSUSE):
-
-```
-sudo systemctl enable --now splicefsd    # the server
-sudo systemctl enable --now splicefs     # the client
-```
-
-OpenRC (Alpine), as root:
-
-```
-rc-update add splicefsd default && rc-service splicefsd start    # the server
-rc-update add splicefs default && rc-service splicefs start      # the client
-```
-
-FreeBSD (pkg), as root:
-
-```
-sysrc splicefsd_enable=YES && service splicefsd start    # the server
-sysrc splicefs_enable=YES && service splicefs start      # the client
-```
-
-On Linux an upgrade restarts a service that was running and leaves a stopped one stopped; it never
-turns a service on or off. Removing the package stops the service and turns it off; its data and
-the `splicefs` user stay. In a container without a running service manager the package only
-installs its files.
-
-On FreeBSD an upgrade leaves a service that was running running, still the old version, because
-pkg ends every program a package script starts and so a package cannot restart one. Restart it
-yourself with `service splicefsd restart` (the client: `service splicefs restart`). Removing the
-package stops the service and leaves `/etc/rc.conf` alone, as other FreeBSD packages do; delete
-the setting afterwards:
-
-```
-sysrc -x splicefsd_enable    # the server
-sysrc -x splicefs_enable     # the client
-```
-
-### Mount at boot from fstab (client)
-
-The client can also mount from the boot mounts of the system. The cluster must be defined in
-`/etc/splicefs/client/clusters.d`, and the client service must be running: the mount helper
-(`mount.splicefs`, in `/usr/sbin` on Linux and in `/usr/local/sbin` on FreeBSD) only asks the
-running client. Add a line of type `splicefs` to `/etc/fstab`; the options are listed in the
-[client configuration](https://github.com/SpliceFS/client/blob/main/docs/configuration.md).
-
-systemd (Debian, Ubuntu, Rocky Linux, Amazon Linux, openSUSE), as root:
-
-```
-echo 'example:/ /mnt/files splicefs _netdev,nofail,x-systemd.requires=splicefs.service 0 0' >> /etc/fstab
-```
-
-OpenRC (Alpine), as root. `netmount` mounts the `_netdev` lines once the network is up, and the
-`fuse` service loads the FUSE kernel module at boot. The package turns neither on:
-
-```
-echo 'example:/ /mnt/files splicefs _netdev,nofail 0 0' >> /etc/fstab
-rc-update add fuse boot && rc-service fuse start
-rc-update add netmount default && rc-service netmount start
-```
-
-FreeBSD (pkg), as root. `mount(8)` runs a helper only for the file system types it knows, unless
-the line names one with `mountprog=`, so the line must. `late` mounts it in the last stage of the
-boot, after the network and the daemons, and the client service starts before that and loads the
-`fusefs` kernel module itself. `ro` is there because FreeBSD wants `ro` or `rw` in the options
-(either works; the mount is read-only whatever is asked). Enable the service as above, then:
-
-```
-echo 'example:/ /mnt/files splicefs ro,late,failok,mountprog=/usr/local/sbin/mount.splicefs 0 0' >> /etc/fstab
-```
-
-`failok` keeps a line that fails to mount (for example while the cluster cannot be reached) from
-stopping the boot; without it FreeBSD drops into single user mode. Run `mount /mnt/files` once by
-hand to see that the line works.
-
-## Run as yourself
-
-The services run as root. To run the client as yourself instead, install the package, leave the
-service off, and start the client from your own account. It needs no `sudo`: your configuration,
-your password and your cache are in your home directory, and the mount is yours.
-
-Linux: the package depends on `fuse3`, and `fusermount3` from it is what mounts for an ordinary
-user. The package does not change that program. If `/dev/fuse` does not exist, load the module
-once, as root: `modprobe fuse`.
-
-FreeBSD (pkg), once, as root. The package sets none of this. `vfs.usermount` lets a user mount,
-the `operator` group may open `/dev/fuse` after the devfs rule, and the `fusefs` module must be
-loaded because the service that loads it is off (`kldload -n` does nothing when it is loaded
-already). Log in again after the group change. The folder you mount on must be yours.
-
-```
-sysctl vfs.usermount=1
-echo 'vfs.usermount=1' >> /etc/sysctl.conf
-sysrc kld_list+=fusefs && kldload -n fusefs
-pw groupmod operator -m alice
-printf '[fuse_users=10]\nadd path fuse mode 0660 group operator\n' >> /etc/devfs.rules
-sysrc devfs_system_ruleset=fuse_users && service devfs restart
-```
-
-Start the client as yourself. The first block makes your folders and your cluster, then runs the
-client in the foreground, so give it a terminal of its own. Change the address and the user to
-your cluster's; the cluster must exist, as in the quick start of the client. This needs client
-0.5.36 or newer; an older client wants `--config` and a `cache.dir` setting.
-
-```
-# Your own folders, in your home directory: your cluster and its password.
-config="${XDG_CONFIG_HOME:-$HOME/.config}/splicefs/client"
-mkdir -p "$config/clusters.d" "$config/secrets" ~/files
-
-# Your cluster. The file name is the cluster name.
-cat > "$config/clusters.d/example.yaml" <<'EOF'
-url: "https://east.example.com/api"
-user: alice
-password_file: secrets/example
-EOF
-(umask 077; cat > "$config/secrets/example")   # type the password, then Ctrl-D
-
-# Start the client as yourself. It stays in the foreground: give it a terminal of its own.
-splicefs
-```
-
-In a second terminal, mount the cluster in your folder, look at it, read a file, and unmount it:
-
-```
-# In a second terminal: mount the cluster in your folder, see it, read it, unmount it.
-splicefsctl mount example:/ ~/files
-splicefsctl status
-ls ~/files
-cat ~/files/media/hello.txt   # a file of your cluster
-splicefsctl umount ~/files
-```
-
-To stop the client, press Ctrl-C in its terminal. It unmounts what it mounted.
-
-Where the files go, with no option and no setting:
-
-- Your settings, clusters and password are in `~/.config/splicefs/client`. `$XDG_CONFIG_HOME`
-  replaces the `~/.config` part.
-- The cache is in `~/.cache/splicefs`. `$XDG_CACHE_HOME` replaces the `~/.cache` part.
-- The control socket is in `splicefs` under `$XDG_RUNTIME_DIR`, or in `/tmp/splicefs-<uid>` (only
-  you may enter it) when that variable is not set. `splicefsctl` finds it by itself.
-- Nothing is written to `/etc` or to the service manager.
-
-This is tested on Linux (`make user-mode-test`). On FreeBSD the steps are written down and not
-tested yet.
-
-## Remove the repository
-
-`sh setup.sh --remove` takes away what the setup added, and nothing else: the repository
-definition and the signing key of your system's package manager. Download the script as in
-step 1, and run it with the argument:
-
-```
-curl --proto '=https' --tlsv1.2 -fsSL https://packages.splicefs.org/setup.sh -o ~/splicefs-setup.sh &&
-  sudo sh ~/splicefs-setup.sh --remove
-```
-
-- It removes no package. To remove the packages as well, remove them first with the system's own
-  command, then the repository. When the script is done it prints that command for your system,
-  for example `sudo apt-get remove splicefs-server splicefs-client`. Packages that stay installed
-  keep working, but they get no updates.
-  To remove SpliceFS with its data, see Uninstall.
-- On dnf and zypper systems it also removes the key that the setup added to the rpm database,
-  and no other key.
-- A file is removed only when its content is exactly what the setup writes there. A file that
-  someone changed is left in place, and the script prints a warning with its path.
-- A folder the setup created is removed when it is empty. A folder that holds any other file
-  stays, and so does a folder the system ships, such as `/etc/apt/keyrings`.
-- It is safe to run again, and on a system that was never set up it does nothing. It makes the
-  same self-check as the setup, so it needs the latest published script.
-
-## Uninstall
-
-The packages delete neither the data nor the user when they are removed, so that installing them
-again picks up where you left off. To take SpliceFS off a system completely, run the commands for
-your system in this order: the packages, the packages that only they needed, the data and
-configuration folders, the `splicefs` user with its group, and last the repository. On FreeBSD
-the settings of the services in `/etc/rc.conf` are deleted right after the packages. Read the list
-of packages your package manager shows before you confirm it. The last command needs the setup
-script, downloaded as under "Remove the repository". On Alpine and FreeBSD, run them as root.
-These commands are on the install page too, and `make check` proves that both show the same.
-
-Debian and Ubuntu:
-
-```
-# Remove the packages and their configuration files:
-sudo apt-get purge splicefs-server splicefs-client
-
-# Remove the packages they needed that nothing else needs now:
-sudo apt-get autoremove --purge
-
-# Delete the data and the configuration folder, then the user and its group:
-sudo rm -rf /var/lib/splicefs /etc/splicefs
-sudo userdel splicefs
-
-# Remove the repository and the signing key, with the setup script from step 1:
-sudo sh ~/splicefs-setup.sh --remove
-```
-
-RHEL, Rocky Linux, AlmaLinux and Amazon Linux:
-
-```
-# Remove the packages:
-sudo dnf remove splicefs-server splicefs-client
-
-# Remove the packages they needed that nothing else needs now:
-sudo dnf autoremove
-
-# Delete the data and the configuration folder, then the user and its group:
-sudo rm -rf /var/lib/splicefs /etc/splicefs
-sudo userdel splicefs
-
-# Remove the repository and the signing key, with the setup script from step 1:
-sudo sh ~/splicefs-setup.sh --remove
-```
-
-openSUSE Leap:
-
-```
-# Remove the packages, and the packages they needed that nothing else needs now:
-sudo zypper remove --clean-deps splicefs-server splicefs-client
-
-# Delete the data and the configuration folder, then the user and its group:
-sudo rm -rf /var/lib/splicefs /etc/splicefs
-sudo userdel splicefs
-
-# Remove the repository and the signing key, with the setup script from step 1:
-sudo sh ~/splicefs-setup.sh --remove
-```
-
-Alpine:
-
-```
-# Remove the packages, and the packages they needed that nothing else needs now:
-apk del splicefs-server splicefs-client
-
-# Delete the data, the logs and the configuration folder, then the user and its group:
-rm -rf /var/lib/splicefs /etc/splicefs /var/log/splicefsd.log /var/log/splicefs.log
-deluser splicefs
-
-# Remove the repository and the signing key, with the setup script from step 1:
-sh ~/splicefs-setup.sh --remove
-```
-
-FreeBSD:
-
-```
-# Remove the packages:
-pkg delete splicefs-server splicefs-client
-
-# Delete the settings of the services from /etc/rc.conf, which removing a package leaves alone:
-sysrc -x splicefsd_enable
-sysrc -x splicefs_enable
-
-# Remove the packages they needed that nothing else needs now:
-pkg autoremove
-
-# Delete the data and the configuration folder, then the user and its group:
-rm -rf /var/db/splicefs /usr/local/etc/splicefs
-pw userdel splicefs
-
-# Remove the repository and the signing key, with the setup script from step 1:
-sh ~/splicefs-setup.sh --remove
-```
-
-## Verify the setup script
-
-The script checks itself before it changes anything: it downloads the published `setup.sh` and
-compares it with its own file. If they differ, the copy is incomplete, was changed, or is not the
-latest, and the script stops and tells you how to get the latest one.
-
-The script is also published as one signed file, `setup.sh.asc`. It holds the script and its
-signature together, so there is nothing to pair up. Download it and the public key, and look at
-the key:
-
-```
-curl -fsSLo ~/splicefs-setup.sh.asc https://packages.splicefs.org/setup.sh.asc
-curl -fsSLo ~/splicefs.asc https://packages.splicefs.org/keys/splicefs.asc
-gpg --show-keys --fingerprint ~/splicefs.asc
-gpg --import ~/splicefs.asc
-```
-
-The fingerprint printed by `--show-keys` must be the one below. Then verify the file and write
-the script it holds:
-
-```
-gpg --verify ~/splicefs-setup.sh.asc &&
-  gpg --output ~/splicefs-setup.sh --decrypt ~/splicefs-setup.sh.asc
-```
-
-`gpg --verify` must report a good signature from that key. The second command runs only after
-that, writes the verified script to `~/splicefs-setup.sh` and checks the signature once more.
-Run the script as in step 1: `sudo sh ~/splicefs-setup.sh`.
-
-The OpenPGP key that signs the apt and rpm packages has this fingerprint. It is the second place to check the key the script puts on your system:
+The OpenPGP key that signs the apt and rpm packages has this fingerprint. It is the second place
+to check the key the setup script puts on a system:
 
 ```
 93F2 C425 AA5A C125 B6C2  D10A 47FB E2B8 21A4 E69F
@@ -359,8 +44,8 @@ make e2e-freebsd  # runs the setup script in a FreeBSD machine of every supporte
 make packages PROGRAM=server BIN=<programs> SRC=<source> VERSION=v1.2.3   # builds deb, rpm and apk into dist/server (PROGRAM=client for the client)
 make package-test PROGRAM=server   # installs and removes each package on every server image (ONLY=deb or ONLY=<image> for one)
 make service-test PROGRAM=server   # proves the service installs idle, starts when told, answers, restarts, upgrades and stops, on every image
-make fstab-test PROGRAM=client SERVER_BIN=<splicefsd folder>   # proves an fstab line is mounted by OpenRC's netmount on every Alpine image
-make user-mode-test PROGRAM=client SERVER_BIN=<splicefsd folder>   # proves an ordinary user can run the client and mount, on the first image of each format
+make fstab-test PROGRAM=client SERVER_BIN=<server programs folder>   # proves an fstab line is mounted by OpenRC's netmount on every Alpine image
+make user-mode-test PROGRAM=client SERVER_BIN=<server programs folder>   # proves an ordinary user can run the client and mount, on the first image of each format
 make upgrade-test PROGRAM=server  # installs the newest package published on the site when the packages were built (UPGRADE_FROM of make packages; the newest on the site when none), then upgrades to the packages in dist (only when the packaging changed)
 make repo PROGRAM=server           # builds the signed apt, rpm and Alpine repositories into dist/server/repo
 make repo-test PROGRAM=server      # installs from them with signature checks on
@@ -371,6 +56,8 @@ make apk-resign-test PROGRAM=server               # checks that Alpine packages 
 The tests need Docker and the packages that `make packages` left in `dist/<program>`. `make packages`
 records the version it built in `dist/<program>/version`, and the tests read it from there, so they
 are not given the version again. A `VERSION` given to a test that is not the recorded one is an error.
+`make package-test` does not run `package-order-test` and `apk-resign-test`: CI runs the first once
+for a change and the second in the Alpine jobs.
 
 ### Package and test a program in CI
 
@@ -396,6 +83,8 @@ The source tree and the version are the caller's own, at the commit under test. 
 `bin-artifact` the workflow tests the newest release of the program instead (`scripts/release-bin.sh`
 proves its archives with the signature and `SHA256SUMS` and unpacks them into the `BIN` layout);
 the CI of this repository does that for both programs, so a packaging change is tested on its own.
+It calls the two halves of the workflow itself, `build-packages.yml` and then `check-packages.yml`, so
+that the lifecycle test starts when both programs are built and does not wait for their tests.
 `packages-ref` (default `main`) is the ref of this repository the jobs use; keep it the same as the
 ref of the `uses` line.
 
@@ -408,14 +97,13 @@ what the site serves. Without `UPGRADE_FROM` (a build by hand) the tests ask the
 and a program with no package on the site yet has nothing to upgrade from, so the upgrade test says so
 and skips.
 
-`make check` needs `python3`. It also uses `node`, `dash` and `bash` when they are installed.
+`make check` needs `python3`. It also uses `dash` and `bash` when they are installed.
 
 ## Layout
 
-- `site/`: the install page (`index.html`).
-- `steps/`: the manual repository setup and the install commands for each package manager
-  (`<family>.sh`), and the uninstall commands (`uninstall-<family>.sh`), shown on the page. The
-  lifecycle test runs the uninstall files.
+- `site/`: the page that sends a person to the install instructions of the website (`index.html`).
+- `steps/`: the uninstall commands (`uninstall-<family>.sh`) and the commands of a user who runs the
+  client as themselves (`user-mode-*.sh`). The lifecycle test and the user mode test run them.
 - `keys/`: the public signing keys.
 - `scripts/`: `build-site.sh`, `sign-site.sh`, `publish.sh` and `check.sh`, `setup-remove-test.sh`
   (setup and removal in a fake root, for every family), and the scripts that
