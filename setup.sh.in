@@ -30,6 +30,8 @@ umask 022
 # check is turned off for the file.
 # shellcheck disable=SC2317,SC2329
 BASE_URL='@BASE_URL@'
+# The install instructions, on the website, for systems the script does not set up.
+INSTALL_URL='https://splicefs.org/install/'
 
 # Where each family keeps the repository definition and the signing key. The setup writes these
 # files and --remove removes them, so each path is written down once. The one that ends in _TMP
@@ -165,7 +167,7 @@ detect_family() {
   elif [ -r /usr/lib/os-release ]; then
     OS_RELEASE=/usr/lib/os-release
   else
-    die "unsupported system 'unknown'; see $BASE_URL/ for the manual steps"
+    die "unsupported system 'unknown'; see $INSTALL_URL for the manual steps"
   fi
   # ID and ID_LIKE are read in subshells so nothing in the file can change this script's
   # variables or abort it.
@@ -181,7 +183,7 @@ detect_family() {
         *" debian "*) FAMILY=apt ;;
         *" rhel "* | *" fedora "*) FAMILY=dnf ;;
         *suse*) FAMILY=zypper ;;
-        *) die "unsupported system '${ID:-unknown}'; see $BASE_URL/ for the manual steps" ;;
+        *) die "unsupported system '${ID:-unknown}'; see $INSTALL_URL for the manual steps" ;;
       esac
       ;;
   esac

@@ -1,30 +1,34 @@
-.PHONY: site check lint sign publish publish-check e2e-prepare e2e clean
+.PHONY: site check lint sign publish publish-check e2e-prepare e2e clean help
 
-site:
+site: ## Builds the install page and the setup script into dist/site
 	sh scripts/build-site.sh
+
+# Prints the short description after ## on the line of each target, so the list of targets is
+# written once, here. The comment above a target says more.
+help: ## Lists every target with a short description
+	@awk -F ' ## ' '/^[a-zA-Z0-9_-]+:.*## / { split($$1, parts, ":"); printf "%-22s %s\n", parts[1], $$2 }' $(MAKEFILE_LIST)
 
 # Nothing that must stay private may be tracked: no compiled program (it carries the folder
 # names of the machine it was built on), no file over 1 MiB, no name of a private machine,
 # account or place. The ignore rules help; this check is what stops a mistake.
 .PHONY: tracked-files
-tracked-files:
+tracked-files: ## Fails when a tracked file holds something that must stay private
 	scripts/tracked-files.sh
 
 # A script that lost its executable bit fails only where it is run directly, which is often a CI
 # job far from the commit that lost it. This finds it in every check. Libraries (-lib.sh) are
-# read by other scripts and never run; the files in steps/ are shown on the install page and run
-# by the tests through sh.
+# read by other scripts and never run; the files in steps/ are run by the tests through sh.
 .PHONY: script-modes
-script-modes:
+script-modes: ## Fails when a script lost its executable bit in git
 	@bad="$$(git ls-files -s -- 'scripts/*.sh' 'tests/*.sh' | awk '$$1 != "100755" && $$4 !~ /-lib\.sh$$/ {print $$4}')"; \
 	if [ -n "$$bad" ]; then echo "not executable in git:"; echo "$$bad"; exit 1; fi
 
-check: site tracked-files script-modes
+check: site tracked-files script-modes ## Builds the site, then runs every check (needs python3)
 	sh scripts/check.sh
 
 # Static analysis of every shell file. The built script is analyzed, not the template,
 # because the template still holds the key placeholders.
-lint: site
+lint: site ## Runs ShellCheck on every shell file (needs shellcheck)
 	shellcheck --shell=sh dist/site/setup.sh steps/*.sh scripts/*.sh tests/*.sh \
 		programs/*/deb/postinst programs/*/deb/prerm programs/*/deb/postrm \
 		programs/*/alpine/*.post-install programs/*/alpine/*.post-upgrade \
@@ -34,26 +38,26 @@ lint: site
 
 # Signs the built script with the key file named by SIGNING_KEY_FILE and proves the signature
 # with the public key in keys/ only. Needs gpg.
-sign: site
+sign: site ## Signs the built setup script with SIGNING_KEY_FILE and proves the signature (needs gpg)
 	sh scripts/sign-site.sh
 
 # Uploads the signed site files. Depends on sign so an unsigned site is never published; the
 # upload variables are described at the top of scripts/publish.sh.
-publish: sign
+publish: sign ## Signs, then uploads the site files
 	sh scripts/publish.sh send
 
 # Proves the upload credentials and host key work by listing the remote root, changing nothing.
-publish-check:
+publish-check: ## Lists the remote root to prove the upload credentials, changing nothing
 	sh scripts/publish.sh check
 
 # Builds both sibling repositories with one set of throwaway keys. Separate from e2e because
 # the build takes minutes and the test can be repeated against the same packages.
-e2e-prepare:
+e2e-prepare: ## Builds ../server and ../client with throwaway keys into dist/e2e
 	sh tests/prepare.sh
 
 # Runs the setup script in a container of every system in tests/systems, against a site built
 # from the packages of e2e-prepare and served over local HTTP. Needs docker.
-e2e:
+e2e: ## Runs the setup script in a container of every system in tests/systems (needs Docker)
 	sh tests/run.sh
 
 # Runs the setup script as root in a virtual machine of every FreeBSD release in
@@ -62,7 +66,7 @@ e2e:
 # a computer without /dev/kvm stops at once, because an emulated machine takes many times as
 # long. FREEBSD=15.1 limits the run to one release.
 .PHONY: e2e-freebsd
-e2e-freebsd: freebsd-kvm
+e2e-freebsd: freebsd-kvm ## Runs the setup script in a FreeBSD machine of every release (FREEBSD=15.1 for one)
 	LINUX_IMAGE=$(GO_IMAGE) FREEBSD_IMAGE=$(FREEBSD_IMAGE) FREEBSD=$(FREEBSD) tests/freebsd.sh
 
 # --- The packages of a program ------------------------------------------------------------------
@@ -127,14 +131,14 @@ DOCKER_RUN = docker run --rm --user "$(shell id -u):$(shell id -g)" $(RUN_OPTS) 
 # The packages of every format. Each format is a target of its own. When all of them are built, the
 # version they were built as is recorded in dist/PROGRAM/version, which is where the tests that
 # follow read it (scripts/package-record.sh).
-packages: package-deb package-rpm package-apk
+packages: package-deb package-rpm package-apk ## Builds deb, rpm and apk packages into dist/PROGRAM (needs PROGRAM, BIN, SRC, VERSION)
 	$(RECORD_VARS) sh -c '. scripts/package-record.sh && write_package_record'
 
 # Stops at once, with the name of what is missing, before any image starts. Docker would make a
 # folder that does not exist as root. A build removes the record of the version first, so that a
 # build that stops half way never leaves a record that describes other packages than the ones in
 # dist.
-package-inputs:
+package-inputs: ## Stops with the name of what is missing before any image starts
 	@: $(foreach v,PROGRAM BIN SRC VERSION,$(if $($(v)),,$(error $(v) is not set; see the comment above PROGRAM)))
 	@for d in "$(BIN)" "$(SRC)" programs/"$(PROGRAM)"; do \
 		[ -d "$$d" ] || { echo "FAIL: $$d is not a folder"; exit 1; }; \
@@ -142,14 +146,14 @@ package-inputs:
 	mkdir -p "$(PACKAGE_OUT)"
 	rm -f "$(PACKAGE_OUT)/version"
 
-package-deb: package-inputs
+package-deb: package-inputs ## Builds the deb packages (needs PROGRAM, BIN, SRC, VERSION)
 	scripts/part.sh package-deb $(DOCKER_RUN) $(GO_IMAGE) env $(PACKAGE_VARS) sh scripts/package-deb.sh /repo/$(PACKAGE_OUT)
 
-package-rpm: package-inputs
+package-rpm: package-inputs ## Builds the rpm packages (same variables)
 	scripts/part.sh package-rpm $(DOCKER_RUN) $(RPM_IMAGE) env $(PACKAGE_VARS) sh scripts/package-rpm.sh /repo/$(PACKAGE_OUT)
 
 package-apk: RUN_OPTS = $(KEYS_MOUNT)
-package-apk: package-inputs keys
+package-apk: package-inputs keys ## Builds the Alpine packages (same variables)
 	scripts/part.sh package-apk $(DOCKER_RUN) $(APK_IMAGE) env $(PACKAGE_VARS) sh scripts/package-apk.sh /repo/$(PACKAGE_OUT)
 
 # FreeBSD cannot run in a container, so the FreeBSD packages are built, installed and checked in a
@@ -163,7 +167,7 @@ package-apk: package-inputs keys
 # (the freebsd-amd64 and freebsd-arm64 programs of it), SRC (only to date a build that is not a
 # release: FreeBSD packages hold no documents) and VERSION, and it records the version the way
 # make packages does.
-package-freebsd: freebsd-kvm package-inputs keys
+package-freebsd: freebsd-kvm package-inputs keys ## Builds and checks the FreeBSD packages in a FreeBSD machine (needs Docker and KVM)
 	scripts/part.sh package-freebsd env PROGRAM=$(PROGRAM) VERSION=$(VERSION) PACKAGE_DATE=$(PACKAGE_DATE) REVISION=$(REVISION) \
 		BIN="$(abspath $(BIN))" KEYS_DIR="$(CURDIR)/dist/keys" LINUX_IMAGE=$(GO_IMAGE) FREEBSD_IMAGE=$(FREEBSD_IMAGE) FREEBSD=$(FREEBSD) \
 		sh scripts/package-freebsd.sh $(PACKAGE_OUT)
@@ -171,11 +175,11 @@ package-freebsd: freebsd-kvm package-inputs keys
 
 # First in every target that starts a FreeBSD machine, so that a computer that cannot is found
 # before anything is built.
-freebsd-kvm:
+freebsd-kvm: ## Stops at once on a computer that cannot run a FreeBSD machine
 	scripts/freebsd-require-kvm.sh
 
 # Decides which keys everything is signed with and puts them in ./dist/keys.
-keys:
+keys: ## Picks the signing keys, real or throwaway, and puts them in dist/keys
 	LINUX_IMAGE=$(GO_IMAGE) scripts/signing-keys.sh
 
 # --- The tests of the packages of a program -----------------------------------------------------
@@ -195,12 +199,12 @@ TEST_VARS = PROGRAM=$(PROGRAM) VERSION=$(VERSION) PLATFORM=$(PLATFORM) ONLY=$(ON
 
 # Stop at once, with the name of what is missing, before any image starts. A test that uses the
 # Alpine packages only (fstab-test) needs built-apk-packages; the others need every format.
-built-apk-packages:
+built-apk-packages: ## Stops unless dist/PROGRAM holds Alpine packages
 	@: $(if $(PROGRAM),,$(error PROGRAM is not set; see the comment above PROGRAM))
 	@ls "dist/$(PROGRAM)"/alpine/*/*.apk >/dev/null 2>&1 || \
 		{ echo "FAIL: no Alpine packages in dist/$(PROGRAM): run make packages first"; exit 1; }
 
-built-packages: built-apk-packages
+built-packages: built-apk-packages ## Stops unless dist/PROGRAM holds packages of every format
 	@ls "dist/$(PROGRAM)"/*.deb "dist/$(PROGRAM)"/*.rpm >/dev/null 2>&1 || \
 		{ echo "FAIL: no deb and rpm packages in dist/$(PROGRAM): run make packages first"; exit 1; }
 
@@ -208,18 +212,18 @@ built-packages: built-apk-packages
 # the way a release needs (a pre-release before its release) and that apk accepts them. It reads
 # no package, so CI runs it once for a change (ci.yml), not with the tests of each package. It is
 # not part of check, because it needs Docker.
-package-order-test:
+package-order-test: ## Checks that package versions sort right in dpkg, rpm and apk (needs Docker)
 	scripts/package-order-test.sh
 
 # Signs the Alpine packages of dist/PROGRAM again with a new key (scripts/apk-resign.sh, which the
 # lifecycle test uses) and checks that apk accepts them with that key and refuses them without it.
 # CI runs it in the Alpine jobs of test-packages.yml, where the Alpine packages are.
-apk-resign-test: built-apk-packages
+apk-resign-test: built-apk-packages ## Checks that Alpine packages signed again are trusted with the new key only
 	PROGRAM=$(PROGRAM) APK_IMAGE=$(APK_IMAGE) scripts/apk-resign-test.sh
 
 # Installs and removes the package in a clean, booted server of every system listed in
 # packaging/test-systems and reports each system's result.
-package-test: built-packages
+package-test: built-packages ## Installs and removes the package on every server image (ONLY=deb or an image for one)
 	$(TEST_VARS) scripts/package-test.sh
 
 # Proves the service, not only the files: in a container per system that is booted as a server,
@@ -230,7 +234,7 @@ package-test: built-packages
 # stopped one stopped; removing the package stops and disables it; a new install after that is
 # idle again.
 .PHONY: service-test
-service-test: built-packages
+service-test: built-packages ## Proves the service installs idle, starts when told, restarts, upgrades and stops
 	$(TEST_VARS) scripts/service-test.sh
 
 # Installs the Debian package of the program on this machine itself and proves the service there
@@ -238,16 +242,16 @@ service-test: built-packages
 # is a whole machine that booted the normal way, which no container is. It changes the machine, so
 # the script refuses to run outside CI. It needs the deb package in dist/PROGRAM and sudo.
 .PHONY: service-test-host
-service-test-host:
+service-test-host: ## installs the deb package on the CI machine itself and proves the service there (CI only)
 	PROGRAM=$(PROGRAM) VERSION=$(VERSION) scripts/service-test-host.sh
 
+.PHONY: fstab-test
+SERVER_BIN ?=
 # Proves that the client mounts from the boot mounts of the system, on every Alpine image of
 # packaging/test-systems (scripts/fstab-test.sh): installs the client package next to a real server
 # (SERVER_BIN, the folder with the server programs for the CPU type of the container), writes an
 # fstab line, and checks that OpenRC's netmount service mounts it and unmounts it again.
-.PHONY: fstab-test
-SERVER_BIN ?=
-fstab-test: built-apk-packages
+fstab-test: built-apk-packages ## Proves an fstab line is mounted by OpenRC on every Alpine image (needs SERVER_BIN)
 	$(TEST_VARS) SERVER_BIN=$(SERVER_BIN) scripts/fstab-test.sh
 
 # Proves that an ordinary user can run the client under their own account, with the commands of
@@ -256,13 +260,13 @@ fstab-test: built-apk-packages
 # fstab-test), and as a new user starts the client, mounts a folder, reads a file and unmounts,
 # then checks that nothing of root's was touched.
 .PHONY: user-mode-test
-user-mode-test: built-packages
+user-mode-test: built-packages ## Proves an ordinary user can run the client and mount (needs SERVER_BIN)
 	$(TEST_VARS) SERVER_BIN=$(SERVER_BIN) scripts/user-mode-test.sh
 
 # The part of the upgrade test that decides whether the packaging changed, checked against small
 # hand-made package listings. It needs no Docker, so it is part of check.
 .PHONY: upgrade-diff-test upgrade-test
-upgrade-diff-test:
+upgrade-diff-test: ## Checks, without Docker, how the upgrade test decides that the packaging changed
 	scripts/upgrade-diff-test.sh
 
 # Installs the newest package of the program that was published when the packages were built
@@ -276,7 +280,7 @@ upgrade-diff-test:
 # the published one, the packages must be a later revision (make packages REVISION=N): the test says
 # so when they are not. scripts/next-revision.sh prints the revision that follows the highest one
 # published. It needs Docker and the network.
-upgrade-test: built-packages
+upgrade-test: built-packages ## Upgrades from the newest published package to dist/PROGRAM, when the packaging changed
 	$(TEST_VARS) scripts/upgrade-test.sh
 
 # The whole life of the packages in one booted server per system of packaging/test-systems: our
@@ -287,7 +291,7 @@ upgrade-test: built-packages
 # programs in dist/server and dist/client (make packages for each), Docker and the network.
 # ONLY limits it to one format or one image; PLATFORM is as for the other tests.
 .PHONY: lifecycle-repo lifecycle-test
-lifecycle-repo:
+lifecycle-repo: ## Builds the repositories the lifecycle test installs from, for both programs
 	$(MAKE) built-packages PROGRAM=server
 	$(MAKE) built-packages PROGRAM=client
 	$(MAKE) keys
@@ -297,7 +301,7 @@ lifecycle-repo:
 		$(MAKE) repo PROGRAM=$$p REPO_DIR=dist/lifecycle/$$p || exit 1; \
 	done
 
-lifecycle-test: lifecycle-repo
+lifecycle-test: lifecycle-repo ## Runs the whole life of the packages, from setup.sh to removal, on every system
 	PROGRAM=server PLATFORM=$(PLATFORM) ONLY=$(ONLY) scripts/lifecycle-test.sh
 
 # Signed package repositories in dist/PROGRAM/repo, made from the packages make packages left in
@@ -311,14 +315,14 @@ REPO_RUN = docker run --rm --user "$(shell id -u):$(shell id -g)" $(KEYS_MOUNT) 
 REPO_DIR ?= dist/$(PROGRAM)
 
 .PHONY: repo repo-test
-repo: built-packages keys
+repo: built-packages keys ## Builds the signed apt, rpm and Alpine repositories into dist/PROGRAM/repo
 	scripts/part.sh repo-apt $(REPO_RUN) $(GO_IMAGE) sh scripts/repo-apt.sh /repo/$(REPO_DIR)
 	scripts/part.sh repo-rpm $(REPO_RUN) $(RPM_IMAGE) sh scripts/repo-rpm.sh /repo/$(REPO_DIR)
 	scripts/part.sh repo-apk $(REPO_RUN) $(APK_IMAGE) sh scripts/repo-apk.sh /repo/$(REPO_DIR)
 
 # Installs from the repository on every system in packaging/test-systems with signature checks
 # on, and checks that a damaged repository is refused.
-repo-test: built-packages
+repo-test: built-packages ## Installs from the repositories with signature checks on
 	@[ -d "dist/$(PROGRAM)/repo" ] || { echo "FAIL: no repository in dist/$(PROGRAM)/repo: run make repo first"; exit 1; }
 	$(TEST_VARS) scripts/package-test.sh repo
 
@@ -332,16 +336,16 @@ repo-test: built-packages
 # Downloads what is published into dist/PROGRAM/repo first, so the repositories built next keep
 # every older version. The run of a tag does it in one job only, for every program one after
 # another: the upload key reaches the whole site, which lets one rsync session in at a time.
-program-fetch:
+program-fetch: ## Downloads the published repositories into dist/PROGRAM/repo first
 	scripts/publish-program.sh fetch
 
 # The other jobs of the run get what program-fetch downloaded from that job: published-pack puts
 # dist/PROGRAM/repo into one tar, and published-unpack makes dist/PROGRAM/repo from it again
 # (scripts/published-repo.sh).
-published-pack:
+published-pack: ## Puts dist/PROGRAM/repo into one tar to carry to another job
 	scripts/published-repo.sh pack $(PACKAGE_OUT)
 
-published-unpack:
+published-unpack: ## Makes dist/PROGRAM/repo from that tar again
 	scripts/published-repo.sh unpack $(PACKAGE_OUT)
 
 # The release builds the FreeBSD packages and publishes in different jobs. freebsd-pack puts what
@@ -349,25 +353,25 @@ published-unpack:
 # freebsd-unpack puts the tars of every release into the repository the publish job unpacked from
 # the published one (scripts/freebsd-parts.sh). VERSION is the version that make package-freebsd
 # built; unpacking needs no version.
-freebsd-pack:
+freebsd-pack: ## Puts what one FreeBSD release merged into dist/PROGRAM/repo into one tar
 	$(RECORD_VARS) scripts/freebsd-parts.sh pack $(PACKAGE_OUT) $(FREEBSD)
 
-freebsd-unpack:
+freebsd-unpack: ## Merges the FreeBSD tars of every release into dist/PROGRAM/repo
 	scripts/freebsd-parts.sh unpack $(PACKAGE_OUT)
 
 # Uploads dist/PROGRAM/repo, packages first, then the index files and their signatures. It
 # refuses an incomplete repository and any upload that would delete a published package.
-program-publish:
+program-publish: ## Uploads dist/PROGRAM/repo, packages first, and never deletes a published package
 	scripts/publish-program.sh send
 
 # Lists the remote folder of the program and changes nothing: proves that the key and host key work.
-program-publish-check:
+program-publish-check: ## Lists the remote folder of the program to prove the key and host key work
 	scripts/publish-program.sh check
 
 # Proves publish-program.sh against local folders and a throwaway key, with no server. It is part
 # of check; this runs it alone.
-program-publish-test:
+program-publish-test: ## Proves the upload against local folders and a throwaway key
 	scripts/publish-program-test.sh
 
-clean:
+clean: ## Removes dist
 	rm -rf dist
