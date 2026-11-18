@@ -257,4 +257,13 @@ done <<PROGRAMS
 $programs
 PROGRAMS
 
+# The fstab line of the client. The helper it names is the link that the package installs, so the
+# path is read from the links file, moved to /usr/local as the FreeBSD package does.
+helper="$(awk '!/^#/ && NF { print $1; exit }' programs/client/links | sed 's|^/usr/|/usr/local/|')"
+fstab_line="example:/ /mnt/files splicefs ro,late,mountprog=$helper 0 0"
+for document in "README.md:$readme" "the install page:$page"; do
+    holds "${document%%:*} shows the FreeBSD fstab line, with the helper the package installs" \
+        "$fstab_line" "${document#*:}"
+done
+
 [ "$failed" -eq 0 ]

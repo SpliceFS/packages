@@ -76,12 +76,12 @@ sysrc -x splicefsd_enable    # the server
 sysrc -x splicefs_enable     # the client
 ```
 
-### Mount at boot from fstab (client, Linux)
+### Mount at boot from fstab (client)
 
 The client can also mount from the boot mounts of the system. The cluster must be defined in
 `/etc/splicefs/client/clusters.d`, and the client service must be running: the mount helper
-(`/usr/sbin/mount.splicefs`) only asks the running client. Add a line of type `splicefs` to
-`/etc/fstab`; the options are listed in the
+(`mount.splicefs`, in `/usr/sbin` on Linux and in `/usr/local/sbin` on FreeBSD) only asks the
+running client. Add a line of type `splicefs` to `/etc/fstab`; the options are listed in the
 [client configuration](https://github.com/SpliceFS/client/blob/main/docs/configuration.md).
 
 systemd (Debian, Ubuntu, Rocky Linux, Amazon Linux, openSUSE), as root:
@@ -98,6 +98,19 @@ echo 'example:/ /mnt/files splicefs _netdev,nofail 0 0' >> /etc/fstab
 rc-update add fuse boot && rc-service fuse start
 rc-update add netmount default && rc-service netmount start
 ```
+
+FreeBSD (pkg), as root. `mount(8)` runs a helper only for the file system types it knows, unless
+the line names one with `mountprog=`, so the line must. `late` mounts it in the last stage of the
+boot, after the network and the daemons, and the client service starts before that and loads the
+`fusefs` kernel module itself. `ro` is there because FreeBSD wants `ro` or `rw` in the options
+(either works; the mount is read-only whatever is asked). Enable the service as above, then:
+
+```
+echo 'example:/ /mnt/files splicefs ro,late,mountprog=/usr/local/sbin/mount.splicefs 0 0' >> /etc/fstab
+```
+
+When a `late` line fails to mount, FreeBSD aborts the boot, so run `mount /mnt/files` once by hand
+first.
 
 ## Remove the repository
 
