@@ -80,6 +80,10 @@ e2e-freebsd: freebsd-kvm
 #             that release: the way distributions number it (deb 1.2.3-1, rpm release 2, Alpine
 #             -r1, FreeBSD 1.2.3_1). Revision 0 is named as the packages published before
 #             revisions existed. scripts/package-lib.sh says how each format writes it.
+#   UPGRADE_FROM  the tag of the published release the upgrade tests start from. A run that
+#             reads the newest release gives that one tag here, so that every job of the run
+#             upgrades from it, also when a newer release is published meanwhile. Empty (the
+#             default) leaves the tests to ask for the newest release when they run.
 # The packages are written to dist/PROGRAM: deb, rpm, and Alpine packages in alpine/<cpu>. SIGNING_DIR
 # names a folder with the real signing keys (scripts/signing-keys.sh says which); without it throwaway
 # keys are generated, and a package signed with them must never be published.
@@ -102,6 +106,7 @@ BIN ?=
 SRC ?=
 VERSION ?=
 REVISION ?= 0
+UPGRADE_FROM ?=
 # Alpine versions cannot carry a commit, so a build with uncommitted changes carries the date of
 # its commit: here, of the commit of SRC.
 PACKAGE_DATE ?= $(shell git -C "$(SRC)" log -1 --format=%cd --date=format:%Y%m%d 2>/dev/null || date +%Y%m%d)
@@ -109,7 +114,7 @@ PACKAGE_OUT = dist/$(PROGRAM)
 # What the package scripts read, with the folders where the image sees BIN and SRC.
 PACKAGE_VARS = PROGRAM=$(PROGRAM) VERSION=$(VERSION) PACKAGE_DATE=$(PACKAGE_DATE) REVISION=$(REVISION) BIN=/in/bin SRC=/in/src
 # What the version record is written from.
-RECORD_VARS = PROGRAM=$(PROGRAM) VERSION=$(VERSION) PACKAGE_DATE=$(PACKAGE_DATE) REVISION=$(REVISION)
+RECORD_VARS = PROGRAM=$(PROGRAM) VERSION=$(VERSION) PACKAGE_DATE=$(PACKAGE_DATE) REVISION=$(REVISION) UPGRADE_FROM=$(UPGRADE_FROM)
 # The signing keys, read only, for the steps that sign or check with them.
 KEYS_MOUNT := -v "$(CURDIR)/dist/keys":/keys:ro
 RUN_OPTS :=
@@ -249,8 +254,9 @@ user-mode-test: built-packages
 upgrade-diff-test:
 	scripts/upgrade-diff-test.sh
 
-# Installs the newest published release of the program (downloaded from the releases of the
-# repository named by release_repo in programs/PROGRAM/program.conf) in a clean, booted server of
+# Installs the published release of the program the packages were built next to (UPGRADE_FROM of
+# make packages; the newest release when the build recorded none), downloaded from the releases of
+# the repository named by release_repo in programs/PROGRAM/program.conf, in a clean, booted server of
 # the first system of each format in packaging/test-systems, writes a configuration line and a data
 # file, and installs the packages in dist/PROGRAM over it, the way a user upgrades. It checks that
 # both survived, the service user exists, the new version is installed and every file the new

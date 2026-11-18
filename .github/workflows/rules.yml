@@ -1,8 +1,13 @@
 name: Rules
 
-# The pull request rules shared by the SpliceFS repositories: the description states the
-# scope of the change, and the release bot sets the version in the branch.
-# See https://github.com/SpliceFS/.github
+# The description of a pull request has a section "## Change log" with what a user would notice.
+# Its entries become the notes of the release that the merge gets (tag.yml), so a pull request
+# without them fails here. When an author of this repository leaves the section out, an entry is
+# drafted from the change by the Claude API and written into the description, where the author
+# sees it and can change it; changing the description runs this workflow again. In a fork there
+# is no bot and no key, so the author writes the section.
+# The reader of the description is the shared one of https://github.com/SpliceFS/.github. The
+# shared process pull-request-rules-v1 is not called: it also sets a version in the branch.
 on:
   pull_request:
     types: [opened, edited, reopened, synchronize]
@@ -11,9 +16,75 @@ permissions:
   contents: read
 
 jobs:
-  rules:
-    uses: SpliceFS/.github/.github/workflows/pull-request-rules-v1.yml@main
-    secrets:
-      bot-private-key: ${{ secrets.RELEASE_BOT_PRIVATE_KEY }}
-      # Drafts the change log entry of a pull request whose description has none.
-      claude-api-key: ${{ secrets.CLAUDE_API_KEY }}
+  change-log:
+    name: Change log
+    runs-on: ubuntu-latest
+    steps:
+      - name: Rules
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: SpliceFS/.github
+          path: rules
+          persist-credentials: false
+      # The change as it will be merged: the merge commit of the pull request, and its first
+      # parent is the target branch.
+      - name: Repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: work
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Read the change log entry from the description
+        id: entry
+        working-directory: work
+        env:
+          # Passed through the environment, never pasted into the script: the description is
+          # text that anyone can write.
+          BODY: ${{ github.event.pull_request.body }}
+          LOGIN: ${{ github.event.pull_request.user.login }}
+          CHANGE_LOG_SCRIPT: ${{ github.workspace }}/rules/processes/pull-request-rules/v1/change-log.sh
+        run: |
+          entry="$RUNNER_TEMP/change-log-entry"
+          if printf '%s\n' "$BODY" | scripts/change-log-entry.sh "$LOGIN" > "$entry" 2> "$RUNNER_TEMP/change-log-problem"; then
+            cat "$entry"
+            echo "found=yes" >> "$GITHUB_OUTPUT"
+          else
+            cat "$RUNNER_TEMP/change-log-problem"
+            echo "found=no" >> "$GITHUB_OUTPUT"
+          fi
+      # A commit pushed or a description changed with the token of the workflow itself would not
+      # run this workflow again. The bot's token does.
+      - name: Bot token
+        id: bot
+        if: steps.entry.outputs.found == 'no' && github.event.pull_request.head.repo.full_name == github.repository
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          app-id: ${{ vars.RELEASE_BOT_APP_ID }}
+          private-key: ${{ secrets.RELEASE_BOT_PRIVATE_KEY }}
+      - name: Draft the change log entry from the change
+        if: steps.entry.outputs.found == 'no'
+        working-directory: work
+        env:
+          CLAUDE_API_KEY: ${{ secrets.CLAUDE_API_KEY }}
+          GH_TOKEN: ${{ steps.bot.outputs.token }}
+          TITLE: ${{ github.event.pull_request.title }}
+          BODY: ${{ github.event.pull_request.body }}
+          REPO: ${{ github.repository }}
+          NUMBER: ${{ github.event.pull_request.number }}
+          OWN_BRANCH: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
+        run: |
+          problem="$(cat "$RUNNER_TEMP/change-log-problem")"
+          if [ "$OWN_BRANCH" != true ] || [ -z "$CLAUDE_API_KEY" ]; then
+            echo "::error::The description needs a section '## Change log' with a list of what a user would notice. $problem"
+            exit 1
+          fi
+          rules_dir="$GITHUB_WORKSPACE/rules/processes/pull-request-rules/v1"
+          printf '%s\n' "$TITLE" > "$RUNNER_TEMP/title"
+          printf '%s\n' "$BODY" > "$RUNNER_TEMP/description"
+          git diff HEAD^1 HEAD > "$RUNNER_TEMP/diff"
+          entry="$RUNNER_TEMP/change-log-entry"
+          "$rules_dir/draft-change-log.sh" "$RUNNER_TEMP/title" "$RUNNER_TEMP/description" "$RUNNER_TEMP/diff" > "$entry"
+          cat "$entry"
+          "$rules_dir/put-change-log.sh" "$entry" < "$RUNNER_TEMP/description" > "$RUNNER_TEMP/new-description"
+          gh api -X PATCH "repos/$REPO/pulls/$NUMBER" -F "body=@$RUNNER_TEMP/new-description" --silent
+          echo "the entry was written into the description of the pull request"

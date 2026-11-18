@@ -1,7 +1,9 @@
 name: Main
 
-# When main moves, the new version is tagged, which starts the release, and every open pull
-# request is rebuilt on the new tip. See https://github.com/SpliceFS/.github
+# When main moves, every open pull request is rebuilt on the new tip, so that each one is
+# tested as the change that will be merged. The version tag of the merge is made by tag.yml.
+# This does not call the shared process main-moved-v1, which also tags v<VERSION>.
+# See https://github.com/SpliceFS/.github
 on:
   push:
     branches: [main]
@@ -9,19 +11,57 @@ on:
 permissions:
   contents: read
 
+env:
+  # The author of the commits this automation writes: the account splicefs-bot, whose address
+  # is the project's own. The release bot only pushes them.
+  BOT_NAME: "splicefs-bot"
+  BOT_EMAIL: "bot@splicefs.org"
+
 jobs:
-  main:
-    uses: SpliceFS/.github/.github/workflows/main-moved-v1.yml@main
-    secrets:
-      bot-private-key: ${{ secrets.RELEASE_BOT_PRIVATE_KEY }}
+  rebase:
+    name: Rebuild open pull requests
+    runs-on: ubuntu-latest
+    # Two pushes to main close together would rebuild the same branches at once, and the
+    # second push of a branch would fail on the first one's. One rebuild runs at a time. A
+    # waiting run that a newer one replaces is not needed, because the newer run rebuilds on
+    # the newer tip.
+    concurrency:
+      group: main-moved-rebuild-${{ github.repository }}
+      cancel-in-progress: false
+    steps:
+      - name: Rules
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: SpliceFS/.github
+          path: rules
+          persist-credentials: false
+      - name: Bot token
+        id: bot
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          app-id: ${{ vars.RELEASE_BOT_APP_ID }}
+          private-key: ${{ secrets.RELEASE_BOT_PRIVATE_KEY }}
+      - name: Repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: work
+          fetch-depth: 0
+          token: ${{ steps.bot.outputs.token }}
+      - name: Rebuild every open pull request on the new tip
+        working-directory: work
+        env:
+          GH_TOKEN: ${{ steps.bot.outputs.token }}
+          REPO: ${{ github.repository }}
+          BASE_BRANCH: ${{ github.ref_name }}
+        run: ../rules/processes/main-moved/v1/rebase-open-prs.sh "$REPO" "$BASE_BRANCH"
 
   # A failed run of this workflow opens an issue assigned to the account in the repository
   # variable ALERT_ASSIGNEE, so that someone gets an email; GitHub sends none for runs the
-  # bots start. Pull requests are left out: their author sees the failed check there.
+  # bots start.
   alert:
     name: Report a failure
-    needs: [main]
-    if: ${{ failure() && github.event_name != 'pull_request' }}
+    needs: [rebase]
+    if: ${{ failure() }}
     permissions:
       issues: write
     uses: SpliceFS/.github/.github/workflows/report-failure-v1.yml@main

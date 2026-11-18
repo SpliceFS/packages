@@ -361,7 +361,7 @@ make package-test PROGRAM=server   # installs and removes each package on every 
 make service-test PROGRAM=server   # proves the service installs idle, starts when told, answers, restarts, upgrades and stops, on every image
 make fstab-test PROGRAM=client SERVER_BIN=<splicefsd folder>   # proves an fstab line is mounted by OpenRC's netmount on every Alpine image
 make user-mode-test PROGRAM=client SERVER_BIN=<splicefsd folder>   # proves an ordinary user can run the client and mount, on the first image of each format
-make upgrade-test PROGRAM=server  # installs the newest published release, then upgrades to the packages in dist (only when the packaging changed)
+make upgrade-test PROGRAM=server  # installs the published release the packages were built next to (UPGRADE_FROM of make packages; the newest when none), then upgrades to the packages in dist (only when the packaging changed)
 make repo PROGRAM=server           # builds the signed apt, rpm and Alpine repositories into dist/server/repo
 make repo-test PROGRAM=server      # installs from them with signature checks on
 make package-order-test                           # checks that the package versions sort right in dpkg, rpm and apk
@@ -398,6 +398,12 @@ proves its archives with the signature and `SHA256SUMS` and unpacks them into th
 the CI of this repository does that for both programs, so a packaging change is tested on its own.
 `packages-ref` (default `main`) is the ref of this repository the jobs use; keep it the same as the
 ref of the `uses` line.
+
+A run reads the newest release of a program once, in its `source` job, and gives that tag to
+`make packages` as `UPGRADE_FROM`. The version record in `dist/<program>/version` keeps it, and the
+upgrade and lifecycle tests start from it, so a release made while the run is going never turns
+the upgrade into a downgrade. Without `UPGRADE_FROM` (a build by hand, or a caller with
+`bin-artifact`) the tests ask for the newest release when they run.
 
 `make check` needs `python3`. It also uses `node`, `dash` and `bash` when they are installed.
 

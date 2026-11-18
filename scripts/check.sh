@@ -666,6 +666,7 @@ run "9. setup.sh --remove: setup, removal and a changed file, for every family, 
   sh scripts/setup-remove-test.sh
 run "9. part.sh: the timer every package target runs through" sh scripts/part-test.sh
 run "9. package-record.sh: the version make packages built, read by the tests" sh scripts/package-record-test.sh
+run "9. upgrade-from: the upgrade and lifecycle tests start from the release the build recorded" sh scripts/upgrade-from-test.sh
 run "9. upgrade-diff.sh: when the packaging of two versions differs" sh scripts/upgrade-diff-test.sh
 run "9. next-revision.sh: the revision a build needs to upgrade what is published" sh scripts/next-revision-test.sh
 run "9. revision-decide.sh: when the packages of a release are published, as revision 0 or a later one" sh scripts/revision-decide-test.sh
@@ -680,6 +681,10 @@ run "9. freebsd-parts.sh: the FreeBSD repository folders of a release packed and
 run "9. release-bin.sh: release archives proven and unpacked to the layout of dist/bin" sh scripts/release-bin-test.sh
 run "9. publish-program.sh: the repositories of a program uploaded in order, nothing published lost" sh scripts/publish-program-test.sh
 run "9. require-env.sh: a release that lacks a secret stops and names it" sh scripts/require-env-test.sh
+run "9. number-tags.sh: which tag names are versions of this repository" sh scripts/number-tags-test.sh
+run "9. change-log-entry.sh: the entry of a pull request, with a default for the dependency bot only" sh scripts/change-log-entry-test.sh
+run "9. release-notes.sh: the notes of a release are the entries of the pull requests merged since the last tag" sh scripts/release-notes-test.sh
+run "9. tag-release.sh: the next number tag on a commit of main, and its release" sh scripts/tag-release-test.sh
 run "9. Makefile: a package test asks only for the packages it uses" sh scripts/built-packages-test.sh
 run "9. user-mode-docs-test.sh: the packages leave the system to the administrator, the documents say how a user runs the client" \
   sh scripts/user-mode-docs-test.sh
