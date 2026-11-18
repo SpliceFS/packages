@@ -1,6 +1,6 @@
 #!/bin/sh
-# Tests the upgrade of the program PROGRAM from the newest published version to the one in
-# dist/PROGRAM, but only when the packaging changed: a version whose packages differ from the
+# Tests the upgrade of the program PROGRAM from the published version the build recorded (the
+# newest one when it recorded none) to the one in dist/PROGRAM, but only when the packaging changed: a version whose packages differ from the
 # published ones only in the programs (and the changelog) cannot break an upgrade, so there is
 # nothing to test. When the packaging changed and the new packages are of the same program
 # version as the published ones, they must be a later revision of it (make packages REVISION=N),
@@ -8,7 +8,7 @@
 # apk reinstall it without a word, which would hide the problem. Runs on the host after make
 # packages (make upgrade-test, CI). For each
 # package format, for this machine's CPU type, it
-#   1. downloads the newest published package of that format from the GitHub release of the
+#   1. downloads the published package of that format from the GitHub release of the
 #      repository the program is released from (release_repo in programs/PROGRAM/program.conf)
 #      into dist/PROGRAM/published,
 #   2. lists the files, scripts and declarations of the published and the new package inside
@@ -46,10 +46,11 @@ case "$platform" in
     *) fail "no package CPU type for $platform" ;;
 esac
 
-# The tag of the newest release; empty when there is none. The functions of published-lib.sh are
+# The tag of the release to start from, the one the build recorded; the newest release when the
+# record has none, and then empty when there is none. The functions of published-lib.sh are
 # tests whose status is the answer, so set -e being off inside them changes nothing.
 # shellcheck disable=SC2310
-tag="$(latest_release_tag "$release_repo")" ||
+tag="$(upgrade_from_tag "$release_repo")" ||
     fail "could not ask $releases/latest for the newest release"
 
 # What the published files are called is what package-lib.sh makes of the tag and of the

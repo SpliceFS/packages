@@ -1,7 +1,7 @@
 # shellcheck shell=sh
 # What the tests that start from the published release have in common (scripts/upgrade-test.sh,
-# scripts/lifecycle-repo.sh): which release is the newest, what its files are called and how they
-# are downloaded. Sourced after scripts/package-lib.sh, which says what the version is called
+# scripts/lifecycle-repo.sh): which release they start from, what its files are called and how
+# they are downloaded. Sourced after scripts/package-lib.sh, which says what the version is called
 # in each package format (package_versions). The downloads insist on HTTPS, also after a
 # redirect, so that a redirect can never hand over a package from a plain address. name,
 # deb_arch, rpm_arch, apk_arch and PACKAGE_DATE are set by the files this one is sourced after.
@@ -17,6 +17,19 @@ latest_release_tag() {
         */releases/tag/*) printf '%s\n' "${final_url##*/}" ;;
         *) ;;
     esac
+}
+
+# Prints the tag of the release the tests start from, for the repository $1 (release_repo of
+# program.conf): the one the build recorded (UPGRADE_FROM, which use_recorded_version sets), so
+# that a release made after the build, which is newer than the packages, never turns the upgrade
+# into a downgrade. A build that recorded none (a build by hand) starts from the newest release,
+# as latest_release_tag says. The status is 1 when that could not be asked.
+upgrade_from_tag() {
+    if [ -n "${UPGRADE_FROM:-}" ]; then
+        printf '%s\n' "$UPGRADE_FROM"
+    else
+        latest_release_tag "$1"
+    fi
 }
 
 # The packages attached to the release of a program are the revision 0 of that version: they

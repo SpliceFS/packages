@@ -660,6 +660,7 @@ run "9. setup.sh --remove: setup, removal and a changed file, for every family, 
   sh scripts/setup-remove-test.sh
 run "9. part.sh: the timer every package target runs through" sh scripts/part-test.sh
 run "9. package-record.sh: the version make packages built, read by the tests" sh scripts/package-record-test.sh
+run "9. upgrade-from: the upgrade and lifecycle tests start from the release the build recorded" sh scripts/upgrade-from-test.sh
 run "9. upgrade-diff.sh: when the packaging of two versions differs" sh scripts/upgrade-diff-test.sh
 run "9. next-revision.sh: the revision a build needs to upgrade what is published" sh scripts/next-revision-test.sh
 run "9. revision-decide.sh: when the packages of a release are published, as revision 0 or a later one" sh scripts/revision-decide-test.sh

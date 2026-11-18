@@ -1,6 +1,7 @@
 #!/bin/sh
 # Collects the packages of the test repository of the program PROGRAM in dist/lifecycle/PROGRAM:
-# the new packages of dist/PROGRAM and the newest published release, so that the repository is
+# the new packages of dist/PROGRAM and the published release they were built next to (UPGRADE_FROM
+# of the version record; the newest release when the record has none), so that the repository is
 # what a release would publish (scripts/repo-*.sh keep the older version next to the new one).
 # The published packages are downloaded the way the upgrade test does (scripts/published-lib.sh)
 # for this machine's CPU type. They were made with the release key, which the test repository
@@ -28,7 +29,7 @@ case "$platform" in
 esac
 
 # shellcheck disable=SC2310
-tag="$(latest_release_tag "$release_repo")" || fail "could not ask for the newest release of $release_repo"
+tag="$(upgrade_from_tag "$release_repo")" || fail "could not ask for the newest release of $release_repo"
 [ -n "$tag" ] || fail "$release_repo has no release; the lifecycle test starts from the published one"
 # shellcheck disable=SC2310
 names="$(release_versions "$tag")" || fail "could not work out the file names of $tag"
