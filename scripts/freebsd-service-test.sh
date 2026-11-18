@@ -295,6 +295,22 @@ CLIENT
     chmod 755 "$1/standin" "$1/su" "$1/stat" "$1/pgrep" "$1/splicefsctl" "$1/splicefs"
 }
 
+# Ends the process $1 and returns once it is gone; a process that already ended is fine. Gives up
+# after 100 looks and counts that as a failure.
+end_left_over() {
+    kill "$1" 2>/dev/null || :
+    looks=0
+    while kill -0 "$1" 2>/dev/null; do
+        looks=$((looks + 1))
+        if [ "$looks" -gt 100 ]; then
+            printf 'FAIL the left-over client %s did not end\n' "$1"
+            failed=$((failed + 1))
+            return
+        fi
+        sleep 0.1
+    done
+}
+
 user_mode_machine() {
     box="$tree/user"
     rm -rf "$box"
@@ -314,18 +330,21 @@ wait_for() { shift; wait_status=0; "$@" >/dev/null 2>&1 || wait_status=1; }
 check_work="$box/work"
 check_user_mode
 RUN
+    # The output goes to a file, not to a pipe of $(...): a check that failed with the client
+    # running leaves the client (and its sleep) holding the output open, and $(...) would wait for
+    # them while they wait to be ended below.
     status=0
-    user_mode_said="$(env box="$box" PATH="$box/bin:$PATH" FAIL_TOOL="$um_fail" CLIENT="$um_client" \
+    env box="$box" PATH="$box/bin:$PATH" FAIL_TOOL="$um_fail" CLIENT="$um_client" \
         SOCKET_STAT="$um_socket" FUSE_STAT="$um_fuse_stat" CACHE="$um_cache" \
-        sh "$box/run.sh" "$box/check-lib.sh" 2>&1 < /dev/null)" || status=$?
+        sh "$box/run.sh" "$box/check-lib.sh" > "$box/said" 2>&1 < /dev/null || status=$?
     user_mode_status="$status"
-    # A check that failed with the client running leaves it running; ending it is part of the test.
-    # The stand-in may have ended by itself already (it is not a child of this shell, so it cannot
-    # be waited for): a process that is gone is what this wants, so kill finding none is no error.
+    # Ending a left-over client is part of the test. It is not a child of this shell, so its end is
+    # seen by asking for the process; the next case starts only after it is gone, because its last
+    # act is a write into the folder that the next case makes again.
     if [ -f "$box/client.pid" ]; then
-        left_over="$(cat "$box/client.pid")"
-        kill "$left_over" 2>/dev/null || :
+        end_left_over "$(cat "$box/client.pid")"
     fi
+    user_mode_said="$(cat "$box/said")"
     um_fail='' um_client=ready um_socket='alice 700' um_fuse_stat='crw-rw---- operator' um_fuse=file um_cache=home
 }
 
