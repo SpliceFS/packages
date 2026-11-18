@@ -313,15 +313,15 @@ repo-test: built-packages
 	$(TEST_VARS) scripts/package-test.sh repo
 
 # --- Publishing the repositories of a program ---------------------------------------------------
-# The publish of a program (the publish-one-program workflow) publishes what make repo made in
+# The publish job of the publish-program workflow publishes what make repo made in
 # dist/PROGRAM/repo to the folder of the program on the package site. UPLOAD_KEY_FILE and
 # UPLOAD_KNOWN_HOSTS_FILE (see scripts/publish-program.sh) come from the environment, so no secret
 # is ever in this file.
 .PHONY: program-fetch published-pack published-unpack program-publish program-publish-check program-publish-test freebsd-pack freebsd-unpack
 
 # Downloads what is published into dist/PROGRAM/repo first, so the repositories built next keep
-# every older version. A publish run does it in one job only: the package site lets one rsync
-# session at a time into a folder.
+# every older version. The run of a tag does it in one job only, for every program one after
+# another: the upload key reaches the whole site, which lets one rsync session in at a time.
 program-fetch:
 	scripts/publish-program.sh fetch
 
