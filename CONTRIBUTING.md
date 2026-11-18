@@ -103,7 +103,7 @@ A pull request merges with one merge commit. Squash and fast-forward merges are 
 | Security | ShellCheck on all shell files, CodeQL on the page's script, dependency review on pull requests |
 | SonarQube | quality and security rating on SonarQube Cloud |
 | Install tests | runs the setup script on every supported system, on x86-64 and arm64, weekly as well |
-| Release | on a number tag: signs the script, publishes the site, creates the release |
+| Release | on a number tag: signs the script and publishes the site |
 | Publish programs | on a number tag: builds, tests and publishes the packages of every program in `programs/` |
 | Scorecard | OpenSSF Scorecard, published weekly and on every push |
 
@@ -120,10 +120,10 @@ Every merge into `main` is a release. The merge is tagged `v<VERSION>` automatic
 starts the Release workflow. Nobody creates tags or release branches by hand. One change, one
 version.
 
-The Release workflow runs the checks, signs `setup.sh` with the signing subkey, publishes the
-site over rsync and creates the GitHub release with `setup.sh` and `setup.sh.asc`, and the SHA-256
-of `setup.sh` in the release text. `setup.sh.asc` is `setup.sh` clearsigned: the script and its
-signature in one file, so no second file has to match it. The keys live in the `publish`
+The Release workflow runs the checks, signs `setup.sh` with the signing subkey and publishes the
+site over rsync. `setup.sh.asc` is `setup.sh` clearsigned: the script and its signature in one
+file, so no second file has to match it. The GitHub release of the tag is made with the tag, not
+by this workflow. The keys live in the `publish`
 environment, which only tags can use.
 
 The Publish programs workflow starts on the same tag. For each program in `programs/` it takes the
