@@ -57,6 +57,14 @@ chmod 755 "$stand/bin/curl" "$stand/bin/docker"
 tree="$work/tree"
 mkdir -p "$tree"
 cp -R "$root/scripts" "$root/programs" "$root/packaging" "$tree/"
+# Whether a downloaded package proves is scripts/published-verify-test.sh's subject. Here the script
+# is a stand-in that notes the package it is asked about and answers with the status in the file
+# verify-status of the stand-ins (0 when there is none).
+cat > "$tree/scripts/published-verify.sh" <<'STUB'
+#!/bin/sh
+echo "$1" >> "$STAND_IN/verified"
+exit "$(cat "$STAND_IN/verify-status" 2>/dev/null || echo 0)"
+STUB
 
 # Runs the script $1 of the tree, with the arguments that follow, for the client with the
 # stand-ins in front.
@@ -102,6 +110,8 @@ build() {
 # script must have asked the site for its index, which a recorded version makes needless.
 starts_from() {
     : > "$stand/calls"
+    : > "$stand/verified"
+    rm -f "$stand/verify-status"
     from="$5"
     if [ "$from" = read ]; then
         from="$(run_script published-newest.sh client)"
@@ -159,6 +169,49 @@ for script in lifecycle-repo.sh upgrade-test.sh; do
     starts_from "$script: a build that recorded none starts from the newest package on the site" \
         "$script" v0.5.35 0 "" "$from_34_1" yes
 done
+
+# Every package the tests start from is proven before it is used, by the path it has on the site.
+publish 0.5.33 0.5.34 0.5.34-1
+for script in lifecycle-repo.sh upgrade-test.sh; do
+    starts_from "$script: the baseline is verified" "$script" v0.5.35 0 read "$from_34_1" no
+    LC_ALL=C sort "$stand/verified" | tr '\n' ' ' > "$work/verified-sorted"
+    read -r verified_sorted < "$work/verified-sorted" || true
+    if [ "${verified_sorted:-}" = "alpine/x86_64/splicefs-client-0.5.34-r1.apk apt/pool/main/s/splicefs-client/splicefs-client_0.5.34-1_amd64.deb rpm/x86_64/splicefs-client-0.5.34-2.x86_64.rpm" ]; then
+        echo "ok   $script: every baseline package went through the verification, by its site path"
+    else
+        printf 'FAIL %s: the packages verified were:\n' "$script"
+        sed 's/^/     /' "$stand/verified"
+        failed=$((failed + 1))
+    fi
+done
+
+# A package that does not prove ends the test of its format, with a message that says so, and no
+# container is started with it; the lifecycle test stops.
+build v0.5.35 0 0.5.34-1
+echo 1 > "$stand/verify-status"
+status=0
+# The status of the script is the answer here.
+# shellcheck disable=SC2310
+run_script upgrade-test.sh > "$work/out" 2>&1 || status=$?
+grep -c 'FAIL .*: could not download and verify' "$work/out" > "$work/failures" || true
+read -r failures < "$work/failures"
+if [ "$status" -ne 0 ] && [ "$failures" -eq 3 ]; then
+    echo "ok   upgrade-test.sh: a package that does not prove fails its format"
+else
+    printf 'FAIL upgrade-test.sh: a package that does not prove (status %s):\n' "$status"
+    sed 's/^/     /' "$work/out"
+    failed=$((failed + 1))
+fi
+status=0
+# shellcheck disable=SC2310
+run_script lifecycle-repo.sh > "$work/out" 2>&1 || status=$?
+if [ "$status" -ne 0 ] && grep -q 'could not download and verify' "$work/out"; then
+    echo "ok   lifecycle-repo.sh: a package that does not prove stops the test"
+else
+    printf 'FAIL lifecycle-repo.sh: a package that does not prove (status %s):\n' "$status"
+    sed 's/^/     /' "$work/out"
+    failed=$((failed + 1))
+fi
 
 # Nothing published: the upgrade test skips, and the lifecycle test, which starts from a published
 # version, says so and stops. Once the build has read that nothing is published ("read" gives the

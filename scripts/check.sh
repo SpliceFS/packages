@@ -668,6 +668,7 @@ run "9. part.sh: the timer every package target runs through" sh scripts/part-te
 run "9. package-record.sh: the version make packages built, read by the tests" sh scripts/package-record-test.sh
 run "9. upgrade-from: the upgrade and lifecycle tests start from the newest package of the site the build recorded" sh scripts/upgrade-from-test.sh
 run "9. published-newest.sh: the newest package a program has on the package site" sh scripts/published-newest-test.sh
+run "9. published-verify.sh: a package of the site is proven by the signed index of the site" sh scripts/published-verify-test.sh
 run "9. upgrade-diff.sh: when the packaging of two versions differs" sh scripts/upgrade-diff-test.sh
 run "9. next-revision.sh: the revision a build needs to upgrade what is published" sh scripts/next-revision-test.sh
 run "9. revision-decide.sh: when the packages of a release are published, as revision 0 or a later one" sh scripts/revision-decide-test.sh

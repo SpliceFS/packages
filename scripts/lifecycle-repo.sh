@@ -50,7 +50,7 @@ done
 for format in deb rpm apk; do
     path="$(published_path "$format" "$old_debver" "$old_rpmver" "$old_rpmrel" "$old_apkver" "$old_apkrel")"
     # shellcheck disable=SC2310
-    download_published_file "$path" "$published" || fail "could not download $site_url/$path"
+    download_published_file "$path" "$published" || fail "could not download and verify $site_url/$path"
     # The published files are where the repository step finds the packages of a format: an Alpine
     # package in the folder of its CPU type, the others beside the new ones.
     case "$format" in

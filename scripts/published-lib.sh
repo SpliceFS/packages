@@ -2,7 +2,7 @@
 # What the scripts that read the package site have in common (scripts/published-newest.sh,
 # scripts/next-revision.sh, scripts/upgrade-test.sh, scripts/lifecycle-repo.sh,
 # scripts/revision-listings.sh): where the site is, what the published files are called and where
-# they are, and how they are downloaded. What people have installed is what the site serves, so
+# they are, and how they are downloaded and proven. What people have installed is what the site serves, so
 # nothing here asks GitHub. Sourced after scripts/package-lib.sh (or scripts/program-conf.sh for the
 # scripts that only read the index), which says what the program and its versions are called. The
 # downloads insist on HTTPS, also after a redirect, so that a redirect can never hand over a package
@@ -139,9 +139,15 @@ published_path() {
 }
 
 # Downloads the file at the path $1 of the site (published_path) into the folder $2 unless it is
-# there. Status 1 when the download failed.
+# there, and proves it (scripts/published-verify.sh), also when it was there: a file that does not
+# prove is removed. Status 1 when the download failed or the file does not prove, with the reason
+# on the standard error.
 download_published_file() {
-    [ ! -f "$2/$(basename "$1")" ] || return 0
     mkdir -p "$2"
-    fetch_site_file "$site_url/$1" "$2/$(basename "$1")"
+    dl_file="$2/$(basename "$1")"
+    [ -f "$dl_file" ] || fetch_site_file "$site_url/$1" "$dl_file" || return 1
+    PROGRAM="$PROGRAM" sh scripts/published-verify.sh "$1" "$dl_file" || {
+        rm -f "$dl_file"
+        return 1
+    }
 }

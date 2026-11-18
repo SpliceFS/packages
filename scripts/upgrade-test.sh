@@ -10,7 +10,8 @@
 # hide the problem. Runs on the host after make packages (make upgrade-test, CI). For each
 # package format, for this machine's CPU type, it
 #   1. downloads the published package of that format from the package site, which is what people
-#      have installed (scripts/published-lib.sh), into dist/PROGRAM/published,
+#      have installed (scripts/published-lib.sh), into dist/PROGRAM/published, and proves it by
+#      the signed index of the site (scripts/published-verify.sh; apk does it when it installs),
 #   2. lists the files, scripts and declarations of the published and the new package inside
 #      a container of the format's first system in packaging/test-systems, and compares the
 #      two lists (scripts/upgrade-diff.sh),
@@ -124,7 +125,7 @@ for format in deb rpm apk; do
     old_file="$(basename "$old_path")"
     # shellcheck disable=SC2310
     if ! download_published_file "$old_path" "$published_dir"; then
-        echo "FAIL $format: could not download $site_url/$old_path"
+        echo "FAIL $format: could not download and verify $site_url/$old_path"
         failed=$((failed + 1))
         continue
     fi
