@@ -1,4 +1,5 @@
 name: Check packages
+# Every job has a time limit: 3 times its longest run, so a hang fails in minutes.
 
 # Tests the packages that build-packages.yml built, in one program's run: the FreeBSD packages are
 # built and checked in a FreeBSD machine of each release of packaging/freebsd/releases, and the
@@ -36,6 +37,7 @@ jobs:
   freebsd:
     name: FreeBSD packages (${{ matrix.release }})
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:

@@ -649,6 +649,7 @@ run "9. list-programs.sh: the programs of the repository as a JSON array for a w
 run "9. freebsd-releases.sh: the FreeBSD releases as a JSON array for a workflow matrix" sh scripts/freebsd-releases-test.sh
 run "9. release-tag-check.sh: only a number tag on a commit of main may use the keys" sh scripts/release-tag-check-test.sh
 run "9. workflows: a called workflow runs the code of its own commit, never a ref the caller names" sh scripts/workflow-checkout-test.sh
+run "9. workflows: every job that runs on a runner has a time limit, so a hang fails in minutes" sh scripts/workflow-timeout-test.sh
 run "9. make help: every target with a comment is listed, and every target the README names exists" sh scripts/make-help-test.sh
 
 if [ "$FAILS" -eq 0 ]; then

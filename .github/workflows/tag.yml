@@ -1,4 +1,5 @@
 name: Tag
+# Every job has a time limit: 3 times its longest run, so a hang fails in minutes.
 
 # Every merge into main is a version, and a version is a plain number: 1, 2, 3. This puts the
 # next number on the commit as a tag, which starts the build, and makes the GitHub release of that
@@ -30,6 +31,7 @@ jobs:
   tag:
     name: Tag the version
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       # A tag made with the token of the workflow itself would start no workflow. The token of
       # the release bot does, and only the release bot may create tags.

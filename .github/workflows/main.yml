@@ -1,4 +1,5 @@
 name: Main
+# Every job has a time limit: 3 times its longest run, so a hang fails in minutes.
 
 # When main moves, every open pull request is rebuilt on the new tip, so that each one is
 # tested as the change that will be merged. The version tag of the merge is made by tag.yml.
@@ -21,6 +22,7 @@ jobs:
   rebase:
     name: Rebuild open pull requests
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     # Two pushes to main close together would rebuild the same branches at once, and the
     # second push of a branch would fail on the first one's. One rebuild runs at a time. A
     # waiting run that a newer one replaces is not needed, because the newer run rebuilds on
