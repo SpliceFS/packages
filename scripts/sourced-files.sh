@@ -50,7 +50,7 @@ paths() {
             values["defs"] = defs
             values["format"] = formats
             split("defs format", names, " ")
-            runtime["$in/check-lib.sh"] = runtime["$OS_RELEASE"] = 1
+            runtime["$in/check-lib.sh"] = runtime["$OS_RELEASE"] = runtime["$work/retry.sh"] = 1
         }
         # Writes out the first use of $name in each of the paths, once for every value.
         function expand(name, count,    next_count, i, k, n, found, value) {
