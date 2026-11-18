@@ -7,7 +7,7 @@
 # The steps, in one booted system:
 #   1. the file list and the checksums of /etc are written down (scripts/lifecycle-snapshot.sh);
 #   2. sh setup.sh, built for the local test site, registers the repository;
-#   3. the published release of the server and the client is installed from the repository, the
+#   3. the published packages of the server and the client are installed from the repository, the
 #      documented start command enables and starts the services (a release may already have done
 #      so), and they are checked;
 #   4. the new packages are installed over them with the package manager's upgrade: the running
@@ -23,7 +23,7 @@
 #      sh setup.sh --remove, run as they are written; nothing of ours is installed or running;
 #   9. the file list and the checksums of /etc are the same as in step 1, apart from the paths of
 #      scripts/lifecycle-excluded.
-# The test repository is the published release plus the new packages (scripts/lifecycle-repo.sh,
+# The test repository is the newest published packages plus the new ones (scripts/lifecycle-repo.sh,
 # make lifecycle-repo), served from this machine like tests/run.sh serves the end to end site. The
 # checks are those of the other tests: the service checks (scripts/service-check-lib.sh, the
 # service check of each program) and the package checks (scripts/package-test-lib.sh).
@@ -45,7 +45,6 @@ PROGRAM=server
 use_recorded_version
 . scripts/package-lib.sh
 . scripts/service-check-lib.sh
-. scripts/published-lib.sh
 . scripts/site-server-lib.sh
 
 platform="${PLATFORM:-$(docker version --format '{{.Server.Os}}/{{.Server.Arch}}')}"
@@ -91,8 +90,8 @@ as_program() {
 }
 
 # The same for the program $1 as it was built (new, the version and revision of the record that
-# make packages wrote) or as it was published (the tag that scripts/lifecycle-repo.sh wrote down,
-# at the revision of a release), as v1.2.3.
+# make packages wrote) or as it was published (the version and revision that
+# scripts/lifecycle-repo.sh wrote down), as v1.2.3.
 as_new() {
     version="$(sed -n 's/^VERSION=//p' "dist/$1/version")"
     revision="$(sed -n 's/^REVISION=//p' "dist/$1/version")"
@@ -102,9 +101,10 @@ as_new() {
 }
 as_published() {
     version="$(sed -n 's/^TAG=//p' "dist/lifecycle/$1/published")"
+    revision="$(sed -n 's/^REVISION=//p' "dist/lifecycle/$1/published")"
     program_name="$1"
     shift
-    as_program "$program_name" "$version" "$released_revision" "$@"
+    as_program "$program_name" "$version" "$revision" "$@"
 }
 
 # Runs the package checks of scripts/package-test-lib.sh, which look at the system they run in,

@@ -1,16 +1,15 @@
 #!/bin/sh
-# Tests the upgrade of the program PROGRAM from the published version the build recorded (the
-# newest one when it recorded none) to the one in dist/PROGRAM, but only when the packaging changed: a version whose packages differ from the
-# published ones only in the programs (and the changelog) cannot break an upgrade, so there is
-# nothing to test. When the packaging changed and the new packages are of the same program
-# version as the published ones, they must be a later revision of it (make packages REVISION=N),
-# because a package of the same version and revision is no upgrade: rpm refuses it, and deb and
-# apk reinstall it without a word, which would hide the problem. Runs on the host after make
-# packages (make upgrade-test, CI). For each
+# Tests the upgrade of the program PROGRAM from the published package the build recorded (the
+# newest on the package site when it recorded none) to the one in dist/PROGRAM, but only when the
+# packaging changed: a version whose packages differ from the published ones only in the programs
+# (and the changelog) cannot break an upgrade, so there is nothing to test. When the packaging
+# changed and the new packages are of the same program version as the published ones, they must be
+# a later revision of it (make packages REVISION=N), because a package of the same version and
+# revision is no upgrade: rpm refuses it, and deb and apk reinstall it without a word, which would
+# hide the problem. Runs on the host after make packages (make upgrade-test, CI). For each
 # package format, for this machine's CPU type, it
-#   1. downloads the published package of that format from the GitHub release of the
-#      repository the program is released from (release_repo in programs/PROGRAM/program.conf)
-#      into dist/PROGRAM/published,
+#   1. downloads the published package of that format from the package site, which is what people
+#      have installed (scripts/published-lib.sh), into dist/PROGRAM/published,
 #   2. lists the files, scripts and declarations of the published and the new package inside
 #      a container of the format's first system in packaging/test-systems, and compares the
 #      two lists (scripts/upgrade-diff.sh),
@@ -21,10 +20,10 @@
 #      lists is there (scripts/upgrade-test-<format>.sh).
 # Environment: PROGRAM; the version comes from dist/PROGRAM/version, which make packages wrote
 # (scripts/package-record.sh), and a VERSION given must be that one; PLATFORM (linux/amd64 or
-# linux/arm64) tests that CPU type by emulation, empty means this machine's own. It keeps going
-# after a failure so one run shows every format that is broken.
-# release_repo is set by the program.conf of the program, which is chosen at run time, so
-# ShellCheck cannot follow it.
+# linux/arm64) tests that CPU type by emulation, empty means this machine's own; PACKAGE_SITE
+# (https://packages.splicefs.org). It keeps going after a failure so one run shows every format
+# that is broken.
+# What program.conf and the version words set is unknown to ShellCheck.
 # shellcheck disable=SC2154
 set -eu
 
@@ -36,9 +35,7 @@ cd "$root"
 use_recorded_version
 . scripts/package-lib.sh
 . scripts/published-lib.sh
-: "${release_repo:?$defs/program.conf does not set release_repo, the repository the program is released from}"
 
-releases="https://github.com/$release_repo/releases"
 platform="${PLATFORM:-$(docker version --format '{{.Server.Os}}/{{.Server.Arch}}')}"
 case "$platform" in
     linux/amd64) deb_arch=amd64; rpm_arch=x86_64; apk_arch=x86_64 ;;
@@ -46,24 +43,19 @@ case "$platform" in
     *) fail "no package CPU type for $platform" ;;
 esac
 
-# The tag of the release to start from, the one the build recorded; the newest release when the
-# record has none, and then empty when there is none. The functions of published-lib.sh are
-# tests whose status is the answer, so set -e being off inside them changes nothing.
+# The published version to start from, the one the build recorded; the newest on the site when the
+# record has none, and then empty when there is none. The functions of published-lib.sh are tests
+# whose status is the answer, so set -e being off inside them changes nothing.
 # shellcheck disable=SC2310
-tag="$(upgrade_from_tag "$release_repo")" ||
-    fail "could not ask $releases/latest for the newest release"
+from="$(upgrade_from_version)" ||
+    fail "could not read the newest published package of $PROGRAM from $(site_base)"
 
-# What the published files are called is what package-lib.sh makes of the tag and of the
-# revision of a release (released_revision, from published-lib.sh).
+# What the published files are called is what package-lib.sh makes of the version and the revision
+# of the published package.
 published_dir="$root/dist/$PROGRAM/published"
-if [ -n "$tag" ]; then
-    # A version that package_versions refuses ends the script here, with its message.
-    # shellcheck disable=SC2310
-    names="$(release_versions "$tag")" ||
-        fail "could not work out the file names of the published version $tag"
-    read -r old_debver old_rpmver old_rpmrel old_apkver old_apkrel _ <<LIST
-$names
-LIST
+if [ -n "$from" ]; then
+    # A version that package_release_of_debver refuses ends the script here, with its message.
+    use_published_version "$from"
 fi
 
 log="$(mktemp)"
@@ -105,7 +97,7 @@ for format in deb rpm apk; do
     # The first system of the format is the one tested, the same as for the other tests.
     image="$(awk -v f="$format" '$1 == f { print $2; exit }' packaging/test-systems)"
     [ -n "$image" ] || fail "packaging/test-systems has no $format system"
-    if [ -z "$tag" ]; then
+    if [ -z "$from" ]; then
         echo "skip $format: no published version yet, nothing to upgrade from"
         skipped=$((skipped + 1))
         continue
@@ -123,10 +115,11 @@ for format in deb rpm apk; do
     esac
     [ -f "dist/$PROGRAM/$new_file" ] || fail "dist/$PROGRAM/$new_file does not exist; run make packages first"
 
-    old_file="$(release_file_name "$format" "$old_debver" "$old_rpmver" "$old_rpmrel" "$old_apkver" "$old_apkrel")"
+    old_path="$(published_path "$format" "$old_debver" "$old_rpmver" "$old_rpmrel" "$old_apkver" "$old_apkrel")"
+    old_file="$(basename "$old_path")"
     # shellcheck disable=SC2310
-    if ! download_release_file "$release_repo" "$tag" "$old_file" "$published_dir"; then
-        echo "FAIL $format: could not download $releases/download/$tag/$old_file"
+    if ! download_published_file "$old_path" "$published_dir"; then
+        echo "FAIL $format: could not download $(site_base)/$old_path"
         failed=$((failed + 1))
         continue
     fi
@@ -175,11 +168,11 @@ for format in deb rpm apk; do
         failed=$((failed + 1))
         continue
     fi
-    echo "$format: the packaging changed since $tag, running the upgrade test:"
+    echo "$format: the packaging changed since $from, running the upgrade test:"
     printf '%s\n' "$differences"
     # The same program version needs a later revision, or the format sees no upgrade.
-    if [ "$VERSION" = "$tag" ] && [ "$REVISION" -le "$released_revision" ]; then
-        echo "FAIL $format: the packaging changed since $tag, which is the version of these packages too, but their revision is $REVISION and the published ones are revision $released_revision: build them with REVISION=$((released_revision + 1)) or more"
+    if [ "$VERSION" = "$old_tag" ] && [ "$REVISION" -le "$old_revision" ]; then
+        echo "FAIL $format: the packaging changed since $from, which is the version of these packages too, but their revision is $REVISION and the published ones are revision $old_revision: build them with REVISION=$((old_revision + 1)) or more"
         failed=$((failed + 1))
         continue
     fi
@@ -189,7 +182,7 @@ for format in deb rpm apk; do
     upgraded=$?
     set -e
     if [ "$upgraded" -eq 0 ]; then
-        echo "ok   $format $image: $tag upgraded to $VERSION revision $REVISION"
+        echo "ok   $format $image: $from upgraded to $VERSION revision $REVISION"
         passed=$((passed + 1))
     else
         echo "FAIL $format $image"
