@@ -623,6 +623,8 @@ run "9. next-revision.sh: the revision a build needs to upgrade what is publishe
 run "9. revision-decide.sh: when the packages of a release are published, as revision 0 or a later one" sh scripts/revision-decide-test.sh
 run "9. freebsd-lib.sh: the FreeBSD machines, their device, job folder and package check" \
   sh scripts/freebsd-lib-test.sh
+run "9. freebsd-job.sh retry: a failing command is tried up to three times, stops at the first success, and says what failed" \
+  sh scripts/freebsd-retry-test.sh
 run "9. freebsd-repo-files.sh: the input archive of a FreeBSD machine holds the key and is removed" \
   sh scripts/freebsd-repo-files-test.sh
 run "9. freebsd-service-test.sh: the FreeBSD packages leave the service off, and tell how to turn it on" \

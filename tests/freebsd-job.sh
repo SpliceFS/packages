@@ -48,6 +48,28 @@ note_fail() {
   failed=1
 }
 
+# retry <tries> <pause seconds> <failure message> <command> [argument ...]
+# Runs the command up to <tries> times and stops at the first success. It pauses between the
+# tries, not after the last, and prints the failure message when the last try failed. For work
+# that depends on a server this project does not run, and nothing else. Tested on the host by
+# scripts/freebsd-retry-test.sh, which reads this function from here.
+retry() {
+  retry_tries="$1"
+  retry_pause="$2"
+  retry_message="$3"
+  shift 3
+  retry_try=1
+  until "$@"; do
+    if [ "$retry_try" -ge "$retry_tries" ]; then
+      echo "FAIL: $retry_message after $retry_try tries"
+      return 1
+    fi
+    echo "try $retry_try of $retry_tries failed, trying again in $retry_pause seconds: $*"
+    retry_try=$((retry_try + 1))
+    sleep "$retry_pause"
+  done
+}
+
 # Runs the shell on the given script and arguments. The output is kept in $out and shown,
 # and the exit status is left in $status, because a refusal is an answer to check here.
 run_sh() {
