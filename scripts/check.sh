@@ -5,7 +5,11 @@ set -u
 
 cd "$(dirname "$0")/.." || exit 1
 TMP=$(mktemp -d)
-trap 'rm -rf "$TMP"' EXIT
+# shellcheck source=short-tmp-lib.sh
+. scripts/short-tmp-lib.sh
+# Where the gpg homes of section 8 are: made when that section runs.
+GPG_TMP=
+trap 'rm -rf "$TMP"; [ -z "$GPG_TMP" ] || remove_short_tmp "$GPG_TMP"' EXIT
 FAILS=0
 
 pass() { echo "PASS  $1"; }
@@ -381,14 +385,15 @@ if ! command -v gpg >/dev/null 2>&1; then
 elif ! command -v rsync >/dev/null 2>&1; then
   skip "8. rsync is not on the PATH, signing and publishing not checked"
 else
-  mkdir -p "$TMP/gk" "$TMP/ka" "$TMP/kb"
-  chmod 700 "$TMP/gk"
+  GPG_TMP=$(short_tmp_dir)
+  mkdir -p "$GPG_TMP/gk" "$TMP/ka" "$TMP/kb"
+  chmod 700 "$GPG_TMP/gk"
   for k in a b; do
-    GNUPGHOME=$TMP/gk gpg --batch --quiet --pinentry-mode loopback --passphrase '' \
+    GNUPGHOME=$GPG_TMP/gk gpg --batch --quiet --pinentry-mode loopback --passphrase '' \
       --quick-generate-key "check-$k <check-$k@example.invalid>" rsa3072 sign never 2>/dev/null
-    GNUPGHOME=$TMP/gk gpg --batch --armor --export "check-$k@example.invalid" \
+    GNUPGHOME=$GPG_TMP/gk gpg --batch --armor --export "check-$k@example.invalid" \
       > "$TMP/k$k/splicefs.asc"
-    GNUPGHOME=$TMP/gk gpg --batch --pinentry-mode loopback --passphrase '' --armor \
+    GNUPGHOME=$GPG_TMP/gk gpg --batch --pinentry-mode loopback --passphrase '' --armor \
       --export-secret-keys "check-$k@example.invalid" > "$TMP/k$k/secret.asc" 2>/dev/null
     cp keys/splicefs.rsa.pub "$TMP/k$k/"
   done
@@ -402,10 +407,12 @@ else
     fail "8. site builds with a throwaway public key"
     sed 's/^/        /' "$TMP/out"
   fi
-  sign() { SITE_DIR=$SIGNSITE KEYS_DIR=$TMP/ka SIGNING_KEY_FILE=$1 sh scripts/sign-site.sh; }
+  # sign-site.sh makes its gpg homes in TMPDIR, so it is given the short folder: its signing home
+  # needs an agent.
+  sign() { TMPDIR=$GPG_TMP SITE_DIR=$SIGNSITE KEYS_DIR=$TMP/ka SIGNING_KEY_FILE=$1 sh scripts/sign-site.sh; }
 
   run "8. sign-site.sh signs with the matching key" sign "$TMP/ka/secret.asc"
-  verify_home=$TMP/vh
+  verify_home=$GPG_TMP/vh
   mkdir "$verify_home"
   chmod 700 "$verify_home"
   GNUPGHOME=$verify_home gpg --batch --quiet --import "$TMP/ka/splicefs.asc" 2>/dev/null
@@ -449,7 +456,7 @@ else
   cp -R "$SIGNSITE" "$TMP/sitews"
   rm -f "$TMP/sitews/setup.sh.asc"
   sed '1s/$/ /' "$SIGNSITE/setup.sh" > "$TMP/sitews/setup.sh"
-  if SITE_DIR=$TMP/sitews KEYS_DIR=$TMP/ka SIGNING_KEY_FILE=$TMP/ka/secret.asc \
+  if TMPDIR=$GPG_TMP SITE_DIR=$TMP/sitews KEYS_DIR=$TMP/ka SIGNING_KEY_FILE=$TMP/ka/secret.asc \
     sh scripts/sign-site.sh > "$TMP/out" 2>&1; then
     fail "8. sign-site.sh refuses a setup.sh that ends a line in a blank"
   elif grep -q 'byte for byte' "$TMP/out" && [ ! -e "$TMP/sitews/setup.sh.asc" ]; then
@@ -466,7 +473,7 @@ else
   cp -R "$SIGNSITE" "$TMP/sitenew"
   sed '1a\
 # a newer script' "$SIGNSITE/setup.sh" > "$TMP/sitenew/setup.sh"
-  SITE_DIR=$TMP/sitenew KEYS_DIR=$TMP/ka SIGNING_KEY_FILE=$TMP/ka/secret.asc \
+  TMPDIR=$GPG_TMP SITE_DIR=$TMP/sitenew KEYS_DIR=$TMP/ka SIGNING_KEY_FILE=$TMP/ka/secret.asc \
     sh scripts/sign-site.sh > "$TMP/out" 2>&1 || { fail "8. signing the newer script"; cat "$TMP/out"; }
   mix_ok=1
   for sh_ver in sitesign sitenew; do
