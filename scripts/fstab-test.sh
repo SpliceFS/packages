@@ -38,26 +38,13 @@ cleanup() {
 trap cleanup EXIT
 trap 'exit 130' INT TERM
 
-# A server with one share (media, holding hello.txt) and one user, in plain HTTP on the loopback
-# address, and the client's cluster file and fstab line for it. The server is a fixture of this
-# test, not a package under test, so it is started the plain way.
+# The real server, and the client's cluster file and fstab line for it.
+# shellcheck source=server-fixture-lib.sh
+. scripts/server-fixture-lib.sh
 # The script runs in the container, so the variables in it are meant to stay unexpanded here.
 # shellcheck disable=SC2016
-SERVER_SETUP='
-set -eu
-mkdir -p /srv/data /srv/etc/conf.d /srv/etc/shares.d /srv/state/shared/users /mnt/files
-echo hello >/srv/data/hello.txt
-# The server utilities are in splicefsdctl; releases before it had hash-password in splicefsd.
-if [ -x /srvbin/splicefsdctl ]; then
-    hash="$(printf "secret\n" | /srvbin/splicefsdctl hash-password)"
-else
-    hash="$(printf "secret\n" | /srvbin/splicefsd hash-password)"
-fi
-printf "password_hash: \"%s\"\nshares: [media]\n" "$hash" >/srv/state/shared/users/alice.yaml
-printf "listen:\n  - address: 127.0.0.1\n    port: 18490\n    plain: true\ncluster:\n  node: n1\n  url: \"http://127.0.0.1:18490/api\"\n" \
-    >/srv/etc/conf.d/10-server.yaml
-printf "path: /srv/data\n" >/srv/etc/shares.d/media.yaml
-nohup /srvbin/splicefsd --config /srv/etc --state /srv/state >/tmp/server.log 2>&1 &
+CLIENT_SETUP='
+mkdir -p /mnt/files
 printf "url: http://127.0.0.1:18490/api\nuser: alice\npassword_file: /etc/splicefs/client/secret\n" \
     >/etc/splicefs/client/clusters.d/test.yaml
 printf "secret\n" >/etc/splicefs/client/secret
@@ -80,10 +67,6 @@ printf "#!/bin/sh\nsleep %s\nexec /usr/local/real/splicefs \"\$@\"\n" "$1" >/usr
 chmod 755 /usr/bin/splicefs
 '
 
-server_answers() {
-    docker exec "$1" wget -qO /dev/null http://127.0.0.1:18490/api/v1/health
-}
-
 client_answers() {
     docker exec "$1" splicefsctl status >/dev/null 2>&1
 }
@@ -101,7 +84,7 @@ run_checks() {
     must "OpenRC did not finish booting" wait_booted apk "$c"
     must "installing the package failed" install_package "$c"
     docker exec "$c" test -x /sbin/mount.splicefs || fail "/sbin/mount.splicefs is missing"
-    docker exec "$c" sh -c "$SERVER_SETUP" || fail "setting up the server and the fstab line failed"
+    docker exec "$c" sh -c "$SERVER_FIXTURE$CLIENT_SETUP" || fail "setting up the server and the fstab line failed"
     must "the server does not answer after 20 seconds" wait_for 20 server_answers "$c"
     docker exec "$c" sh -c "$SLOW_CLIENT" sh "$CLIENT_DELAY" || fail "installing the slow client failed"
     must "the documented start command failed" service_start_enable "$c"

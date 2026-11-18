@@ -239,6 +239,15 @@ SERVER_BIN ?=
 fstab-test: built-apk-packages
 	$(TEST_VARS) SERVER_BIN=$(SERVER_BIN) scripts/fstab-test.sh
 
+# Proves that an ordinary user can run the client under their own account, with the commands of
+# "Run as yourself" (scripts/user-mode-test.sh): on the first system of each format in
+# packaging/test-systems it installs the client package next to a real server (SERVER_BIN, as for
+# fstab-test), and as a new user starts the client, mounts a folder, reads a file and unmounts,
+# then checks that nothing of root's was touched.
+.PHONY: user-mode-test
+user-mode-test: built-packages
+	$(TEST_VARS) SERVER_BIN=$(SERVER_BIN) scripts/user-mode-test.sh
+
 # The part of the upgrade test that decides whether the packaging changed, checked against small
 # hand-made package listings. It needs no Docker, so it is part of check.
 .PHONY: upgrade-diff-test upgrade-test

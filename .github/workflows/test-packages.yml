@@ -106,7 +106,8 @@ jobs:
   # The client mounts from the boot mounts of the system (OpenRC's netmount on Alpine). That
   # needs a real server to mount from: the newest release of the server, proven by its
   # signature and unpacked the way the packages are built from a release. Only the client has
-  # this test; the server has nothing to mount.
+  # this test; the server has nothing to mount. The same server serves the test of the client
+  # run by an ordinary user.
   fstab-test:
     name: Mount from fstab (${{ matrix.arch }})
     if: ${{ inputs.program == 'client' }}
@@ -150,3 +151,9 @@ jobs:
           PROGRAM: ${{ inputs.program }}
           ARCH: ${{ matrix.arch }}
         run: make fstab-test PROGRAM="$PROGRAM" SERVER_BIN="$RUNNER_TEMP/bin/linux-$ARCH"
+      - name: Run the client as an ordinary user, on the first system of each format
+        working-directory: packages
+        env:
+          PROGRAM: ${{ inputs.program }}
+          ARCH: ${{ matrix.arch }}
+        run: make user-mode-test PROGRAM="$PROGRAM" SERVER_BIN="$RUNNER_TEMP/bin/linux-$ARCH"
