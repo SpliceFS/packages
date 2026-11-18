@@ -342,7 +342,8 @@ RUN
     # seen by asking for the process; the next case starts only after it is gone, because its last
     # act is a write into the folder that the next case makes again.
     if [ -f "$box/client.pid" ]; then
-        end_left_over "$(cat "$box/client.pid")"
+        left_over="$(cat "$box/client.pid")"
+        end_left_over "$left_over"
     fi
     user_mode_said="$(cat "$box/said")"
     um_fail='' um_client=ready um_socket='alice 700' um_fuse_stat='crw-rw---- operator' um_fuse=file um_cache=home
