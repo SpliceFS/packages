@@ -1,0 +1,175 @@
+name: Build packages
+
+# Builds the deb, rpm and Alpine packages of a SpliceFS program and the signed repositories, on
+# amd64 and arm64, and says what was packaged. package-and-test.yml calls it and then tests what
+# it built; the CI of this repository calls it too, for both programs, so that the lifecycle
+# test starts as soon as the packages exist and does not wait for the tests of each package.
+# The call ends when the packages are in the artifacts packages-<program>-<arch>. Every key is
+# a throwaway key made in the run (see package-and-test.yml for the inputs).
+on:
+  workflow_call:
+    inputs:
+      program:
+        description: The program to package, a folder of programs/ (server or client)
+        type: string
+        required: true
+      bin-artifact:
+        description: Artifact of the calling run that holds dist/bin; empty tests the newest release
+        type: string
+        default: ""
+      packages-ref:
+        description: Commit, branch or tag of SpliceFS/packages to use; keep it the ref of the uses line
+        type: string
+        default: main
+    outputs:
+      repository:
+        description: Where the source of the program is
+        value: ${{ jobs.source.outputs.repository }}
+      ref:
+        description: The commit or tag of the source
+        value: ${{ jobs.source.outputs.ref }}
+      upgrade-from:
+        description: The release the upgrade tests start from; empty when the caller built the programs
+        value: ${{ jobs.source.outputs.upgrade-from }}
+      version:
+        description: The version that was packaged
+        value: ${{ jobs.source.outputs.version }}
+      revision:
+        description: The revision of the packages
+        value: ${{ jobs.source.outputs.revision }}
+      freebsd-releases:
+        description: The FreeBSD releases to build on, as JSON
+        value: ${{ jobs.source.outputs.freebsd-releases }}
+
+permissions:
+  contents: read
+
+jobs:
+  # Says what is packaged, once, so that every job of the run packages the same thing: where
+  # the source is (the newest release is named here, also when a release is made meanwhile),
+  # the version and revision of every package format, and the FreeBSD releases to build on. The
+  # newest release is read here and nowhere else in the run: the packages record it
+  # (upgrade-from), and the tests start their upgrade from the recorded one, because a release
+  # made meanwhile is newer than the packages and would turn the upgrade into a downgrade.
+  source:
+    name: Source
+    runs-on: ubuntu-latest
+    outputs:
+      repository: ${{ steps.release.outputs.repository || github.repository }}
+      ref: ${{ steps.release.outputs.ref || github.sha }}
+      upgrade-from: ${{ steps.release.outputs.ref }}
+      version: ${{ steps.version.outputs.version }}
+      revision: ${{ steps.version.outputs.revision }}
+      freebsd-releases: ${{ steps.freebsd.outputs.releases }}
+    steps:
+      - name: Packages
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: SpliceFS/packages
+          ref: ${{ inputs.packages-ref }}
+          persist-credentials: false
+      - name: Newest release of the program
+        id: release
+        if: ${{ inputs.bin-artifact == '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PROGRAM: ${{ inputs.program }}
+        run: |
+          . scripts/program-conf.sh
+          tag="$(gh release view --repo "$release_repo" --json tagName --jq .tagName)"
+          echo "newest release of $PROGRAM: $tag of $release_repo"
+          echo "repository=$release_repo" >> "$GITHUB_OUTPUT"
+          echo "ref=$tag" >> "$GITHUB_OUTPUT"
+      - name: Source of the program
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ steps.release.outputs.repository || github.repository }}
+          ref: ${{ steps.release.outputs.ref || github.sha }}
+          path: src
+          persist-credentials: false
+      - name: Version and revision of the packages
+        id: version
+        env:
+          PROGRAM: ${{ inputs.program }}
+          NEWEST_RELEASE: ${{ inputs.bin-artifact == '' }}
+        run: |
+          version="v$(cat src/VERSION)"
+          revision=0
+          if [ "$NEWEST_RELEASE" = true ]; then
+            revision="$(scripts/next-revision.sh "$PROGRAM" "$version")"
+          fi
+          echo "packaging $PROGRAM $version as revision $revision"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "revision=$revision" >> "$GITHUB_OUTPUT"
+      - name: List the FreeBSD releases as JSON
+        id: freebsd
+        run: echo "releases=$(scripts/freebsd-releases.sh)" >> "$GITHUB_OUTPUT"
+
+  # Once for each CPU type the runners offer. The repositories are made here too, because they
+  # need the packages of all three formats. The jobs below test what this job leaves in dist.
+  packages:
+    name: Packages (${{ matrix.arch }})
+    needs: source
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            arch: amd64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+    steps:
+      - name: Packages
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: SpliceFS/packages
+          ref: ${{ inputs.packages-ref }}
+          path: packages
+          persist-credentials: false
+      - name: Source of the program
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ needs.source.outputs.repository }}
+          ref: ${{ needs.source.outputs.ref }}
+          path: src
+          persist-credentials: false
+      - name: Programs of the calling build
+        if: ${{ inputs.bin-artifact != '' }}
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ${{ inputs.bin-artifact }}
+          path: bin
+      - name: Programs of the release, proven by its signature
+        if: ${{ inputs.bin-artifact == '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PROGRAM: ${{ inputs.program }}
+          REPOSITORY: ${{ needs.source.outputs.repository }}
+          TAG: ${{ needs.source.outputs.ref }}
+        run: |
+          gh release download "$TAG" --repo "$REPOSITORY" --dir release \
+            --pattern '*-linux-*.tar.gz' --pattern SHA256SUMS --pattern SHA256SUMS.asc
+          packages/scripts/release-bin.sh "$TAG" "$PWD/release" "$PWD/bin"
+      - name: Build the deb, rpm and apk packages
+        working-directory: packages
+        env:
+          PROGRAM: ${{ inputs.program }}
+          VERSION: ${{ needs.source.outputs.version }}
+          REVISION: ${{ needs.source.outputs.revision }}
+          UPGRADE_FROM: ${{ needs.source.outputs.upgrade-from }}
+        run: |
+          make packages PROGRAM="$PROGRAM" BIN="$GITHUB_WORKSPACE/bin" SRC="$GITHUB_WORKSPACE/src" \
+            VERSION="$VERSION" REVISION="$REVISION" UPGRADE_FROM="$UPGRADE_FROM"
+      - name: Build the signed package repositories
+        working-directory: packages
+        env:
+          PROGRAM: ${{ inputs.program }}
+        run: make repo PROGRAM="$PROGRAM"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: packages-${{ inputs.program }}-${{ matrix.arch }}
+          path: |
+            packages/dist/${{ inputs.program }}/
+            packages/dist/keys/
+          if-no-files-found: error
