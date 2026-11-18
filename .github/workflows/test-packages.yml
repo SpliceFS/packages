@@ -3,7 +3,7 @@ name: Test packages
 # Tests the packages of a SpliceFS program on the server images of packaging/test-systems: the
 # package, the service under the real service manager, the repository with signature checks on,
 # and the upgrade from the last published version. package-and-test.yml calls it for the
-# packages it builds with throwaway keys, and publish-program.yml for the packages a release
+# packages it builds with throwaway keys, and publish-one-program.yml for the packages a tag
 # signs with the real keys, so both run the same tests.
 #
 # The artifact holds the dist folder of the build: dist/<program> (the packages, their
