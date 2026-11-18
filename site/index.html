@@ -493,6 +493,54 @@ pkg install splicefs-client    # the client
       <li>Client: one file per cluster in <code class="inline">/etc/splicefs/client/clusters.d</code> and one per mount in <code class="inline">/etc/splicefs/client/mounts.d</code> <a href="https://github.com/SpliceFS/client/blob/main/docs/configuration.md">Client configuration</a></li>
     </ul>
   </section>
+
+  <section class="after">
+    <h2>Run as yourself</h2>
+    <p>The services run as root. To run the client as yourself instead, install the package, leave the service off, and start the client from your own account. It needs no <code class="inline">sudo</code>: your configuration, your password and your cache are in your home directory, and the mount is yours.</p>
+    <p>Linux: the package depends on <code class="inline">fuse3</code>, and <code class="inline">fusermount3</code> from it is what mounts for an ordinary user. The package does not change that program. If <code class="inline">/dev/fuse</code> does not exist, load the module once, as root: <code class="inline">modprobe fuse</code>.</p>
+    <p>FreeBSD, once, as root. The package sets none of this. <code class="inline">vfs.usermount</code> lets a user mount, the <code class="inline">operator</code> group may open <code class="inline">/dev/fuse</code> after the devfs rule, and the <code class="inline">fusefs</code> module must be loaded because the service that loads it is off. Log in again after the group change. The folder you mount on must be yours.</p>
+    <ul>
+      <li><code class="inline">sysctl vfs.usermount=1</code></li>
+      <li><code class="inline">echo 'vfs.usermount=1' &gt;&gt; /etc/sysctl.conf</code></li>
+      <li><code class="inline">sysrc kld_list+=fusefs &amp;&amp; kldload fusefs</code></li>
+      <li><code class="inline">pw groupmod operator -m alice</code></li>
+      <li><code class="inline">printf '[fuse_users=10]\nadd path fuse mode 0660 group operator\n' &gt;&gt; /etc/devfs.rules</code></li>
+      <li><code class="inline">sysrc devfs_system_ruleset=fuse_users &amp;&amp; service devfs restart</code></li>
+    </ul>
+    <p>Start the client as yourself. This block makes your folders and your cluster, then runs the client in the foreground, so give it a terminal of its own. Change the address and the user to your cluster's; the cluster must exist, as in the quick start of the client. This needs client 0.5.36 or newer; an older client wants <code class="inline">--config</code> and a <code class="inline">cache.dir</code> setting.</p>
+    <div class="block"><div class="bar"><span class="label">Shell</span></div><pre><code># Your own folders, in your home directory: your cluster and its password.
+config="${XDG_CONFIG_HOME:-$HOME/.config}/splicefs/client"
+mkdir -p "$config/clusters.d" "$config/secrets" ~/files
+
+# Your cluster. The file name is the cluster name.
+cat &gt; "$config/clusters.d/example.yaml" &lt;&lt;'EOF'
+url: "https://east.example.com/api"
+user: alice
+password_file: secrets/example
+EOF
+(umask 077; cat &gt; "$config/secrets/example")   # type the password, then Ctrl-D
+
+# Start the client as yourself. It stays in the foreground: give it a terminal of its own.
+splicefs
+</code></pre></div>
+    <p>In a second terminal, mount the cluster in your folder, look at it, read a file, and unmount it:</p>
+    <div class="block"><div class="bar"><span class="label">Shell</span></div><pre><code># In a second terminal: mount the cluster in your folder, see it, read it, unmount it.
+splicefsctl mount example:/ ~/files
+splicefsctl status
+ls ~/files
+cat ~/files/media/hello.txt   # a file of your cluster
+splicefsctl umount ~/files
+</code></pre></div>
+    <p>To stop the client, press Ctrl-C in its terminal. It unmounts what it mounted.</p>
+    <p>Where the files go, with no option and no setting:</p>
+    <ul>
+      <li>Your settings, clusters and password are in <code class="inline">~/.config/splicefs/client</code>. <code class="inline">$XDG_CONFIG_HOME</code> replaces the <code class="inline">~/.config</code> part.</li>
+      <li>The cache is in <code class="inline">~/.cache/splicefs</code>. <code class="inline">$XDG_CACHE_HOME</code> replaces the <code class="inline">~/.cache</code> part.</li>
+      <li>The control socket is in <code class="inline">splicefs</code> under <code class="inline">$XDG_RUNTIME_DIR</code>, or in <code class="inline">/tmp/splicefs-&lt;uid&gt;</code> (only you may enter it) when that variable is not set. <code class="inline">splicefsctl</code> finds it by itself.</li>
+      <li>Nothing is written to <code class="inline">/etc</code> or to the service manager.</li>
+    </ul>
+    <p>This is tested on Linux. On FreeBSD the steps are written down and not tested yet.</p>
+  </section>
 </main>
 <footer>
   <div class="wrap">
