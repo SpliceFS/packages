@@ -6,6 +6,10 @@ the setup script and the page at packages.splicefs.org.
 
 The change log of all parts of SpliceFS, side by side: https://splicefs.org/changelog/
 
+## [0.4.26] - 2026-11-18
+
+- Internal: the lifecycle test no longer counts files of the systems' own services.
+
 ## [0.4.25] - 2026-11-18
 
 - Internal: fixes the package tests, which could not run one of their scripts, and a publish that
