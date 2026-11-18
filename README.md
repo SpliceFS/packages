@@ -113,6 +113,79 @@ echo 'example:/ /mnt/files splicefs ro,late,failok,mountprog=/usr/local/sbin/mou
 stopping the boot; without it FreeBSD drops into single user mode. Run `mount /mnt/files` once by
 hand to see that the line works.
 
+## Run as yourself
+
+The services run as root. To run the client as yourself instead, install the package, leave the
+service off, and start the client from your own account. It needs no `sudo`: your configuration,
+your password and your cache are in your home directory, and the mount is yours.
+
+Linux: the package depends on `fuse3`, and `fusermount3` from it is what mounts for an ordinary
+user. The package does not change that program. If `/dev/fuse` does not exist, load the module
+once, as root: `modprobe fuse`.
+
+FreeBSD (pkg), once, as root. The package sets none of this. `vfs.usermount` lets a user mount,
+the `operator` group may open `/dev/fuse` after the devfs rule, and the `fusefs` module must be
+loaded because the service that loads it is off. Log in again after the group change. The folder
+you mount on must be yours.
+
+```
+sysctl vfs.usermount=1
+echo 'vfs.usermount=1' >> /etc/sysctl.conf
+sysrc kld_list+=fusefs && kldload fusefs
+pw groupmod operator -m alice
+printf '[fuse_users=10]\nadd path fuse mode 0660 group operator\n' >> /etc/devfs.rules
+sysrc devfs_system_ruleset=fuse_users && service devfs restart
+```
+
+Start the client as yourself. The first block makes your folders and your cluster, then runs the
+client in the foreground, so give it a terminal of its own. Change the address and the user to
+your cluster's; the cluster must exist, as in the quick start of the client:
+
+```
+# Your own folders, all in your home directory: settings, the password and the cache.
+config=~/.config/splicefs/client
+mkdir -p "$config/conf.d" "$config/clusters.d" "$config/secrets" ~/files
+printf 'cache:\n  dir: %s/.cache/splicefs\n' "$HOME" > "$config/conf.d/10-cache.yaml"
+
+# Your cluster. The file name is the cluster name.
+cat > "$config/clusters.d/example.yaml" <<'EOF'
+url: "https://east.example.com/api"
+user: alice
+password_file: secrets/example
+EOF
+(umask 077; cat > "$config/secrets/example")   # type the password, then Ctrl-D
+
+# Start the client as yourself. It stays in the foreground: give it a terminal of its own.
+splicefs --config "$config"
+```
+
+In a second terminal, mount the cluster in your folder, look at it, read a file, and unmount it:
+
+```
+# In a second terminal: mount the cluster in your folder, see it, read it, unmount it.
+config=~/.config/splicefs/client
+splicefsctl --config "$config" mount example:/ ~/files
+splicefsctl --config "$config" status
+ls ~/files
+splicefsctl --config "$config" umount ~/files
+```
+
+To stop the client, press Ctrl-C in its terminal. It unmounts what it mounted.
+
+Where the files go:
+
+- The client reads the folder named by `--config`, here `~/.config/splicefs/client`. Without it
+  the client looks in the system folder, so give `--config` to `splicefs` and `splicefsctl`
+  every time.
+- The cache is `~/.cache/splicefs`, set by the `cache.dir` setting written above. The system
+  default, `/var/cache/splicefs`, is not yours to write.
+- The control socket is in `$XDG_RUNTIME_DIR/splicefs`, or in `/tmp/splicefs` when that variable
+  is not set. The commands find it from the `--config` folder.
+- Nothing is written to `/etc` or to the service manager.
+
+This is tested on Linux (`make user-mode-test`). On FreeBSD the steps are written down and not
+tested yet.
+
 ## Remove the repository
 
 `sh setup.sh --remove` takes away what the setup added, and nothing else: the repository
@@ -289,6 +362,7 @@ make packages PROGRAM=server BIN=<programs> SRC=<source> VERSION=v1.2.3   # buil
 make package-test PROGRAM=server   # installs and removes each package on every server image (ONLY=deb or ONLY=<image> for one)
 make service-test PROGRAM=server   # proves the service installs idle, starts when told, answers, restarts, upgrades and stops, on every image
 make fstab-test PROGRAM=client SERVER_BIN=<splicefsd folder>   # proves an fstab line is mounted by OpenRC's netmount on every Alpine image
+make user-mode-test PROGRAM=client SERVER_BIN=<splicefsd folder>   # proves an ordinary user can run the client and mount, on the first image of each format
 make upgrade-test PROGRAM=server  # installs the newest published release, then upgrades to the packages in dist (only when the packaging changed)
 make repo PROGRAM=server           # builds the signed apt, rpm and Alpine repositories into dist/server/repo
 make repo-test PROGRAM=server      # installs from them with signature checks on

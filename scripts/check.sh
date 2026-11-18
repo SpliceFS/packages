@@ -74,6 +74,9 @@ step = {k: open("steps/%s.sh" % k).read() for k in families}
 # The uninstall commands. The lifecycle test runs these same files, so what the page and the
 # README show is what the test proves.
 uninstall = {k: open("steps/uninstall-%s.sh" % k).read() for k in families}
+# The commands of "Run as yourself", in the order the page shows them: start, then use. The
+# container test (scripts/user-mode-test.sh) runs these same files as an ordinary user.
+user_mode = [open("steps/user-mode-%s.sh" % k).read() for k in ("start", "use")]
 base = "https://packages.splicefs.org"
 curl = "curl --proto '=https' --tlsv1.2 -fsSL %s/setup.sh -o ~/splicefs-setup.sh &&\n  sudo sh ~/splicefs-setup.sh\n" % base
 wget = "wget -qO ~/splicefs-setup.sh %s/setup.sh &&\n  sudo sh ~/splicefs-setup.sh\n" % base
@@ -90,12 +93,15 @@ verify_signed = ("gpg --verify ~/splicefs-setup.sh.asc &&\n"
 remove = [b.replace("splicefs-setup.sh\n", "splicefs-setup.sh --remove\n") for b in (curl, wget, fetch)]
 # The page shows the uninstall commands after the removal of the repository, then the manual steps.
 expected = ([curl, wget, fetch, get_signed, verify_signed] + remove +
-            [uninstall[k] for k in families] + [step[k] for k in families])
+            [uninstall[k] for k in families] + [step[k] for k in families] + user_mode)
 bad = 0
 readme = open("README.md", encoding="ascii").read()
 for k in families:
     if "```\n" + uninstall[k] + "```\n" not in readme:
         print("README.md does not show steps/uninstall-%s.sh as a code block" % k); bad += 1
+for k, text in zip(("start", "use"), user_mode):
+    if "```\n" + text + "```\n" not in readme:
+        print("README.md does not show steps/user-mode-%s.sh as a code block" % k); bad += 1
 if len(blocks) != len(expected):
     print("page has %d code blocks, expected %d" % (len(blocks), len(expected))); bad += 1
 for i, (got, want) in enumerate(zip(blocks, expected)):
