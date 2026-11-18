@@ -22,7 +22,7 @@ name: Publish programs
 # whatever folder it is for. So the run talks to the site twice, never at once: the fetch job reads
 # what is published of every program, one after another, and hands it on as an artifact; the
 # publish job, after every build and test of every program has passed, writes the repositories of
-# each program and then the site files, one after another. scripts/site-order-test.sh proves from
+# each program and then the site files (the setup script, the keys, the page that sends people to the website), one after another. scripts/site-order-test.sh proves from
 # `needs` that no other job of the run of a tag opens a session. The jobs that only read the site
 # (the revision, the decision and the tests) use HTTPS, which has no such limit.
 on:

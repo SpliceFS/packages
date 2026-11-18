@@ -1,7 +1,7 @@
 #!/bin/sh
 # Proves that an ordinary user can run the client under their own account, with the commands of
-# "Run as yourself" (steps/user-mode-start.sh and steps/user-mode-use.sh, which make check
-# compares with the README and the install page). In a booted container of the first system of each
+# "Run as yourself" (steps/user-mode-start.sh and steps/user-mode-use.sh, the commands the install
+# page of the website shows). In a booted container of the first system of each
 # format in packaging/test-systems it installs the client package, starts a real server, adds an
 # ordinary user, and as that user runs the documented commands, which give no --config and no cache
 # setting: the client starts, mounts a folder of the server in the user's folder, a file reads, and
