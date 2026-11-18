@@ -149,8 +149,9 @@ holds "splicefs: a start that fails says why" "does not answer" "$said"
 # check-lib.sh runs in the machine with the real rcorder and mount. Here stand-ins show that its
 # checks tell a good boot order and a late line that reaches the helper from a bad one. $1 the
 # order rcorder prints (names of scripts, one to a line), $2 what the stand-in mount does for a
-# late line ("helper" prints the helper's own message and fails, "mounted" succeeds without it)
-# and for a plain mount -a ("skipped" prints nothing, "ran" runs the late line). Sets
+# late line ("helper" prints the helper's refusal and, as mount(8) does, fails unless the line
+# says failok; "nofailok" fails even then; "mounted" succeeds without the helper) and for a plain
+# mount -a ("skipped" prints nothing, "ran" runs the late line). Sets
 # machine_status to the status of the checks and machine_said to what they said.
 machine_checks() {
     box="$tree/machine"
@@ -163,7 +164,11 @@ machine_checks() {
 #!/bin/sh
 case " $* " in
     *" -L "*) [ "$MOUNT_LATE" = mounted ] && exit 0
-              echo "mount.splicefs: cluster nocluster is not defined" >&2; exit 1 ;;
+              echo "mount.splicefs: cluster nocluster is not defined" >&2
+              fstab="$(printf '%s\n' "$@" | awk 'f { print; exit } $0 == "-F" { f = 1 }')"
+              [ "$MOUNT_LATE" = helper ] && grep -q ',failok,' "$fstab" && exit 0
+              exit 1 ;;
+    "  ") exit 0 ;;
     *) [ "$MOUNT_PLAIN" = ran ] && echo "mount.splicefs: cluster nocluster is not defined" >&2
        exit 0 ;;
 esac
@@ -193,9 +198,12 @@ machine_checks '/etc/rc.d/mountlate
 holds "the machine refuses mountlate before splicefs" "FAIL: rcorder starts mountlate" "$machine_said"
 machine_checks '/etc/rc.d/mountlate' helper skipped
 holds "the machine refuses an rcorder list without splicefs" "FAIL: rcorder does not list" "$machine_said"
+machine_checks "$good_order" nofailok skipped
+holds "the machine refuses a late line whose failure would stop the boot" \
+    "FAIL: mount -a -L failed for a failok line" "$machine_said"
 machine_checks "$good_order" mounted skipped
-holds "the machine refuses a late line that mounted a cluster that is not defined" \
-    "FAIL: mount -a -L mounted" "$machine_said"
+holds "the machine refuses a late line that did not reach the helper" \
+    "FAIL: mount -a -L did not run the helper" "$machine_said"
 machine_checks "$good_order" helper ran
 holds "the machine refuses a plain mount -a that runs a late line" "FAIL: mount -a ran the late line" \
     "$machine_said"
@@ -316,7 +324,7 @@ PROGRAMS
 # The fstab line of the client. The helper it names is the link that the package installs, so the
 # path is read from the links file, moved to /usr/local as the FreeBSD package does.
 helper="$(awk '!/^#/ && NF { print $1; exit }' programs/client/links | sed 's|^/usr/|/usr/local/|')"
-fstab_line="example:/ /mnt/files splicefs ro,late,mountprog=$helper 0 0"
+fstab_line="example:/ /mnt/files splicefs ro,late,failok,mountprog=$helper 0 0"
 for document in "README.md:$readme" "the install page:$page"; do
     holds "${document%%:*} shows the FreeBSD fstab line, with the helper the package installs" \
         "$fstab_line" "${document#*:}"

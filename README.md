@@ -106,11 +106,12 @@ boot, after the network and the daemons, and the client service starts before th
 (either works; the mount is read-only whatever is asked). Enable the service as above, then:
 
 ```
-echo 'example:/ /mnt/files splicefs ro,late,mountprog=/usr/local/sbin/mount.splicefs 0 0' >> /etc/fstab
+echo 'example:/ /mnt/files splicefs ro,late,failok,mountprog=/usr/local/sbin/mount.splicefs 0 0' >> /etc/fstab
 ```
 
-When a `late` line fails to mount, FreeBSD aborts the boot, so run `mount /mnt/files` once by hand
-first.
+`failok` keeps a line that fails to mount (for example while the cluster cannot be reached) from
+stopping the boot; without it FreeBSD drops into single user mode. Run `mount /mnt/files` once by
+hand to see that the line works.
 
 ## Remove the repository
 

@@ -51,16 +51,21 @@ check_late_line() {
     helper="$(awk 'NR == 1 { print $1 }' "$in/links")"
     fstab_file="$check_work/fstab"
     mkdir "$check_work/files"
-    printf 'nocluster:/ %s/files splicefs ro,late,mountprog=%s 0 0\n' "$check_work" "$helper" > "$fstab_file"
+    # The line as the documents show it, with failok: a line that fails must not stop the boot.
+    printf 'nocluster:/ %s/files splicefs ro,late,failok,mountprog=%s 0 0\n' "$check_work" "$helper" > "$fstab_file"
     # mount -a leaves late lines to mountlate, which would otherwise run before the client does.
     mount -a -F "$fstab_file" > "$check_work/plain.out" 2>&1 || true
     if grep -qF 'mount.splicefs:' "$check_work/plain.out"; then fail "mount -a ran the late line"; fi
-    if mount -a -L -F "$fstab_file" > "$check_work/late.out" 2>&1; then
-        fail "mount -a -L mounted a cluster that is not defined"
+    # mountlate runs mount -a -L; the cluster is not defined, so the helper is refused, and failok
+    # must turn that into success, or the boot would stop.
+    if ! mount -a -L -F "$fstab_file" > "$check_work/late.out" 2>&1; then
+        cat "$check_work/late.out"
+        fail "mount -a -L failed for a failok line: the boot would stop"
     fi
     if ! grep -qF 'mount.splicefs:' "$check_work/late.out"; then
         cat "$check_work/late.out"
         fail "mount -a -L did not run the helper $helper"
     fi
-    echo "mount -a -L: the late line ran the helper, which asked the client and was refused"
+    if mount | grep -qF "$check_work/files"; then fail "a cluster that is not defined was mounted"; fi
+    echo "mount -a -L: the late line ran the helper, was refused, and failok let the boot go on"
 }
