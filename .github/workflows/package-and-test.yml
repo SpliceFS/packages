@@ -52,13 +52,17 @@ permissions:
 jobs:
   # Says what is packaged, once, so that every job of the run packages the same thing: where
   # the source is (the newest release is named here, also when a release is made meanwhile),
-  # the version and revision of every package format, and the FreeBSD releases to build on.
+  # the version and revision of every package format, and the FreeBSD releases to build on. The
+  # newest release is read here and nowhere else in the run: the packages record it
+  # (upgrade-from), and the tests start their upgrade from the recorded one, because a release
+  # made meanwhile is newer than the packages and would turn the upgrade into a downgrade.
   source:
     name: Source
     runs-on: ubuntu-latest
     outputs:
       repository: ${{ steps.release.outputs.repository || github.repository }}
       ref: ${{ steps.release.outputs.ref || github.sha }}
+      upgrade-from: ${{ steps.release.outputs.ref }}
       version: ${{ steps.version.outputs.version }}
       revision: ${{ steps.version.outputs.revision }}
       freebsd-releases: ${{ steps.freebsd.outputs.releases }}
@@ -158,9 +162,10 @@ jobs:
           PROGRAM: ${{ inputs.program }}
           VERSION: ${{ needs.source.outputs.version }}
           REVISION: ${{ needs.source.outputs.revision }}
+          UPGRADE_FROM: ${{ needs.source.outputs.upgrade-from }}
         run: |
           make packages PROGRAM="$PROGRAM" BIN="$GITHUB_WORKSPACE/bin" SRC="$GITHUB_WORKSPACE/src" \
-            VERSION="$VERSION" REVISION="$REVISION"
+            VERSION="$VERSION" REVISION="$REVISION" UPGRADE_FROM="$UPGRADE_FROM"
       - name: Build the signed package repositories
         working-directory: packages
         env:

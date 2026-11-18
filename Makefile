@@ -245,8 +245,9 @@ fstab-test: built-apk-packages
 upgrade-diff-test:
 	scripts/upgrade-diff-test.sh
 
-# Installs the newest published release of the program (downloaded from the releases of the
-# repository named by release_repo in programs/PROGRAM/program.conf) in a clean, booted server of
+# Installs the published release of the program the packages were built next to (UPGRADE_FROM of
+# make packages; the newest release when the build recorded none), downloaded from the releases of
+# the repository named by release_repo in programs/PROGRAM/program.conf, in a clean, booted server of
 # the first system of each format in packaging/test-systems, writes a configuration line and a data
 # file, and installs the packages in dist/PROGRAM over it, the way a user upgrades. It checks that
 # both survived, the service user exists, the new version is installed and every file the new
