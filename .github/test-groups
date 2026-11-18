@@ -1,0 +1,34 @@
+# The test groups that each changed path of a pull request needs (scripts/changed-groups.sh).
+# A line is a shell pattern, in which * also matches /, and the groups it needs; a pattern alone
+# needs none. The checks job runs for every change, so a change that needs no group runs the
+# checks alone. The first line that matches a path decides, so a narrow pattern comes before a
+# wide one. A path that no line matches needs every group.
+#
+# packages  the version order, the packages of both programs, their tests on every system and
+#           CPU type, and the lifecycle test (ci.yml)
+# install   the setup script run on every system and on FreeBSD (install-tests.yml)
+
+# What is packaged, how, and how it is tested.
+programs/*                          packages install
+packaging/*                         packages install
+scripts/*                           packages install
+Makefile                            packages install
+# The lifecycle and user mode tests run the manual steps.
+steps/*                             packages install
+# The lifecycle test runs the setup script built from the template.
+setup.sh.in                         packages install
+# The release archives are proven with the published key before they are packaged.
+keys/*                              packages install
+# No test reads the pull request template or the settings of the dependency bot.
+.github/PULL_REQUEST_TEMPLATE.md
+.github/dependabot.yml
+.github/*                           packages install
+# The install tests and the systems they run on.
+tests/*                             install
+# Read by make check alone, or by no test.
+site/*
+*.md
+LICENSE
+.gitignore
+.shellcheckrc
+sonar-project.properties
