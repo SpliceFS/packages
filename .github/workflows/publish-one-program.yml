@@ -1,0 +1,395 @@
+name: Publish one program
+
+# Publishes the packages of one program of SpliceFS (server or client) to the package site, for
+# its latest GitHub release. publish-program.yml calls it once for each program of programs/ when a
+# number tag is pushed; nothing else starts it. Only the jobs that sign or upload are in the
+# publish environment, which holds SIGNING_OPENPGP_SUBKEY, SIGNING_ALPINE_KEY and UPLOAD_SSH_KEY;
+# each of them removes its key files at its end.
+#
+#   verify -> wait -> revision -> packages -> tests ----------+
+#                                 packages -> freebsd (each) -+--> publish -> homebrew, website
+#   verify, wait ---------------------------------------------+
+#
+# The packages are built once, from the archives of the release (proven by their signature) and
+# the source of the program at the tag of the release, and signed with the real keys. The tests
+# run on those files, on both CPU types. The publish job needs all of them. It fetches what is
+# published now, adds the packages, makes the signed repositories, and uploads in order: the
+# packages, then the index files and their signatures.
+#
+# What is published: the packages of a release that is not published at all are revision 0. When
+# it is, they are published as the next revision (scripts/next-revision.sh) only when the
+# packaging differs from the newest published revision (scripts/revision-listings.sh,
+# scripts/revision-decide.sh); a tag that changes nothing in the packaging publishes nothing. The
+# revision job computes the number once, after the wait, so that two runs that queue up never take
+# the same one. The packages job builds the packages and decides right after the build. When
+# nothing is to be published no later job runs and the run, which is green, says so in its
+# summary: the decision is made here, after the wait, so that two quick tags never publish two
+# revisions of the same packaging.
+#
+# FreeBSD: one job for each release in packaging/freebsd/releases builds the packages of both
+# CPU types in a machine of that release, from the same verified archives, installs the amd64
+# one from the repository it signed with the Alpine key (the install check of make
+# package-freebsd) and hands its part of the repository to the publish job.
+on:
+  workflow_call:
+    inputs:
+      program:
+        description: The program to publish, a folder of programs/ (server or client)
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+# One run publishes at a time, and none is ever cancelled: the wait job below makes every run wait
+# for the earlier ones. A concurrency group would drop a run that waits behind another, and a
+# release that is dropped is never published.
+jobs:
+  # Says which release of the program this run is about, once, so that every other job reads the
+  # same values: its latest published release (GitHub never calls a draft the latest). Nothing is
+  # built from a tag that is not a version tag. This job holds no key.
+  verify:
+    name: The latest release of the program
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.release.outputs.tag }}
+      repository: ${{ steps.release.outputs.repository }}
+      freebsd-releases: ${{ steps.freebsd.outputs.releases }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: The latest release is a version tag
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PROGRAM: ${{ inputs.program }}
+        run: |
+          # program-conf.sh refuses a name that is not a program of programs/.
+          . scripts/program-conf.sh
+          tag="$(gh release view --repo "$release_repo" --json tagName --jq .tagName)"
+          if ! printf '%s' "$tag" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-.+)?$'; then
+            echo "::error::the latest release of $release_repo is $tag, which is not a version tag like v1.2.3"
+            exit 1
+          fi
+          {
+            echo "tag=$tag"
+            echo "repository=$release_repo"
+          } >> "$GITHUB_OUTPUT"
+      # Read once here, so that every job builds the same releases and a new release in the list
+      # needs no edit of this file.
+      - name: List the FreeBSD releases as JSON
+        id: freebsd
+        run: |
+          lines="$(awk '!/^#/ && NF { print $1 }' packaging/freebsd/releases)"
+          printf 'releases=%s\n' "$(printf '%s\n' "$lines" | jq -R -n -c '[inputs | select(length > 0)]')" >> "$GITHUB_OUTPUT"
+
+  # Two publishes must not overlap. Each one builds the repositories on top of what is published,
+  # so one that starts while an earlier one is still running would publish without the earlier
+  # version. The FreeBSD jobs, which start from the catalog that is published, and the publish job
+  # wait here until every earlier run of publish-program.yml has ended. The programs of one run
+  # publish side by side: each has a folder of its own on the package site. This job holds no key
+  # and is not part of the publish environment.
+  wait:
+    name: Wait for earlier publishes
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+    steps:
+      - name: Wait until no earlier publish is running
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          # Run numbers of GitHub only grow, so a smaller one is an earlier publish, also
+          # when it is a failed one that was started again.
+          for attempt in $(seq 1 180); do
+            earlier="$(gh api "repos/$REPO/actions/workflows/publish-program.yml/runs?per_page=100" \
+              --jq "[.workflow_runs[] | select(.id < $RUN_ID and .status != \"completed\")] | length")"
+            if [ "$earlier" = 0 ]; then
+              echo "no earlier publish is running"
+              exit 0
+            fi
+            echo "$earlier earlier publish(es) still running, attempt $attempt"
+            sleep 20
+          done
+          echo "::error::an earlier publish did not end within an hour"
+          exit 1
+
+  # The revision of the packages, once, for every job that builds them: 0 for a release that is
+  # not published, and otherwise the one after the highest published. It is computed here, after
+  # the wait, because an earlier run may be adding a revision right now. Whether the packages are
+  # published at all is decided after they are built (the packages job). This job holds no key.
+  revision:
+    name: The revision of the packages
+    needs: [verify, wait]
+    runs-on: ubuntu-latest
+    outputs:
+      revision: ${{ steps.revision.outputs.revision }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: The next revision of the release
+        id: revision
+        env:
+          PROGRAM: ${{ inputs.program }}
+          TAG: ${{ needs.verify.outputs.tag }}
+        run: |
+          revision="$(scripts/next-revision.sh "$PROGRAM" "$TAG")"
+          echo "$PROGRAM $TAG is built as revision $revision"
+          echo "revision=$revision" >> "$GITHUB_OUTPUT"
+
+  # The deb, rpm and apk packages of both CPU types, signed with the real keys, and the signed
+  # repositories the tests install from. Only the packages and the public keys are uploaded:
+  # dist/keys holds the private keys. A run stops after the build when the packages are not to be
+  # published, as for a tag that changes nothing in the packaging (output publish is false): every
+  # job that needs this one is then skipped, and so is every job that needs a skipped one.
+  packages:
+    name: Signed packages
+    needs: [verify, revision]
+    runs-on: ubuntu-latest
+    environment: publish
+    outputs:
+      publish: ${{ steps.decide.outputs.publish }}
+    env:
+      PROGRAM: ${{ inputs.program }}
+      TAG: ${{ needs.verify.outputs.tag }}
+      REVISION: ${{ needs.revision.outputs.revision }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: The signing secrets are there
+        env:
+          SIGNING_OPENPGP_SUBKEY: ${{ secrets.SIGNING_OPENPGP_SUBKEY }}
+          SIGNING_ALPINE_KEY: ${{ secrets.SIGNING_ALPINE_KEY }}
+        run: scripts/require-env.sh SIGNING_OPENPGP_SUBKEY SIGNING_ALPINE_KEY
+      - uses: ./.github/actions/release-keys
+        with:
+          signing-openpgp-subkey: ${{ secrets.SIGNING_OPENPGP_SUBKEY }}
+          signing-alpine-key: ${{ secrets.SIGNING_ALPINE_KEY }}
+      - name: Source of the program at the tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ needs.verify.outputs.repository }}
+          ref: ${{ needs.verify.outputs.tag }}
+          path: src
+          persist-credentials: false
+      - name: Programs of the release, proven by its signature
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ needs.verify.outputs.repository }}
+        run: |
+          gh release download "$TAG" --repo "$REPOSITORY" --dir release \
+            --pattern '*-linux-*.tar.gz' --pattern SHA256SUMS --pattern SHA256SUMS.asc
+          scripts/release-bin.sh "$TAG" "$PWD/release" "$PWD/bin"
+      - name: Build the deb, rpm and apk packages
+        run: make packages PROGRAM="$PROGRAM" BIN="$PWD/bin" SRC="$PWD/src" VERSION="$TAG" REVISION="$REVISION"
+      # Right after the build, so that nothing else runs for a tag that changes nothing: the
+      # release is published as it is built when it is not published yet, and a later revision only
+      # when the packages differ from the newest published revision (scripts/revision-decide.sh).
+      - name: Are the packages to be published
+        id: decide
+        run: |
+          scripts/revision-listings.sh "$PROGRAM" "$TAG" "$RUNNER_TEMP/listings"
+          status=0
+          scripts/revision-decide.sh "$PROGRAM" "$TAG" "$RUNNER_TEMP/listings" \
+            > "$RUNNER_TEMP/decision" 2> "$RUNNER_TEMP/reason" || status=$?
+          cat "$RUNNER_TEMP/reason"
+          [ "$status" = 0 ] || exit "$status"
+          publish=true
+          if [ ! -s "$RUNNER_TEMP/decision" ]; then
+            publish=false
+            cat "$RUNNER_TEMP/reason" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          echo "publish=$publish" >> "$GITHUB_OUTPUT"
+      - name: Build the signed package repositories
+        if: steps.decide.outputs.publish == 'true'
+        run: make repo PROGRAM="$PROGRAM"
+      # The public keys only, for the tests.
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: steps.decide.outputs.publish == 'true'
+        with:
+          name: signed-packages-${{ inputs.program }}
+          path: |
+            dist/${{ inputs.program }}/
+            dist/keys/splicefs.asc
+            dist/keys/splicefs.rsa.pub
+          if-no-files-found: error
+      - name: Remove the secret files
+        if: always()
+        uses: ./.github/actions/remove-release-keys
+
+  # The FreeBSD packages of both CPU types, one job for each release. FreeBSD cannot run in a
+  # container, so each job starts a virtual machine of its release, which needs the hardware
+  # virtualization that ubuntu-latest offers. The machine builds the packages, installs the
+  # amd64 one from the repository it signed with the Alpine key, starts its service and removes
+  # it again, and refuses a repository signed with another key (make package-freebsd). It starts
+  # from the catalog that is published now, so it runs after the revision job, which waited until
+  # every earlier publish had ended. It is built only when the packages are to be published.
+  # Only the repository folders of its release are uploaded, in one tar
+  # because the upload of an artifact refuses the colons in their names.
+  freebsd:
+    name: FreeBSD packages (${{ matrix.release }})
+    needs: [verify, revision, packages]
+    if: needs.packages.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    environment: publish
+    strategy:
+      matrix:
+        release: ${{ fromJSON(needs.verify.outputs.freebsd-releases) }}
+    env:
+      PROGRAM: ${{ inputs.program }}
+      TAG: ${{ needs.verify.outputs.tag }}
+      RELEASE: ${{ matrix.release }}
+      REVISION: ${{ needs.revision.outputs.revision }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: The signing and upload secrets are there
+        env:
+          SIGNING_OPENPGP_SUBKEY: ${{ secrets.SIGNING_OPENPGP_SUBKEY }}
+          SIGNING_ALPINE_KEY: ${{ secrets.SIGNING_ALPINE_KEY }}
+          UPLOAD_SSH_KEY: ${{ secrets.UPLOAD_SSH_KEY }}
+          UPLOAD_KNOWN_HOSTS: ${{ vars.UPLOAD_KNOWN_HOSTS }}
+        run: scripts/require-env.sh SIGNING_OPENPGP_SUBKEY SIGNING_ALPINE_KEY UPLOAD_SSH_KEY UPLOAD_KNOWN_HOSTS
+      # The upload key is for the download of what is published now.
+      - uses: ./.github/actions/release-keys
+        with:
+          signing-openpgp-subkey: ${{ secrets.SIGNING_OPENPGP_SUBKEY }}
+          signing-alpine-key: ${{ secrets.SIGNING_ALPINE_KEY }}
+          upload-ssh-key: ${{ secrets.UPLOAD_SSH_KEY }}
+          upload-known-hosts: ${{ vars.UPLOAD_KNOWN_HOSTS }}
+      - name: Source of the program at the tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ needs.verify.outputs.repository }}
+          ref: ${{ needs.verify.outputs.tag }}
+          path: src
+          persist-credentials: false
+      - name: Programs of the release, proven by its signature
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ needs.verify.outputs.repository }}
+        run: |
+          gh release download "$TAG" --repo "$REPOSITORY" --dir release \
+            --pattern '*-freebsd-*.tar.gz' --pattern SHA256SUMS --pattern SHA256SUMS.asc
+          scripts/release-bin.sh "$TAG" "$PWD/release" "$PWD/bin"
+      # What is published now goes into dist/PROGRAM/repo first, so every older version stays.
+      - name: Download the published repositories
+        run: make program-fetch PROGRAM="$PROGRAM"
+      - name: Build the packages on FreeBSD and the signed repository
+        run: make package-freebsd PROGRAM="$PROGRAM" BIN="$PWD/bin" SRC="$PWD/src" VERSION="$TAG" REVISION="$REVISION" FREEBSD="$RELEASE"
+      - name: Pack the repository folders of this release
+        run: make freebsd-pack PROGRAM="$PROGRAM" VERSION="$TAG" REVISION="$REVISION" FREEBSD="$RELEASE"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: freebsd-repo-${{ inputs.program }}-${{ matrix.release }}
+          path: dist/${{ inputs.program }}/freebsd-repo-${{ matrix.release }}.tar
+          if-no-files-found: error
+      - name: Remove the secret files
+        if: always()
+        uses: ./.github/actions/remove-release-keys
+
+  tests:
+    name: Tests
+    needs: [verify, packages]
+    if: needs.packages.outputs.publish == 'true'
+    uses: ./.github/workflows/test-packages.yml
+    with:
+      program: ${{ inputs.program }}
+      artifact: signed-packages-${{ inputs.program }}
+      packages-ref: ${{ github.sha }}
+
+  # The only job that uploads. It waits for every job above, then publishes in this order: the
+  # packages, then the index files and their signatures (the two passes of
+  # scripts/publish-program.sh), the FreeBSD catalogs and their signatures among them. The repositories are made here and not in the packages job
+  # because they are made from what is published now, so they must come from the state at the
+  # time of the upload.
+  publish:
+    name: Publish
+    needs: [verify, wait, packages, freebsd, tests]
+    runs-on: ubuntu-latest
+    environment: publish
+    env:
+      PROGRAM: ${{ inputs.program }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: The signing and upload secrets are there
+        env:
+          SIGNING_OPENPGP_SUBKEY: ${{ secrets.SIGNING_OPENPGP_SUBKEY }}
+          SIGNING_ALPINE_KEY: ${{ secrets.SIGNING_ALPINE_KEY }}
+          UPLOAD_SSH_KEY: ${{ secrets.UPLOAD_SSH_KEY }}
+          UPLOAD_KNOWN_HOSTS: ${{ vars.UPLOAD_KNOWN_HOSTS }}
+        run: scripts/require-env.sh SIGNING_OPENPGP_SUBKEY SIGNING_ALPINE_KEY UPLOAD_SSH_KEY UPLOAD_KNOWN_HOSTS
+      - uses: ./.github/actions/release-keys
+        with:
+          signing-openpgp-subkey: ${{ secrets.SIGNING_OPENPGP_SUBKEY }}
+          signing-alpine-key: ${{ secrets.SIGNING_ALPINE_KEY }}
+          upload-ssh-key: ${{ secrets.UPLOAD_SSH_KEY }}
+          upload-known-hosts: ${{ vars.UPLOAD_KNOWN_HOSTS }}
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: signed-packages-${{ inputs.program }}
+          path: dist
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: freebsd-repo-${{ inputs.program }}-*
+          merge-multiple: true
+          path: dist/${{ inputs.program }}
+      # The repository the tests used holds this version only. The one that is published is made
+      # from what is published now, so every older version stays.
+      - name: Start from what is published
+        run: |
+          rm -rf "dist/$PROGRAM/repo"
+          make program-fetch PROGRAM="$PROGRAM"
+      # Stops here when the tar of a FreeBSD release is missing: the published catalog of its
+      # major version would stay in place, and the publish step would not notice.
+      - name: Add the FreeBSD packages and catalogs of every release
+        run: make freebsd-unpack PROGRAM="$PROGRAM"
+      - name: Build the signed package repositories
+        run: make repo PROGRAM="$PROGRAM"
+      # Nothing is uploaded before this step, so a build that failed or a file that is missing
+      # above publishes nothing.
+      - name: Publish the repositories
+        run: make program-publish PROGRAM="$PROGRAM"
+      - name: Remove the secret files
+        if: always()
+        uses: ./.github/actions/remove-release-keys
+
+  # The change log page of splicefs.org is built from the change logs of the programs, so the
+  # website is published again after every publish of packages. This job runs outside the publish
+  # environment and holds none of its keys. When it fails, the packages are out all the same.
+  website:
+    name: Rebuild the change log page of the website
+    needs: publish
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - name: Bot token for the website repository
+        id: bot
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          app-id: ${{ vars.RELEASE_BOT_APP_ID }}
+          private-key: ${{ secrets.RELEASE_BOT_PRIVATE_KEY }}
+          owner: SpliceFS
+          repositories: org-site
+      - name: Ask the website to publish again
+        env:
+          GH_TOKEN: ${{ steps.bot.outputs.token }}
+        run: gh api repos/SpliceFS/org-site/dispatches -f event_type=release-published
+
+  # The Homebrew formulas install the newest release, so the tap is told about this one. It
+  # then opens a pull request that tests the new version on macOS before it is merged. This
+  # job runs outside the publish environment and holds none of its keys. When it fails, the
+  # packages are out all the same.
+  homebrew:
+    name: Tell the Homebrew tap about this version
+    needs: publish
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - name: Ask the tap to update its formulas
+        env:
+          GH_TOKEN: ${{ secrets.MERGE_BOT_TOKEN }}
+        run: gh api repos/SpliceFS/homebrew-tap/dispatches -f event_type=release-published

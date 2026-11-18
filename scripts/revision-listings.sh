@@ -19,8 +19,8 @@ site="${PACKAGE_SITE:-https://packages.splicefs.org}/$PROGRAM"
 
 # The revision these packages were built as, and the names of the published ones before it.
 next="$(sh scripts/next-revision.sh "$PROGRAM" "$TAG")"
-# No listing is written for a release that is not published: revision-decide.sh says so and decides
-# nothing, so the one place that knows what that means is there.
+# No listing is written for a release that is not published: revision-decide.sh says so and
+# publishes it as revision 0, so the one place that knows what that means is there.
 [ "$next" -gt 0 ] || { echo "$TAG of $PROGRAM is not published, so there is nothing to compare with" >&2; exit 0; }
 PACKAGE_DATE="$(date +%Y%m%d)"
 export VERSION="$TAG" REVISION="$next" PACKAGE_DATE

@@ -244,7 +244,7 @@ repo-test: built-packages
 	$(TEST_VARS) scripts/package-test.sh repo
 
 # --- Publishing the repositories of a program ---------------------------------------------------
-# The release of a program (the publish-program workflow) publishes what make repo made in
+# The publish of a program (the publish-one-program workflow) publishes what make repo made in
 # dist/PROGRAM/repo to the folder of the program on the package site. UPLOAD_KEY_FILE and
 # UPLOAD_KNOWN_HOSTS_FILE (see scripts/publish-program.sh) come from the environment, so no secret
 # is ever in this file.
