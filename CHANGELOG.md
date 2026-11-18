@@ -6,6 +6,11 @@ the setup script and the page at packages.splicefs.org.
 
 The change log of all parts of SpliceFS, side by side: https://splicefs.org/changelog/
 
+## [0.4.29] - 2026-11-18
+
+- Documentation: how to run the SpliceFS client as yourself, without root ("Run as yourself" on the
+  install page).
+
 ## [0.4.28] - 2026-11-18
 
 - Internal: the fstab test works with server releases before and after splicefsdctl.
