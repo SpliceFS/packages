@@ -14,7 +14,9 @@
 # It tests the setup script on FreeBSD: the refusals first, then the real run, then a
 # second run, and last the installation of both packages from the published repositories.
 # There is no set -e: a failed check is printed as FAIL and the job goes on, so one run
-# shows every problem. The end line says whether anything failed.
+# shows every problem. The end line says whether anything failed. The one exception is the
+# preparation of the machine at the start: when FreeBSD's server cannot be reached the job
+# stops there, because nothing after it would say anything about the setup script.
 
 # The packages and pkg itself, once bootstrapped, live under /usr/local.
 PATH=/usr/local/sbin:/usr/local/bin:$PATH
@@ -48,6 +50,28 @@ note_fail() {
   failed=1
 }
 
+# retry <tries> <pause seconds> <failure message> <command> [argument ...]
+# Runs the command up to <tries> times and stops at the first success. It pauses between the
+# tries, not after the last, and prints the failure message when the last try failed. For work
+# that depends on a server this project does not run, and nothing else. Tested on the host by
+# scripts/freebsd-retry-test.sh, which reads this function from here.
+retry() {
+  retry_tries="$1"
+  retry_pause="$2"
+  retry_message="$3"
+  shift 3
+  retry_try=1
+  until "$@"; do
+    if [ "$retry_try" -ge "$retry_tries" ]; then
+      echo "FAIL: $retry_message after $retry_try tries"
+      return 1
+    fi
+    echo "try $retry_try of $retry_tries failed, trying again in $retry_pause seconds: $*"
+    retry_try=$((retry_try + 1))
+    sleep "$retry_pause"
+  done
+}
+
 # Runs the shell on the given script and arguments. The output is kept in $out and shown,
 # and the exit status is left in $status, because a refusal is an answer to check here.
 run_sh() {
@@ -70,6 +94,19 @@ expect_no_files() {
   for f in "$keyfile" "$repofile"; do
     [ ! -e "$f" ] || note_fail "$1 wrote $f"
   done
+}
+
+# The first pkg command on a new machine finds pkg itself old, upgrades it and refreshes the
+# catalogs of FreeBSD, all from FreeBSD's own server, which is sometimes slow. That says
+# nothing about the setup script, so the machine is prepared here, with tries, before the setup
+# script is started. The setup script runs only after this returned success, and runs once.
+prepare_pkg() {
+  env ASSUME_ALWAYS_YES=yes pkg update -f && env ASSUME_ALWAYS_YES=yes pkg upgrade -y pkg
+}
+heading "prepare. refresh the catalogs of FreeBSD and upgrade pkg"
+retry 3 5 "FreeBSD's package server (pkg.FreeBSD.org) did not answer, so pkg could not be prepared and the setup script was not run" prepare_pkg || {
+  echo FREEBSD-SETUP-FAILED
+  exit 1
 }
 
 heading "a. a changed copy is refused"
