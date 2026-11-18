@@ -6,10 +6,9 @@
 # KEYWORD: shutdown
 #
 # Settings for /etc/rc.conf:
-#   splicefsd_enable   "NO" keeps the server from starting. The default is "YES", so that
-#                      an installed server runs after the next boot without any setting,
-#                      which is as close as FreeBSD lets a package come to "installing
-#                      means running": pkg stops whatever an install script starts.
+#   splicefsd_enable   "YES" starts the server at boot and lets "service splicefsd start" run
+#                      it. The default is "NO": installing the package starts nothing and
+#                      turns nothing on, and pkg would end a process its scripts started.
 
 # rc.subr reads rcvar, command, command_args, extra_commands, start_precmd and reload_cmd.
 # shellcheck disable=SC2034
@@ -20,7 +19,7 @@ name=splicefsd
 rcvar=splicefsd_enable
 load_rc_config "$name"
 
-: "${splicefsd_enable:=YES}"
+: "${splicefsd_enable:=NO}"
 
 program=/usr/local/bin/splicefsd
 statedir=/var/db/splicefs/server

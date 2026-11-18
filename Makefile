@@ -139,8 +139,9 @@ package-apk: package-inputs keys
 
 # FreeBSD cannot run in a container, so the FreeBSD packages are built, installed and checked in a
 # virtual machine of each release in packaging/freebsd/releases (scripts/package-freebsd.sh). The
-# machine is amd64: it builds the packages for amd64 and arm64, installs the amd64 one and starts
-# its service, and the arm64 package is checked from the file. It also signs the FreeBSD
+# machine is amd64: it builds the packages for amd64 and arm64, installs the amd64 one and proves
+# its service steps (installed idle, turned on and started with the documented commands, an
+# upgrade, a removal), and the arm64 package is checked from the file. It also signs the FreeBSD
 # repositories (dist/PROGRAM/repo/freebsd) with the keys of make keys. It needs Docker and KVM; a
 # computer without /dev/kvm stops at once. FREEBSD=15.1 limits the run to one release. It is not
 # part of make packages because of that need. Like the other formats it takes PROGRAM, BIN

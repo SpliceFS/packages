@@ -320,5 +320,70 @@ WRAP
     fi
 fi
 
+# (j) A published package is never replaced by a file with other content under the same name: a
+# changed package gets a new name (a new revision), so the one that is published stays what
+# clients and their signatures were made from. The same file again, and a new name, are sent. This
+# runs also where rsync has no --chmod (openrsync): a wrapper that drops that option is put on
+# the PATH, which changes nothing the check looks at.
+if [ "$chmod_ok" -eq 0 ]; then
+    mkdir "$tmp/nochmod"
+    cat > "$tmp/nochmod/rsync" <<'WRAP'
+#!/bin/sh
+set -eu
+for arg; do
+    shift
+    case "$arg" in
+        --chmod=*) ;;
+        *) set -- "$@" "$arg" ;;
+    esac
+done
+exec "$REAL_RSYNC" "$@"
+WRAP
+    chmod 755 "$tmp/nochmod/rsync"
+fi
+real_rsync_j="$(command -v rsync)"
+send_j() {
+    send_status=0
+    PATH="$tmp/nochmod:$PATH" REAL_RSYNC="$real_rsync_j" \
+        PROGRAM="$program" REPO_DIR="$1" UPLOAD_TARGET="$2" sh scripts/publish-program.sh send \
+        >"$tmp/out" 2>&1 || send_status=$?
+}
+pkg="rpm/x86_64/splicefs-server-1.rpm"
+newpkg="rpm/x86_64/splicefs-server-1-1.rpm"
+mkdir "$tmp/j_target"
+cp -R "$base/." "$tmp/j_target"
+cp -R "$base" "$tmp/j_changed"
+echo "other content" > "$tmp/j_changed/$pkg"
+cp "$base/$pkg" "$tmp/j_changed/$newpkg"
+send_j "$tmp/j_changed" "$tmp/j_target"
+if [ "$send_status" -eq 0 ]; then
+    fail "j send must refuse a package that is published with other content"
+elif grep -q "$pkg" "$tmp/out" && grep -qx "$pkg" "$tmp/j_target/$pkg" && [ ! -e "$tmp/j_target/$newpkg" ]; then
+    pass "j send refused to replace $pkg, and sent nothing of that run"
+else
+    fail "j refusal to replace a package"; sed 's/^/     /' "$tmp/out"
+fi
+
+# The same content with another time stamp is not a change, and the index files may change.
+cp -R "$base" "$tmp/j_same"
+touch -t 202001010000 "$tmp/j_same/$pkg"
+echo "a new index" > "$tmp/j_same/apt/dists/stable/Release"
+send_j "$tmp/j_same" "$tmp/j_target"
+if [ "$send_status" -eq 0 ] && grep -qx "a new index" "$tmp/j_target/apt/dists/stable/Release"; then
+    pass "j the same package again and a new index are sent"
+else
+    fail "j the same package again"; sed 's/^/     /' "$tmp/out"
+fi
+
+# A new name is sent, and the package that was published stays.
+cp -R "$base" "$tmp/j_new"
+cp "$base/$pkg" "$tmp/j_new/$newpkg"
+send_j "$tmp/j_new" "$tmp/j_target"
+if [ "$send_status" -eq 0 ] && [ -f "$tmp/j_target/$newpkg" ] && grep -qx "$pkg" "$tmp/j_target/$pkg"; then
+    pass "j a package under a new name is sent next to the published one"
+else
+    fail "j a package under a new name"; sed 's/^/     /' "$tmp/out"
+fi
+
 [ "$failed" -eq 0 ] || { echo "$failed check(s) failed"; exit 1; }
 echo "publish-program checks done"
