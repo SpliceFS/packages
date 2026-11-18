@@ -8,13 +8,12 @@
 # downloads insist on HTTPS, also after a redirect, so that a redirect can never hand over a package
 # from a plain address. name, deb_arch, rpm_arch, apk_arch and PACKAGE_DATE are set by the files
 # this one is sourced after.
-# shellcheck disable=SC2154
+# The words use_published_version sets are read by the scripts that source this file.
+# shellcheck disable=SC2154,SC2034
 
-# Prints the address of the folder of the program PROGRAM on the package site. PACKAGE_SITE
+# The address of the folder of the program PROGRAM on the package site. PACKAGE_SITE
 # (https://packages.splicefs.org) is the site.
-site_base() {
-    printf '%s/%s\n' "${PACKAGE_SITE:-https://packages.splicefs.org}" "$PROGRAM"
-}
+site_url="${PACKAGE_SITE:-https://packages.splicefs.org}/$PROGRAM"
 
 # Downloads the address $1 into the file $2. It is written under another name first, so an
 # interrupted download is never mistaken for the file. Status 1 when the download failed.
@@ -34,7 +33,7 @@ fetch_apt_index() {
     if [ -n "${INDEX_FILE:-}" ]; then
         cp "$INDEX_FILE" "$1" 2>/dev/null || fail "could not read the index $INDEX_FILE"
     else
-        apt_index_url="$(site_base)/apt/dists/stable/main/binary-amd64/Packages"
+        apt_index_url="$site_url/apt/dists/stable/main/binary-amd64/Packages"
         fetch_site_file "$apt_index_url" "$1" || fail "could not read $apt_index_url"
     fi
 }
@@ -127,7 +126,7 @@ LIST
 # Alpine package file name carries no CPU type: the folder of the CPU type does.
 published_path() {
     case "$1" in
-        deb) echo "apt/pool/main/$(printf '%s' "$name" | cut -c1)/$name/${name}_${2}_$deb_arch.deb" ;;
+        deb) echo "apt/pool/main/${name%"${name#?}"}/$name/${name}_${2}_$deb_arch.deb" ;;
         rpm) echo "rpm/$rpm_arch/$name-$3-$4.$rpm_arch.rpm" ;;
         *) echo "alpine/$apk_arch/$name-$5-r$6.apk" ;;
     esac
@@ -138,5 +137,5 @@ published_path() {
 download_published_file() {
     [ ! -f "$2/$(basename "$1")" ] || return 0
     mkdir -p "$2"
-    fetch_site_file "$(site_base)/$1" "$2/$(basename "$1")"
+    fetch_site_file "$site_url/$1" "$2/$(basename "$1")"
 }

@@ -296,7 +296,10 @@ package_release_of_debver() {
         fail "$1 is not a package version: its revision is not a whole number"
     printf '%s' "$pr_core" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(~(alpha|beta|pre|rc)(\.?[0-9]+)?)?$' ||
         fail "$1 is not a package version this repository publishes"
-    printf 'v%s %s\n' "$(printf '%s' "$pr_core" | tr '~' '-')" "$pr_revision"
+    case "$pr_core" in
+        *~*) printf 'v%s-%s %s\n' "${pr_core%%~*}" "${pr_core#*~}" "$pr_revision" ;;
+        *) printf 'v%s %s\n' "$pr_core" "$pr_revision" ;;
+    esac
 }
 
 # The words of package_versions for the program version, revision and date of this run. The call

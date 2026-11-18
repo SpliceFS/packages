@@ -29,8 +29,8 @@ case "$platform" in
 esac
 
 # shellcheck disable=SC2310
-from="$(upgrade_from_version)" || fail "could not read the newest published package of $PROGRAM from $(site_base)"
-[ -n "$from" ] || fail "nothing is published of $PROGRAM at $(site_base); the lifecycle test starts from the published package"
+from="$(upgrade_from_version)" || fail "could not read the newest published package of $PROGRAM from $site_url"
+[ -n "$from" ] || fail "nothing is published of $PROGRAM at $site_url; the lifecycle test starts from the published package"
 use_published_version "$from"
 
 out="dist/lifecycle/$PROGRAM"
@@ -50,7 +50,7 @@ done
 for format in deb rpm apk; do
     path="$(published_path "$format" "$old_debver" "$old_rpmver" "$old_rpmrel" "$old_apkver" "$old_apkrel")"
     # shellcheck disable=SC2310
-    download_published_file "$path" "$published" || fail "could not download $(site_base)/$path"
+    download_published_file "$path" "$published" || fail "could not download $site_url/$path"
     # The published files are where the repository step finds the packages of a format: an Alpine
     # package in the folder of its CPU type, the others beside the new ones.
     case "$format" in

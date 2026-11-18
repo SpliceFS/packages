@@ -109,6 +109,7 @@ starts_from() {
     build "$3" "$4" "$from"
     : > "$stand/calls"
     # The status of the script does not matter: upgrade-test.sh ends in its first container.
+    # shellcheck disable=SC2310
     run_script "$2" > "$work/out" 2>&1 || true
     asked=no
     if grep -q 'Packages' "$stand/calls"; then asked=yes; fi
@@ -183,6 +184,7 @@ fi
 # what to prove.
 publish 0.5.33 0.5.34 0.5.34-1
 build v0.5.35 0 0.5.34-1
+# shellcheck disable=SC2310
 run_script lifecycle-repo.sh > "$work/out" 2>&1 || true
 written="$(cat "$tree/dist/lifecycle/client/published" 2>/dev/null || true)"
 if [ "$written" = "TAG=v0.5.34

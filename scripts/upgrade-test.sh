@@ -48,7 +48,7 @@ esac
 # whose status is the answer, so set -e being off inside them changes nothing.
 # shellcheck disable=SC2310
 from="$(upgrade_from_version)" ||
-    fail "could not read the newest published package of $PROGRAM from $(site_base)"
+    fail "could not read the newest published package of $PROGRAM from $site_url"
 
 # What the published files are called is what package-lib.sh makes of the version and the revision
 # of the published package.
@@ -119,7 +119,7 @@ for format in deb rpm apk; do
     old_file="$(basename "$old_path")"
     # shellcheck disable=SC2310
     if ! download_published_file "$old_path" "$published_dir"; then
-        echo "FAIL $format: could not download $(site_base)/$old_path"
+        echo "FAIL $format: could not download $site_url/$old_path"
         failed=$((failed + 1))
         continue
     fi
