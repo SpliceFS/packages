@@ -27,7 +27,8 @@
 #   service_restart C        restarts the service through the service manager
 #   service_pid C            prints the process id of the main process of the service
 #   service_user C           prints the user the main process of the service runs as
-#   service_report C         prints the service's status and its last 30 log lines
+#   service_report C         prints the service's status and its last 30 log lines; the harness
+#                            adds the last lines of the output of the container itself
 #   skip_reason IMAGE        prints why this image cannot be tested, or nothing when it can
 # expected_user and answers_text are set by the service check of the program, which is chosen at
 # run time, so ShellCheck cannot follow it.
@@ -176,6 +177,7 @@ while read -r format image; do
         {
             echo "--- $program.service on $image"
             service_report "$container" || true
+            docker logs --tail 10 "$container" || true
         } >>"$log" 2>&1
         tail -n 70 "$log" | sed 's/^/     /'
         failed=$((failed + 1))

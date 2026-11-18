@@ -2,11 +2,25 @@
 # Debian and Ubuntu (systemd) functions of scripts/service-test-host.sh; the file is sourced, so
 # it runs nothing itself. They are the functions scripts/service-test-deb.sh defines for a
 # container, with the machine itself as the one system: the first argument of every function is
-# the name the checks of scripts/service-check-lib.sh pass on, and is not needed here. $name,
-# $debver, $program and $PROGRAM come from scripts/package-lib.sh.
+# the name the checks of scripts/service-check-lib.sh pass on, and is not needed here. The
+# service functions are those of scripts/service-systemd-lib.sh. $name, $debver, $program and
+# $PROGRAM come from scripts/package-lib.sh.
 # shellcheck disable=SC2154 # those variables are set by the file that sources this one
 
-unit="$program.service"
+# This machine is the only system, so the first argument of the two functions that run a command,
+# the name the checks pass on, is dropped. Only what changes the machine needs root.
+on_system() {
+    shift
+    "$@"
+}
+
+on_system_as_root() {
+    shift
+    sudo "$@"
+}
+
+# shellcheck source=service-systemd-lib.sh
+. scripts/service-systemd-lib.sh
 
 install_package() {
     pkg="dist/$PROGRAM/${name}_${debver}_$(dpkg --print-architecture).deb"
@@ -23,40 +37,6 @@ remove_package() {
 # purge also takes the data the service made.
 purge_package() {
     sudo env DEBIAN_FRONTEND=noninteractive apt-get purge -y -qq "$name" >/dev/null 2>&1 || true
-}
-
-service_active() {
-    systemctl is-active --quiet "$unit"
-}
-
-service_enabled() {
-    systemctl is-enabled --quiet "$unit"
-}
-
-# The commands of the install page, which is also where they are written down.
-service_start_enable() {
-    sudo systemctl enable --now "$unit"
-}
-
-service_restart() {
-    sudo systemctl restart "$unit"
-}
-
-service_pid() {
-    systemctl show -p MainPID --value "$unit"
-}
-
-# Reads the owner of the running process from /proc, as the container functions do.
-service_user() {
-    pid="$(service_pid "$1")" || return 1
-    [ "${pid:-0}" -gt 0 ] || return 1
-    uid="$(sed -n 's/^Uid:[[:space:]]*\([0-9]*\).*/\1/p' "/proc/$pid/status")"
-    getent passwd "$uid" | cut -d: -f1
-}
-
-service_report() {
-    systemctl status --no-pager --full "$unit" || true
-    sudo journalctl -u "$unit" --no-pager -n 30 || true
 }
 
 # What the service checks ask of a system, answered by the machine itself.

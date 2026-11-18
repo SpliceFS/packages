@@ -2,7 +2,7 @@
 # Test of the parts of scripts/service-test-host.sh that run on any computer (part of make check):
 # the script refuses to run anywhere but in CI, before it touches anything, and the way each program
 # asks "does the service work" on the machine itself (answers_here of programs/*/service-check.sh)
-# tells a working service from a broken one. The commands the checks run (curl, sudo, splicefsctl,
+# tells a working service from a broken one, and which service commands of the machine need root. The commands the checks run (curl, sudo, splicefsctl,
 # apt-get) are stand-ins in a folder at the front of PATH, so nothing is installed or started.
 set -eu
 
@@ -57,6 +57,27 @@ answers_here() {
         PATH="$work/bin:$PATH" \
         sh -c 'cd "$1" && . scripts/package-lib.sh && . "$defs/service-check.sh" && answers_here' sh "$root"
 }
+
+# Runs the function $1 of the service functions of the machine for the server, as the checks do,
+# with the name of the system they pass on as its argument.
+service_here() {
+    # The command is for the shell that env starts, which reads $1, $2 and its own variables.
+    # shellcheck disable=SC2016
+    env PROGRAM=server VERSION=v1.2.3 REVISION=0 PACKAGE_DATE=20261112 PATH="$work/bin:$PATH" \
+        sh -c 'cd "$1" && . scripts/package-lib.sh && . scripts/service-test-host-deb.sh && "$2" host' sh "$root" "$1"
+}
+
+unit=splicefsd.service
+: > "$work/calls"
+check "the state of the service is asked on the machine" 0 service_here service_active
+check "the state is asked without root" 0 grep -q -e "^systemctl is-active --quiet $unit\$" "$work/calls"
+check "asking for the state does not use sudo" 1 grep -q -e '^sudo' "$work/calls"
+: > "$work/calls"
+check "the documented start command runs" 0 service_here service_start_enable
+check "the documented start command runs as root" 0 grep -q -e "^sudo systemctl enable --now $unit\$" "$work/calls"
+: > "$work/calls"
+check "a restart runs" 0 service_here service_restart
+check "a restart runs as root" 0 grep -q -e "^sudo systemctl restart $unit\$" "$work/calls"
 
 : > "$work/calls"
 for ci in "" false 1; do
