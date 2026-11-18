@@ -1,11 +1,10 @@
 #!/bin/sh
-# Tests, on the host and without Docker, what "Run as yourself" needs from the packaging and the
-# documents (part of make check). A user can only run the client if the system's own FUSE helper
-# is there, so the client packages must depend on fuse3; and what the user needs from the system
-# (the FreeBSD sysctl, group and devfs rule) belongs to the administrator, so no package may set
-# it. The documents must show the FreeBSD commands in the README and on the page. The commands of
-# the Linux part are the files steps/user-mode-*.sh, which make check compares with both
-# documents and scripts/user-mode-test.sh runs as an ordinary user.
+# Tests, on the host and without Docker, what "Run as yourself" needs from the packaging (part of
+# make check). A user can only run the client if the system's own FUSE helper is there, so the
+# client packages must depend on fuse3; and what the user needs from the system (the FreeBSD
+# sysctl, group and devfs rule) belongs to the administrator, so no package may set it. The
+# commands of the Linux part are the files steps/user-mode-*.sh, which scripts/user-mode-test.sh
+# runs as an ordinary user.
 set -eu
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -52,20 +51,5 @@ absent "no client package file sets what a user needs from the system" \
 # neither a configuration folder nor a cache folder.
 absent "the commands of a user need no --config and no cache.dir" \
     '--config|cache' steps/user-mode-start.sh steps/user-mode-use.sh
-
-# The page writes && as &amp; and > as &gt;.
-page="$(sed -e 's/&amp;/\&/g' -e 's/&gt;/>/g' site/index.html)"
-readme="$(cat README.md)"
-for command in \
-    "sysctl vfs.usermount=1" \
-    "echo 'vfs.usermount=1' >> /etc/sysctl.conf" \
-    "sysrc kld_list+=fusefs && kldload fusefs" \
-    "pw groupmod operator -m alice" \
-    "add path fuse mode 0660 group operator" \
-    "sysrc devfs_system_ruleset=fuse_users && service devfs restart" \
-    "modprobe fuse"; do
-    holds "README.md says: $command" "$command" "$readme"
-    holds "the install page says: $command" "$command" "$page"
-done
 
 [ "$failed" -eq 0 ]

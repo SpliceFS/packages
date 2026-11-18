@@ -18,7 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Build the site and check the script, the manual steps and the page
+      - name: Build the site and check the script and the redirect page
         run: make check
 
   # The versions the packages are given sort right in dpkg, rpm and Alpine's apk. The answer
