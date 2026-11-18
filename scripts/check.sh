@@ -664,6 +664,7 @@ run "9. freebsd-parts.sh: the FreeBSD repository folders of a release packed and
 run "9. release-bin.sh: release archives proven and unpacked to the layout of dist/bin" sh scripts/release-bin-test.sh
 run "9. publish-program.sh: the repositories of a program uploaded in order, nothing published lost" sh scripts/publish-program-test.sh
 run "9. require-env.sh: a release that lacks a secret stops and names it" sh scripts/require-env-test.sh
+run "9. list-programs.sh: the programs of the repository as a JSON array for a workflow matrix" sh scripts/list-programs-test.sh
 
 if [ "$FAILS" -eq 0 ]; then
   echo "all checks passed"
