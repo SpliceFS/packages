@@ -317,18 +317,28 @@ repo-test: built-packages
 # dist/PROGRAM/repo to the folder of the program on the package site. UPLOAD_KEY_FILE and
 # UPLOAD_KNOWN_HOSTS_FILE (see scripts/publish-program.sh) come from the environment, so no secret
 # is ever in this file.
-.PHONY: program-fetch program-publish program-publish-check program-publish-test freebsd-pack freebsd-unpack
+.PHONY: program-fetch published-pack published-unpack program-publish program-publish-check program-publish-test freebsd-pack freebsd-unpack
 
 # Downloads what is published into dist/PROGRAM/repo first, so the repositories built next keep
-# every older version.
+# every older version. A publish run does it in one job only: the package site lets one rsync
+# session at a time into a folder.
 program-fetch:
 	scripts/publish-program.sh fetch
 
+# The other jobs of the run get what program-fetch downloaded from that job: published-pack puts
+# dist/PROGRAM/repo into one tar, and published-unpack makes dist/PROGRAM/repo from it again
+# (scripts/published-repo.sh).
+published-pack:
+	scripts/published-repo.sh pack $(PACKAGE_OUT)
+
+published-unpack:
+	scripts/published-repo.sh unpack $(PACKAGE_OUT)
+
 # The release builds the FreeBSD packages and publishes in different jobs. freebsd-pack puts what
 # the FreeBSD job of one release (FREEBSD=15.1) merged into dist/PROGRAM/repo into one tar, and
-# freebsd-unpack puts the tars of every release into the repository the publish job fetched
-# (scripts/freebsd-parts.sh). VERSION is the version that make package-freebsd built; unpacking
-# needs no version.
+# freebsd-unpack puts the tars of every release into the repository the publish job unpacked from
+# the published one (scripts/freebsd-parts.sh). VERSION is the version that make package-freebsd
+# built; unpacking needs no version.
 freebsd-pack:
 	$(RECORD_VARS) scripts/freebsd-parts.sh pack $(PACKAGE_OUT) $(FREEBSD)
 
