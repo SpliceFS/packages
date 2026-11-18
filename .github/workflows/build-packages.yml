@@ -1,4 +1,5 @@
 name: Build packages
+# Every job has a time limit: 3 times its longest run, so a hang fails in minutes.
 
 # Builds the deb, rpm and Alpine packages of a SpliceFS program and the signed repositories, on
 # amd64 and arm64, and says what was packaged. package-and-test.yml calls it and then tests what
@@ -52,6 +53,7 @@ jobs:
   source:
     name: Source
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     outputs:
       repository: ${{ steps.release.outputs.repository || github.repository }}
       ref: ${{ steps.release.outputs.ref || github.sha }}
@@ -117,6 +119,7 @@ jobs:
     name: Packages (${{ matrix.arch }})
     needs: source
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:

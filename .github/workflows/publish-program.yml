@@ -1,4 +1,5 @@
 name: Publish programs
+# Every job has a time limit: 3 times its longest run, so a hang fails in minutes.
 
 # A number tag (1, 2, 3, ...) on main publishes the site (the setup script, the keys, the install
 # page) and the packages of the programs of this repository: the release bot puts the tag on main
@@ -42,6 +43,7 @@ jobs:
   plan:
     name: The tag is a release of main
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     outputs:
       programs: ${{ steps.programs.outputs.programs }}
     steps:
@@ -61,6 +63,7 @@ jobs:
     name: Build the site and run every check
     needs: plan
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -77,6 +80,7 @@ jobs:
     name: Wait for earlier publishes
     needs: plan
     runs-on: ubuntu-latest
+    timeout-minutes: 70
     permissions:
       actions: read
     steps:
@@ -111,6 +115,7 @@ jobs:
     name: Published repositories
     needs: [plan, wait]
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     environment: publish
     env:
       PROGRAMS: ${{ needs.plan.outputs.programs }}
@@ -173,6 +178,7 @@ jobs:
     name: Publish
     needs: [plan, check, wait, fetch, program]
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     environment: publish
     permissions:
       contents: read
@@ -279,6 +285,7 @@ jobs:
     name: Rebuild the change log page of the website
     needs: publish
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions: {}
     steps:
       - name: Bot token for the website repository
@@ -303,6 +310,7 @@ jobs:
     needs: publish
     if: needs.publish.outputs.programs != ''
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions: {}
     steps:
       - name: Ask the tap to update its formulas

@@ -1,4 +1,5 @@
 name: CI
+# Every job has a time limit: 3 times its longest run, so a hang fails in minutes.
 
 # Only pull requests are tested. main gets nothing but branches that passed here, so a run on
 # main would test the same files a second time.
@@ -16,6 +17,7 @@ jobs:
   check:
     name: Checks
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Build the site and check the script and the redirect page
@@ -27,6 +29,7 @@ jobs:
   version-order:
     name: Version order
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Check the order of the package versions in each package manager
@@ -78,6 +81,7 @@ jobs:
     name: Lifecycle (${{ matrix.format }}, ${{ matrix.arch }})
     needs: [packages-server, packages-client]
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
@@ -111,6 +115,7 @@ jobs:
     needs: [check, version-order, packages-server, packages-client, released-server, released-client, lifecycle]
     if: ${{ always() }}
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Every job succeeded
         env:

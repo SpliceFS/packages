@@ -1,4 +1,5 @@
 name: Package and test
+# Every job has a time limit: 3 times its longest run, so a hang fails in minutes.
 
 # Builds the deb, rpm, Alpine and FreeBSD packages of a SpliceFS program, makes the signed
 # repositories, and tests them: the deb, rpm and Alpine packages on the server images of
@@ -75,6 +76,7 @@ jobs:
     needs: [build, check]
     if: ${{ always() }}
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Every job succeeded
         env:

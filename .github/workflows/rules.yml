@@ -1,4 +1,5 @@
 name: Rules
+# Every job has a time limit: 3 times its longest run, so a hang fails in minutes.
 
 # The description of a pull request has a section "## Change log" with what a user would notice.
 # Its entries become the notes of the release that the merge gets (tag.yml), so a pull request
@@ -19,6 +20,7 @@ jobs:
   change-log:
     name: Change log
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Rules
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
