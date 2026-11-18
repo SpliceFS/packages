@@ -36,8 +36,10 @@ use_recorded_version
 # shellcheck source=service-test-host-deb.sh
 . scripts/service-test-host-deb.sh
 
-# The checks take the name of the system they look at; this machine is the only one.
+# The checks take the name of the system they look at; this machine is the only one. It installs
+# the deb package, and the shared checks name the format (service-check-lib.sh).
 machine=host
+format=deb
 
 finish() {
     status=$?
