@@ -676,6 +676,7 @@ run "9. publish-program.sh: the repositories of a program uploaded in order, not
 run "9. require-env.sh: a release that lacks a secret stops and names it" sh scripts/require-env-test.sh
 run "9. Makefile: a package test asks only for the packages it uses" sh scripts/built-packages-test.sh
 run "9. list-programs.sh: the programs of the repository as a JSON array for a workflow matrix" sh scripts/list-programs-test.sh
+run "9. freebsd-releases.sh: the FreeBSD releases as a JSON array for a workflow matrix" sh scripts/freebsd-releases-test.sh
 run "9. release-tag-check.sh: only a number tag on a commit of main may use the keys" sh scripts/release-tag-check-test.sh
 
 if [ "$FAILS" -eq 0 ]; then
