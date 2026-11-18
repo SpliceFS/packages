@@ -12,6 +12,7 @@
 /var/lib/rpm      the package manager's own state: the rpm database
 /lib/apk          the package manager's own state: the apk database and its scripts
 /var/lib/NetworkManager  the state NetworkManager writes by itself while the system runs (Rocky Linux)
+/var/lib/chrony  the clock drift chronyd writes by itself while the system runs (openSUSE)
 /var/tmp/systemd-private-*  the private temporary folders systemd makes for its services, named at random
 /etc/ld.so.cache*  the cache ldconfig writes of the libraries it finds; it is rewritten when any package installs a library
 /etc/passwd-*     the backup that useradd and userdel make of the account file: it holds the state before the last change, so it differs after any user was added and deleted

@@ -173,11 +173,15 @@ check_nothing_of_ours() {
 # Runs the uninstall file of this system's package family exactly as it is written, as a person
 # would: root, the setup script from step 1 in the home folder, and "yes" for the questions the
 # package manager asks. The file says sudo, which root does not have in a container, so sudo is
-# a function that runs its arguments. The first failing command ends the run.
+# a function that runs its arguments. zypper reads its questions from the terminal only and fails
+# on a pipe ("Cannot read input"), so the function gives zypper --non-interactive, which answers
+# them with their defaults, the same yes. The first failing command ends the run.
 documented_uninstall() {
     file="$(uninstall_file "$1")" || fail "no uninstall file for this system"
     must "copying the setup script to the home folder failed" docker exec "$1" sh -c 'cp /site/setup.sh ~/splicefs-setup.sh'
-    yes | docker exec -i -e DEBIAN_FRONTEND=noninteractive "$1" sh -c 'set -e; sudo() { "$@"; }; . "/src/$1"' sh "$file" ||
+    yes | docker exec -i -e DEBIAN_FRONTEND=noninteractive "$1" sh -c 'set -e
+        sudo() { if [ "$1" = zypper ]; then shift; zypper --non-interactive "$@"; else "$@"; fi; }
+        . "/src/$1"' sh "$file" ||
         fail "the commands of $file failed"
     echo "ok: the commands of $file ran"
     # The copy stands in for the download of the person, who deletes it themselves.
