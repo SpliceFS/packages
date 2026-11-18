@@ -176,13 +176,18 @@ ONLY ?=
 PLATFORM ?=
 TEST_VARS = PROGRAM=$(PROGRAM) VERSION=$(VERSION) PLATFORM=$(PLATFORM) ONLY=$(ONLY)
 
-.PHONY: built-packages package-order-test package-test
+.PHONY: built-apk-packages built-packages package-order-test package-test
 
-# Stops at once, with the name of what is missing, before any image starts.
-built-packages:
+# Stop at once, with the name of what is missing, before any image starts. A test that uses the
+# Alpine packages only (fstab-test) needs built-apk-packages; the others need every format.
+built-apk-packages:
 	@: $(if $(PROGRAM),,$(error PROGRAM is not set; see the comment above PROGRAM))
-	@ls "dist/$(PROGRAM)"/*.deb "dist/$(PROGRAM)"/*.rpm "dist/$(PROGRAM)"/alpine/*/*.apk >/dev/null 2>&1 || \
-		{ echo "FAIL: no packages in dist/$(PROGRAM): run make packages first"; exit 1; }
+	@ls "dist/$(PROGRAM)"/alpine/*/*.apk >/dev/null 2>&1 || \
+		{ echo "FAIL: no Alpine packages in dist/$(PROGRAM): run make packages first"; exit 1; }
+
+built-packages: built-apk-packages
+	@ls "dist/$(PROGRAM)"/*.deb "dist/$(PROGRAM)"/*.rpm >/dev/null 2>&1 || \
+		{ echo "FAIL: no deb and rpm packages in dist/$(PROGRAM): run make packages first"; exit 1; }
 
 # Checks in a Debian, a Rocky Linux and an Alpine system that the versions of the packages sort
 # the way a release needs (a pre-release before its release) and that apk accepts them. It is a
@@ -212,7 +217,7 @@ service-test: built-packages
 # fstab line, and checks that OpenRC's netmount service mounts it and unmounts it again.
 .PHONY: fstab-test
 SERVER_BIN ?=
-fstab-test: built-packages
+fstab-test: built-apk-packages
 	$(TEST_VARS) SERVER_BIN=$(SERVER_BIN) scripts/fstab-test.sh
 
 # The part of the upgrade test that decides whether the packaging changed, checked against small
