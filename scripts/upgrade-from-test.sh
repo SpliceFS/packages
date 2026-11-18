@@ -161,24 +161,33 @@ for script in lifecycle-repo.sh upgrade-test.sh; do
 done
 
 # Nothing published: the upgrade test skips, and the lifecycle test, which starts from a published
-# version, says so and stops.
+# version, says so and stops. Once the build has read that nothing is published ("read" gives the
+# word the version record keeps for it), no job asks the site again; a build that read nothing
+# leaves the question to the tests.
 publish
-starts_from "upgrade-test.sh: nothing is published, nothing is downloaded" upgrade-test.sh v0.5.35 0 "" "" yes
-if grep -q 'skip deb: no published version yet' "$work/out"; then
-    echo "ok   upgrade-test.sh: nothing is published, the test skips"
-else
-    printf 'FAIL upgrade-test.sh: nothing is published, but it did not skip:\n'
-    sed 's/^/     /' "$work/out"
-    failed=$((failed + 1))
-fi
-starts_from "lifecycle-repo.sh: nothing is published, nothing is downloaded" lifecycle-repo.sh v0.5.35 0 "" "" yes
-if grep -q 'nothing is published' "$work/out"; then
-    echo "ok   lifecycle-repo.sh: nothing is published, it says so"
-else
-    printf 'FAIL lifecycle-repo.sh: nothing is published, but it did not say so:\n'
-    sed 's/^/     /' "$work/out"
-    failed=$((failed + 1))
-fi
+for read in read ""; do
+    # starts_from sets asked itself, so the answer wanted has a name of its own.
+    want_asked=no
+    [ -n "$read" ] || want_asked=yes
+    starts_from "upgrade-test.sh: nothing is published, nothing is downloaded (read by the build: ${read:-no})" \
+        upgrade-test.sh v0.5.35 0 "$read" "" "$want_asked"
+    if grep -q 'skip deb: no published version yet' "$work/out"; then
+        echo "ok   upgrade-test.sh: nothing is published, the test skips"
+    else
+        printf 'FAIL upgrade-test.sh: nothing is published, but it did not skip:\n'
+        sed 's/^/     /' "$work/out"
+        failed=$((failed + 1))
+    fi
+    starts_from "lifecycle-repo.sh: nothing is published, nothing is downloaded (read by the build: ${read:-no})" \
+        lifecycle-repo.sh v0.5.35 0 "$read" "" "$want_asked"
+    if grep -q 'nothing is published' "$work/out"; then
+        echo "ok   lifecycle-repo.sh: nothing is published, it says so"
+    else
+        printf 'FAIL lifecycle-repo.sh: nothing is published, but it did not say so:\n'
+        sed 's/^/     /' "$work/out"
+        failed=$((failed + 1))
+    fi
+done
 
 # lifecycle-test.sh reads the version and revision that lifecycle-repo.sh wrote down, so that is
 # what to prove.

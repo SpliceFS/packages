@@ -25,6 +25,11 @@ fetch_site_file() {
     fi
 }
 
+# What scripts/published-newest.sh prints, and the version record keeps (UPGRADE_FROM), when the
+# site was read and lists no package of the program. A record that is empty says the site was not
+# read: the tests then ask it themselves. This word says it was, so no later job asks again.
+nothing_published=none
+
 # Writes the apt index of the program, which lists every version ever published, into the file
 # $1. INDEX_FILE is a test hook that names a local index file and replaces the download. A failed
 # download must never read as "nothing is published": the packages would then be built as
@@ -95,14 +100,15 @@ newest_debver() {
 # (UPGRADE_FROM, which use_recorded_version sets), so that a package published after the build,
 # which is newer than the packages, never turns the upgrade into a downgrade. A build that
 # recorded none (a build by hand) starts from the newest package on the site, as
-# scripts/published-newest.sh reads it, or has nothing to start from. A package of the program
-# that is being published is never it: only what the site serves counts.
+# scripts/published-newest.sh reads it. Prints nothing when nothing is published, whether the
+# build or this call read that. A package of the program that is being published is never it: only
+# what the site serves counts. Status 1 when the site could not be read.
 upgrade_from_version() {
-    if [ -n "${UPGRADE_FROM:-}" ]; then
-        printf '%s\n' "$UPGRADE_FROM"
-    else
-        sh scripts/published-newest.sh "$PROGRAM"
+    uf_version="${UPGRADE_FROM:-}"
+    if [ -z "$uf_version" ]; then
+        uf_version="$(sh scripts/published-newest.sh "$PROGRAM")" || return 1
     fi
+    [ "$uf_version" = "$nothing_published" ] || printf '%s\n' "$uf_version"
 }
 
 # Sets old_tag and old_revision (the program version and the revision of the published package
