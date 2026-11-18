@@ -623,6 +623,8 @@ run "9. next-revision.sh: the revision a build needs to upgrade what is publishe
 run "9. revision-decide.sh: when the packages of a release are published, as revision 0 or a later one" sh scripts/revision-decide-test.sh
 run "9. freebsd-lib.sh: the FreeBSD machines, their device, job folder and package check" \
   sh scripts/freebsd-lib-test.sh
+run "9. freebsd-job.sh retry: a failing command is tried up to three times, stops at the first success, and says what failed" \
+  sh scripts/freebsd-retry-test.sh
 run "9. freebsd-repo-files.sh: the input archive of a FreeBSD machine holds the key and is removed" \
   sh scripts/freebsd-repo-files-test.sh
 run "9. freebsd-service-test.sh: the FreeBSD packages leave the service off, and tell how to turn it on" \
@@ -646,6 +648,7 @@ run "9. user-mode-packaging-test.sh: the packages leave the system to the admini
 run "9. list-programs.sh: the programs of the repository as a JSON array for a workflow matrix" sh scripts/list-programs-test.sh
 run "9. freebsd-releases.sh: the FreeBSD releases as a JSON array for a workflow matrix" sh scripts/freebsd-releases-test.sh
 run "9. release-tag-check.sh: only a number tag on a commit of main may use the keys" sh scripts/release-tag-check-test.sh
+run "9. workflows: a called workflow runs the code of its own commit, never a ref the caller names" sh scripts/workflow-checkout-test.sh
 run "9. make help: every target with a comment is listed, and every target the README names exists" sh scripts/make-help-test.sh
 
 if [ "$FAILS" -eq 0 ]; then

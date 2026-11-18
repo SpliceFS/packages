@@ -76,8 +76,10 @@ proves its archives with the signature and `SHA256SUMS` and unpacks them into th
 the CI of this repository does that for both programs, so a packaging change is tested on its own.
 It calls the two halves of the workflow itself, `build-packages.yml` and then `check-packages.yml`, so
 that the lifecycle test starts when both programs are built and does not wait for their tests.
-`packages-ref` (default `main`) is the ref of this repository the jobs use; keep it the same as the
-ref of the `uses` line.
+The jobs run the scripts of this repository at the commit of the `uses` line, never at a ref the
+caller chooses: the workflows check this repository out at `job.workflow_sha`, and
+`scripts/workflow-checkout-test.sh` (part of `make check`) fails when a checkout takes its repository
+or ref from an input.
 
 A run reads the newest package of a program on the package site once (`scripts/published-newest.sh`,
 which prints a version such as `0.5.34-1`) and gives it to `make packages` as `UPGRADE_FROM`. The
