@@ -667,6 +667,7 @@ run "9. require-env.sh: a release that lacks a secret stops and names it" sh scr
 run "9. number-tags.sh: which tag names are versions of this repository" sh scripts/number-tags-test.sh
 run "9. change-log-entry.sh: the entry of a pull request, with a default for the dependency bot only" sh scripts/change-log-entry-test.sh
 run "9. release-notes.sh: the notes of a release are the entries of the pull requests merged since the last tag" sh scripts/release-notes-test.sh
+run "9. tag-release.sh: the next number tag on a commit of main, and its release" sh scripts/tag-release-test.sh
 
 if [ "$FAILS" -eq 0 ]; then
   echo "all checks passed"
