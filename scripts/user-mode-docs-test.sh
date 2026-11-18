@@ -36,9 +36,12 @@ absent() {
     fi
 }
 
-holds "the deb package depends on fuse3" "Depends: fuse3" "$(cat programs/client/deb/control)"
-holds "the rpm package requires fuse3" "Requires:       fuse3" "$(cat programs/client/rpm/splicefs-client.spec)"
-holds "the Alpine package depends on fuse3" 'depends="fuse3"' "$(cat programs/client/alpine/APKBUILD)"
+deb_control="$(cat programs/client/deb/control)"
+rpm_spec="$(cat programs/client/rpm/splicefs-client.spec)"
+apkbuild="$(cat programs/client/alpine/APKBUILD)"
+holds "the deb package depends on fuse3" "Depends: fuse3" "$deb_control"
+holds "the rpm package requires fuse3" "Requires:       fuse3" "$rpm_spec"
+holds "the Alpine package depends on fuse3" 'depends="fuse3"' "$apkbuild"
 
 # The administrator's settings are never made by a package: not the FUSE helper's mode, not the
 # FreeBSD sysctl, group or devfs rule.
