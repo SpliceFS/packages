@@ -320,9 +320,11 @@ RUN
         sh "$box/run.sh" "$box/check-lib.sh" 2>&1 < /dev/null)" || status=$?
     user_mode_status="$status"
     # A check that failed with the client running leaves it running; ending it is part of the test.
+    # The stand-in may have ended by itself already (it is not a child of this shell, so it cannot
+    # be waited for): a process that is gone is what this wants, so kill finding none is no error.
     if [ -f "$box/client.pid" ]; then
         left_over="$(cat "$box/client.pid")"
-        kill "$left_over"
+        kill "$left_over" 2>/dev/null || :
     fi
     um_fail='' um_client=ready um_socket='alice 700' um_fuse_stat='crw-rw---- operator' um_fuse=file um_cache=home
 }
