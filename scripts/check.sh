@@ -1,6 +1,6 @@
 #!/bin/sh
 # Checks the repository and the built site. Run through "make check", which builds first.
-# Needs python3 (standard library only). Uses node, dash and bash when they exist.
+# Needs python3 (standard library only). Uses dash and bash when they exist.
 set -u
 
 cd "$(dirname "$0")/.." || exit 1
@@ -63,37 +63,13 @@ for f in setup.sh.in dist/site/setup.sh steps/*.sh scripts/*.sh; do
   command -v bash >/dev/null 2>&1 && run "2. bash -n $f" bash -n "$f"
 done
 
-# 3. The page's code blocks against the step files and the one-command forms.
+# 3. The README shows the uninstall commands and the commands of "Run as yourself". The lifecycle
+# test and the user mode test run these same files, so what the README shows is what the tests prove.
 cat > "$TMP/blocks.py" <<'PYEOF'
-import html, json, re, sys
-page = open("site/index.html", encoding="ascii").read()
-blocks = [html.unescape(b) for b in re.findall(r"<pre><code>(.*?)</code></pre>", page, re.S)]
-json.dump(blocks, open(sys.argv[1], "w"))
+import sys
 families = ("apt", "dnf", "zypper", "apk", "pkg")
-step = {k: open("steps/%s.sh" % k).read() for k in families}
-# The uninstall commands. The lifecycle test runs these same files, so what the page and the
-# README show is what the test proves.
 uninstall = {k: open("steps/uninstall-%s.sh" % k).read() for k in families}
-# The commands of "Run as yourself", in the order the page shows them: start, then use. The
-# container test (scripts/user-mode-test.sh) runs these same files as an ordinary user.
 user_mode = [open("steps/user-mode-%s.sh" % k).read() for k in ("start", "use")]
-base = "https://packages.splicefs.org"
-curl = "curl --proto '=https' --tlsv1.2 -fsSL %s/setup.sh -o ~/splicefs-setup.sh &&\n  sudo sh ~/splicefs-setup.sh\n" % base
-wget = "wget -qO ~/splicefs-setup.sh %s/setup.sh &&\n  sudo sh ~/splicefs-setup.sh\n" % base
-fetch = "fetch -o ~/splicefs-setup.sh %s/setup.sh &&\n  sh ~/splicefs-setup.sh\n" % base
-# Each step file already ends with the update and install commands, so a family is one block.
-# The two blocks that check the signed copy of the script: get the file and the key, then verify.
-get_signed = ("curl -fsSLo ~/splicefs-setup.sh.asc %s/setup.sh.asc\n"
-              "curl -fsSLo ~/splicefs.asc %s/keys/splicefs.asc\n"
-              "gpg --show-keys --fingerprint ~/splicefs.asc\n"
-              "gpg --import ~/splicefs.asc\n") % (base, base)
-verify_signed = ("gpg --verify ~/splicefs-setup.sh.asc &&\n"
-                 "  gpg --output ~/splicefs-setup.sh --decrypt ~/splicefs-setup.sh.asc\n")
-# The removal section repeats the three download commands of step 1 with --remove added.
-remove = [b.replace("splicefs-setup.sh\n", "splicefs-setup.sh --remove\n") for b in (curl, wget, fetch)]
-# The page shows the uninstall commands after the removal of the repository, then the manual steps.
-expected = ([curl, wget, fetch, get_signed, verify_signed] + remove +
-            [uninstall[k] for k in families] + [step[k] for k in families] + user_mode)
 bad = 0
 readme = open("README.md", encoding="ascii").read()
 for k in families:
@@ -102,14 +78,33 @@ for k in families:
 for k, text in zip(("start", "use"), user_mode):
     if "```\n" + text + "```\n" not in readme:
         print("README.md does not show steps/user-mode-%s.sh as a code block" % k); bad += 1
-if len(blocks) != len(expected):
-    print("page has %d code blocks, expected %d" % (len(blocks), len(expected))); bad += 1
-for i, (got, want) in enumerate(zip(blocks, expected)):
-    if got != want:
-        print("block %d differs from its source" % (i + 1)); bad += 1
 sys.exit(1 if bad else 0)
 PYEOF
-run "3. page and README code blocks match steps/ and the setup lines" python3 -I "$TMP/blocks.py" "$TMP/blocks.json"
+run "3. README code blocks match steps/" python3 -I "$TMP/blocks.py"
+
+# 3b. The page of the package site only sends a person to the install page of the website: a
+# refresh at once, a canonical link, a plain link for a client that does not refresh, no style
+# and no script, and no address but the website's. The built page is the one that is published.
+cat > "$TMP/redirect.py" <<'PYEOF'
+import re, sys
+target = "https://splicefs.org/install/"
+page = open("dist/site/index.html", encoding="ascii").read()
+bad = 0
+if open("site/index.html", encoding="ascii").read() != page:
+    print("dist/site/index.html is not site/index.html"); bad += 1
+for what, tag in (("meta refresh at once", '<meta http-equiv="refresh" content="0; url=%s">' % target),
+                  ("canonical link", '<link rel="canonical" href="%s">' % target),
+                  ("plain link", '<a href="%s">' % target)):
+    if tag not in page:
+        print("the page has no %s: %s" % (what, tag)); bad += 1
+if re.search(r"<(script|style)|\sstyle\s*=|<link[^>]*stylesheet", page, re.I):
+    print("the page holds a script or a style"); bad += 1
+others = [u for u in re.findall(r"https?://[^\"'<> ]+", page) if u != target]
+if others:
+    print("the page holds an address other than %s: %s" % (target, others)); bad += 1
+sys.exit(1 if bad else 0)
+PYEOF
+run "3. the page redirects to the install page of the website" python3 -I "$TMP/redirect.py"
 
 # 4. The built script: keys byte-identical, no placeholder left, last line, line endings.
 cat > "$TMP/built.py" <<'PYEOF'
@@ -139,32 +134,6 @@ for n, line in enumerate(s.split("\n"), 1):
 sys.exit(1 if bad else 0)
 PYEOF
 run "4. built setup.sh: keys, placeholders, last line, no trailing blanks" python3 -I "$TMP/built.py"
-
-# 5. The page script and its tokenizer.
-cat > "$TMP/tok.js" <<'JSEOF'
-const fs = require('fs'), vm = require('vm');
-const page = fs.readFileSync('site/index.html', 'utf8');
-const code = page.match(/<script>([\s\S]*?)<\/script>/)[1];
-fs.writeFileSync(process.argv[3], code);
-const mod = { exports: {} };
-vm.runInNewContext(code, { module: mod });
-const blocks = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
-let bad = 0;
-blocks.forEach((b, i) => {
-  const joined = mod.exports.tokenize(b).map((t) => t.s).join('');
-  if (joined !== b) { console.log('block ' + (i + 1) + ' does not round-trip'); bad++; }
-});
-const kinds = new Set();
-blocks.forEach((b) => mod.exports.tokenize(b).forEach((t) => kinds.add(t.t)));
-if (!kinds.has('cmt')) { console.log('no comment token produced'); bad++; }
-process.exit(bad ? 1 : 0);
-JSEOF
-if command -v node >/dev/null 2>&1; then
-  run "5. tokenizer reproduces every block" node "$TMP/tok.js" "$TMP/blocks.json" "$TMP/page.js"
-  run "5. node --check on the page script" node --check "$TMP/page.js"
-else
-  skip "5. node is not on the PATH, tokenizer and page script not checked"
-fi
 
 # 6. Script behavior that needs no root and no container. A fake id stands in for a user.
 mkdir "$TMP/bin"

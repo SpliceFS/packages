@@ -18,25 +18,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # The setup script runs as root on other people's systems, so every warning counts.
-      - name: Analyze the setup script, the manual steps and the build scripts
+      - name: Analyze the setup script, the steps and the build scripts
         run: make lint
-
-  codeql:
-    name: Static analysis (CodeQL)
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      security-events: write
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      # The page carries its own script; CodeQL reads it out of the HTML.
-      - uses: github/codeql-action/init@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
-        with:
-          languages: javascript-typescript
-          queries: security-and-quality
-      - uses: github/codeql-action/analyze@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
-        with:
-          category: /language:javascript-typescript
 
   dependency-review:
     name: Dependency review
@@ -53,7 +36,7 @@ jobs:
   # bots start. Pull requests are left out: their author sees the failed check there.
   alert:
     name: Report a failure
-    needs: [shellcheck, codeql, dependency-review]
+    needs: [shellcheck, dependency-review]
     if: ${{ failure() && github.event_name != 'pull_request' }}
     permissions:
       issues: write

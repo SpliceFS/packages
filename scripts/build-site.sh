@@ -1,5 +1,5 @@
 #!/bin/sh
-# Builds dist/site from the page, the script template and the public keys.
+# Builds dist/site from the redirect page, the script template and the public keys.
 # Variables: KEYS_DIR (default keys, relative to the caller's folder), BASE_URL (default
 # https://packages.splicefs.org), OPENPGP_FINGERPRINT (the pinned primary key fingerprint),
 # SITE_DIR (output folder, default dist/site; the end to end test builds elsewhere),
@@ -108,7 +108,8 @@ if [ "$last_line" != 'main "$@"' ]; then
   exit 1
 fi
 
-replace_text "$DEFAULT_URL" "$BASE_URL" < site/index.html > "$OUT/index.html"
+# The page only redirects to the website, so BASE_URL does not appear in it.
+cp site/index.html "$OUT/index.html"
 cp "$KEYS_DIR/splicefs.asc" "$KEYS_DIR/splicefs.rsa.pub" "$OUT/keys/"
 
 # Pull each embedded key block back out of the built script and compare it with its source,

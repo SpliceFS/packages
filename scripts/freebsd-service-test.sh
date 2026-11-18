@@ -309,13 +309,10 @@ PROGRAMS
 
 # --- the documents --------------------------------------------------------------------------
 
-# The page writes && as &amp;&amp;.
-page="$(sed 's/&amp;/\&/g' site/index.html)"
 readme="$(cat README.md)"
 while read -r program service; do
     for command in "sysrc ${service}_enable=YES && service $service start" "sysrc -x ${service}_enable"; do
         holds "README.md says: $command" "$command" "$readme"
-        holds "the install page says: $command" "$command" "$page"
     done
 done <<PROGRAMS
 $programs
@@ -325,9 +322,7 @@ PROGRAMS
 # path is read from the links file, moved to /usr/local as the FreeBSD package does.
 helper="$(awk '!/^#/ && NF { print $1; exit }' programs/client/links | sed 's|^/usr/|/usr/local/|')"
 fstab_line="example:/ /mnt/files splicefs ro,late,failok,mountprog=$helper 0 0"
-for document in "README.md:$readme" "the install page:$page"; do
-    holds "${document%%:*} shows the FreeBSD fstab line, with the helper the package installs" \
-        "$fstab_line" "${document#*:}"
-done
+holds "README.md shows the FreeBSD fstab line, with the helper the package installs" \
+    "$fstab_line" "$readme"
 
 [ "$failed" -eq 0 ]

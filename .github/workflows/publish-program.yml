@@ -12,7 +12,7 @@ name: Publish programs
 #   - it is published, and the packaging differs from the newest published revision: the packages
 #     are published as the next revision (scripts/next-revision.sh);
 #   - it is published and nothing differs: nothing is published, and the summary of the run says so.
-# The site (the setup script, the keys, the install page) is published by release.yml, which the
+# The site (the setup script, the keys, the page that redirects to the website) is published by release.yml, which the
 # same tag starts.
 on:
   push:

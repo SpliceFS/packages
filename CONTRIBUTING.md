@@ -1,7 +1,8 @@
 # Contributing to SpliceFS packages
 
-This repository is small on purpose: the setup script, the manual steps the page shows,
-the page, and the public keys. Every change is reviewed as code that runs as root.
+This repository holds the package site (the setup script, the public keys, and a page that sends a
+person to the install instructions on the website) and the packaging of the programs. Every
+change is reviewed as code that runs as root.
 
 ## Before you start
 
@@ -16,7 +17,7 @@ make check    # builds, then runs every check
 make lint     # ShellCheck on the built script, the manual steps and the build scripts
 ```
 
-`make check` needs `python3`. It also uses `node`, `dash` and `bash` when they are installed.
+`make check` needs `python3`. It also uses `dash` and `bash` when they are installed.
 `make lint` needs `shellcheck`.
 
 ## Branches and pull requests
@@ -69,10 +70,11 @@ A pull request merges with one merge commit. Squash and fast-forward merges are 
 - No temporary files in folders other users can write to.
 - ShellCheck reports nothing. A finding is fixed, or disabled on that line with the reason.
 
-### The page
+### The page of the package site
 
-- Self-contained: no external scripts, fonts or images.
-- The commands shown are byte for byte the files in `steps/`; `make check` enforces it.
+- It only sends a person to https://splicefs.org/install/: a refresh at once, a canonical link and
+  a plain link, no style, no script. `make check` enforces it. The install instructions are
+  written on the website, not here.
 
 ### Tests
 
@@ -82,7 +84,7 @@ A pull request merges with one merge commit. Squash and fast-forward merges are 
 ### Commits and pull requests
 
 - One purpose per commit. The message says what changed and why.
-- A pull request targets `main`. CI must pass: the checks, ShellCheck, CodeQL and the
+- A pull request targets `main`. CI must pass: the checks, ShellCheck and the
   SonarQube quality gate.
 
 ## What CI checks
@@ -93,7 +95,7 @@ A pull request merges with one merge commit. Squash and fast-forward merges are 
 | Rules | on pull requests: checks the `## Change log` section of the description |
 | Main | on every push to `main`: rebuilds the open pull requests on the new tip |
 | Tag | on every push to `main` and every release of a program: puts the next version number on it as a tag and makes the release |
-| Security | ShellCheck on all shell files, CodeQL on the page's script, dependency review on pull requests |
+| Security | ShellCheck on all shell files, dependency review on pull requests |
 | SonarQube | quality and security rating on SonarQube Cloud |
 | Install tests | runs the setup script on every supported system, on x86-64 and arm64, weekly as well |
 | Release | on a number tag: signs the script and publishes the site |

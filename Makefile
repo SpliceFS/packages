@@ -12,8 +12,7 @@ tracked-files:
 
 # A script that lost its executable bit fails only where it is run directly, which is often a CI
 # job far from the commit that lost it. This finds it in every check. Libraries (-lib.sh) are
-# read by other scripts and never run; the files in steps/ are shown on the install page and run
-# by the tests through sh.
+# read by other scripts and never run; the files in steps/ are run by the tests through sh.
 .PHONY: script-modes
 script-modes:
 	@bad="$$(git ls-files -s -- 'scripts/*.sh' 'tests/*.sh' | awk '$$1 != "100755" && $$4 !~ /-lib\.sh$$/ {print $$4}')"; \
