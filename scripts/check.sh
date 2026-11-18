@@ -665,6 +665,7 @@ run "9. release-bin.sh: release archives proven and unpacked to the layout of di
 run "9. publish-program.sh: the repositories of a program uploaded in order, nothing published lost" sh scripts/publish-program-test.sh
 run "9. require-env.sh: a release that lacks a secret stops and names it" sh scripts/require-env-test.sh
 run "9. number-tags.sh: which tag names are versions of this repository" sh scripts/number-tags-test.sh
+run "9. change-log-entry.sh: the entry of a pull request, with a default for the dependency bot only" sh scripts/change-log-entry-test.sh
 
 if [ "$FAILS" -eq 0 ]; then
   echo "all checks passed"
