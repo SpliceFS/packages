@@ -1,4 +1,5 @@
 name: Publish one program
+# Every job has a time limit: 3 times its longest run, so a hang fails in minutes.
 
 # Builds and tests the packages of one program of SpliceFS (server or client), for its latest
 # GitHub release, and leaves them for the publish job of publish-program.yml, which calls this
@@ -49,6 +50,7 @@ jobs:
   verify:
     name: The latest release of the program
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     outputs:
       tag: ${{ steps.release.outputs.tag }}
       repository: ${{ steps.release.outputs.repository }}
@@ -90,6 +92,7 @@ jobs:
     name: The revision of the packages
     needs: verify
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     outputs:
       revision: ${{ steps.revision.outputs.revision }}
       upgrade-from: ${{ steps.published.outputs.version }}
@@ -126,6 +129,7 @@ jobs:
     name: Signed packages
     needs: [verify, revision]
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     environment: publish
     outputs:
       publish: ${{ steps.decide.outputs.publish }}
@@ -213,6 +217,7 @@ jobs:
     needs: [verify, revision, packages]
     if: needs.packages.outputs.publish == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     environment: publish
     strategy:
       matrix:
@@ -276,4 +281,3 @@ jobs:
     with:
       program: ${{ inputs.program }}
       artifact: signed-packages-${{ inputs.program }}
-      packages-ref: ${{ github.sha }}

@@ -1,13 +1,10 @@
 name: CI
+# Every job has a time limit: 3 times its longest run, so a hang fails in minutes.
 
-# Only pull requests and merge groups are tested. main gets nothing but branches that passed
-# here, so a run on main would test the same files a second time. A merge group is what the merge
-# queue builds: the pull request on top of main and of the pull requests ahead of it. It runs
-# every job, because it is the last test of the tip that main will have.
+# Only pull requests are tested. main gets nothing but branches that passed here, so a run on
+# main would test the same files a second time.
 on:
   pull_request:
-  merge_group:
-    types: [checks_requested]
 
 permissions:
   contents: read
@@ -26,6 +23,7 @@ jobs:
   check:
     name: Checks
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Build the site and check the script and the redirect page
@@ -39,6 +37,7 @@ jobs:
     needs: changes
     if: contains(fromJSON(needs.changes.outputs.groups), 'packages')
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Check the order of the package versions in each package manager
@@ -59,7 +58,6 @@ jobs:
     uses: ./.github/workflows/build-packages.yml
     with:
       program: server
-      packages-ref: ${{ github.sha }}
 
   packages-client:
     name: Packages client
@@ -68,7 +66,6 @@ jobs:
     uses: ./.github/workflows/build-packages.yml
     with:
       program: client
-      packages-ref: ${{ github.sha }}
 
   released-server:
     name: Released server
@@ -76,7 +73,6 @@ jobs:
     uses: ./.github/workflows/check-packages.yml
     with:
       program: server
-      packages-ref: ${{ github.sha }}
       source: ${{ toJSON(needs.packages-server.outputs) }}
 
   released-client:
@@ -85,7 +81,6 @@ jobs:
     uses: ./.github/workflows/check-packages.yml
     with:
       program: client
-      packages-ref: ${{ github.sha }}
       source: ${{ toJSON(needs.packages-client.outputs) }}
 
   # The whole life of the packages: set up the repository, install the published release of both
@@ -99,6 +94,7 @@ jobs:
     name: Lifecycle (${{ matrix.format }}, ${{ matrix.arch }})
     needs: [packages-server, packages-client]
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
@@ -133,6 +129,7 @@ jobs:
     needs: [changes, check, version-order, packages-server, packages-client, released-server, released-client, lifecycle]
     if: ${{ always() }}
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Every job succeeded
         env:

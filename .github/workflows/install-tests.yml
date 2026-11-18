@@ -1,11 +1,10 @@
 name: Install tests
+# Every job has a time limit: 3 times its longest run, so a hang fails in minutes.
 
 on:
   push:
     branches: [main]
   pull_request:
-  merge_group:
-    types: [checks_requested]
   schedule:
     # Weekly, because the systems under test change underneath an unchanged script.
     - cron: "33 4 * * 3"
@@ -29,6 +28,7 @@ jobs:
     needs: changes
     if: contains(fromJSON(needs.changes.outputs.groups), 'install')
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: 40
     strategy:
       fail-fast: false
       matrix:
@@ -66,6 +66,7 @@ jobs:
     needs: changes
     if: contains(fromJSON(needs.changes.outputs.groups), 'install')
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -77,12 +78,11 @@ jobs:
 
   # A failed run of this workflow opens an issue assigned to the account in the repository
   # variable ALERT_ASSIGNEE, so that someone gets an email; GitHub sends none for runs the
-  # bots start. Pull requests and merge groups are left out: their author sees the failed check
-  # there, and the merge queue takes a failed pull request out.
+  # bots start. Pull requests are left out: their author sees the failed check there.
   alert:
     name: Report a failure
     needs: [changes, install, freebsd]
-    if: ${{ failure() && !contains(fromJSON('["pull_request","merge_group"]'), github.event_name) }}
+    if: ${{ failure() && github.event_name != 'pull_request' }}
     permissions:
       issues: write
     uses: SpliceFS/.github/.github/workflows/report-failure-v1.yml@main
