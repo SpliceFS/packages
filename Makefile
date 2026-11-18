@@ -233,6 +233,14 @@ package-test: built-packages
 service-test: built-packages
 	$(TEST_VARS) scripts/service-test.sh
 
+# Installs the Debian package of the program on this machine itself and proves the service there
+# with the checks of service-test, except the reboot, then removes the package again. A CI runner
+# is a whole machine that booted the normal way, which no container is. It changes the machine, so
+# the script refuses to run outside CI. It needs the deb package in dist/PROGRAM and sudo.
+.PHONY: service-test-host
+service-test-host:
+	PROGRAM=$(PROGRAM) VERSION=$(VERSION) scripts/service-test-host.sh
+
 # Proves that the client mounts from the boot mounts of the system, on every Alpine image of
 # packaging/test-systems (scripts/fstab-test.sh): installs the client package next to a real server
 # (SERVER_BIN, the folder with the splicefsd program for the CPU type of the container), writes an
