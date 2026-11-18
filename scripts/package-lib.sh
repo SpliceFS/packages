@@ -23,6 +23,13 @@ package_link_list() {
     grep -v -e '^#' -e '^$' "$defs/links"
 }
 
+# Prints the links of the FreeBSD package, "<link> <target>" a line: the same links, moved from /usr
+# to /usr/local, where that package installs. The links file stays the one place that says which
+# links there are.
+package_freebsd_link_list() {
+    package_link_list | sed -e 's|^/usr/|/usr/local/|' -e 's| /usr/| /usr/local/|'
+}
+
 # Makes the links the program installs under the folder $1, for the package formats that build a
 # tree of files.
 package_links() {
@@ -56,8 +63,9 @@ package_docs() {
 }
 
 # Prints the packing list that pkg create reads for the FreeBSD package, paths relative to
-# /usr/local. Every line is made from a fact that program.conf and config-folders hold: the
-# programs, the rc script that is named after the service program, and the configuration folders.
+# /usr/local. Every line is made from a fact that program.conf, links and config-folders hold: the
+# programs, the links, the rc script that is named after the service program, and the
+# configuration folders.
 # A folder comes before the one that holds it, so that pkg removes the inner one first. The
 # folder of all SpliceFS programs is shared by the server and the client, and pkg removes it
 # only when it is empty.
@@ -65,6 +73,7 @@ package_docs() {
 # shellcheck disable=SC2154
 package_freebsd_plist() {
     for plist_program in $programs; do echo "bin/$plist_program"; done
+    package_freebsd_link_list | while read -r plist_link _; do echo "${plist_link#/usr/local/}"; done
     echo "etc/rc.d/$program"
     for plist_folder in $confsubdirs; do echo "@dir ${confdir#/}/$plist_folder"; done
     echo "@dir ${confdir#/}"
