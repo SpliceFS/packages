@@ -2,7 +2,8 @@
 # Checks scripts/apk-resign.sh on the Alpine packages in dist/PROGRAM: signed again with a key the
 # package was not made with, apk accepts every package when it trusts that key and refuses it
 # when it does not, the content is the one it was, and a file that is not a signed Alpine package
-# is refused. Runs on the host (make apk-resign-test, part of make package-test) and needs Docker.
+# is refused. Runs on the host (make apk-resign-test; CI runs it in the Alpine jobs of
+# test-packages.yml) and needs Docker.
 # The key is made new for each run, in a folder of dist that is removed at the end.
 # Environment: PROGRAM. Inside the apk-build image the script is called as: apk-resign-test.sh inside
 set -eu
