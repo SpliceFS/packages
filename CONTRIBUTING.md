@@ -108,7 +108,10 @@ Every merge into `main` is a version. Right after the merge, the Tag workflow pu
 (the highest number tag plus one) on the merge commit as a tag, which starts the build, and makes
 a GitHub release for it. The notes of the release are the `## Change log` entries of the pull
 requests merged since the previous number, then a line ("Release of server v1.2.3.") for every
-release of the server or the client published since then, read from their own releases. Nobody
+release of the server or the client published since the previous number was cut, read from their
+own releases. The cut of a number is the time its tagging started; it is the last line of its
+notes, in a comment that GitHub does not show, so a release published while a number is being
+made is in the next number and no release is in two. Nobody
 creates tags or release branches by hand: only the release bot can create a tag, and a tag never
 changes. A release of the server or the client also gets a number, even when the tip of `main`
 has one already.

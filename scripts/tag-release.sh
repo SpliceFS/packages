@@ -6,8 +6,11 @@
 #
 # The next version is the highest number tag plus one, and 1 when there is none (number-tags.sh
 # says what a number tag is). The notes are the change log entries of the pull requests merged
-# since that highest tag and a line for every program release published since then
-# (release-notes.sh). A merge to main is only tagged once, so a second run for the same commit is
+# since that highest tag and a line for every program release published since the cut of that
+# tag (release-notes.sh), and they end with the cut of this one. The cut is the time at which this
+# script starts, read once and before anything else is read, so that a program release published
+# at any later moment, even while the release is being made, is in the notes of the next version
+# and in no other. A merge to main is only tagged once, so a second run for the same commit is
 # refused. A program release is an event of its own: when PROGRAM_RELEASED is not empty the
 # commit may have a number already, because the release of a program changes no pull request,
 # and the number is the point of it. Which program is released is not told to this script, and
@@ -26,6 +29,9 @@ commit="$(git rev-parse --verify "$1^{commit}")"
 : "${REPO:?REPO is not set}"
 here="$(cd "$(dirname "$0")" && pwd)"
 
+# First, before anything is read: what is published after this moment is for the next version.
+cut="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
 previous="$(git tag --list | sh "$here/number-tags.sh" | tail -n 1)"
 next=$((${previous:-0} + 1))
 
@@ -39,7 +45,7 @@ if [ -z "${PROGRAM_RELEASED:-}" ]; then
         exit 1
     fi
 fi
-sh "$here/release-notes.sh" "$previous" "$commit" > "$notes"
+sh "$here/release-notes.sh" "$previous" "$commit" "$cut" > "$notes"
 
 gh api "repos/$REPO/git/refs" -f "ref=refs/tags/$next" -f "sha=$commit" --silent
 gh release create "$next" --repo "$REPO" --verify-tag --title "$next" --notes-file "$notes"

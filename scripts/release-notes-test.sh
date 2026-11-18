@@ -1,9 +1,10 @@
 #!/bin/sh
 # Test of scripts/release-notes.sh: the notes of a release are the change log entries of the
 # pull requests merged since the previous version tag, then one line for every program release
-# published since that tag. Runs on the host, no network (part of make check): the repository is
-# a throwaway one, gh is a stand-in that answers from files, and the reader of a description is a
-# stand-in with the contract of the shared one.
+# published from the cut time of the previous version up to the cut time of this one, then the
+# line that records this cut time. Runs on the host, no network (part of make check): the
+# repository is a throwaway one, gh is a stand-in that answers from files, and the reader of a
+# description is a stand-in with the contract of the shared one.
 set -eu
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -14,7 +15,7 @@ mkdir "$work/bin" "$work/answers"
 
 # The stand-in records what was asked and prints what gh prints after its --jq: for a pull
 # request two things, the login of the author, then the description (file pr-N); for the release
-# of a version tag the time it was published (file tag-NAME); for the releases of a repository a
+# of a version tag its notes (file tag-NAME); for the releases of a repository a
 # line "time TAB tag" for each published one (file releases-OWNER-NAME). A file that is missing
 # is a request that fails.
 cat > "$work/bin/gh" <<'GH'
@@ -56,17 +57,28 @@ pull_request 5 alice "## Change log
 pull_request 6 'dependabot[bot]' "Bumps a thing."
 pull_request 7 alice "No section at all."
 
-# The releases of the two programs. The releases of the versions 1, 2 and 3 were published on
-# 2026-11-02, -04 and -06, and the program releases are told apart by their time: before 1, at
-# the very time of 1 (that is in the notes of 1, and not in the next), between 1 and 2, after 2.
+# The notes of a release, as GitHub keeps them: the entries, then the line with its cut time.
+# $1 version, $2 its cut time, $3 what comes before each line end (a carriage return or nothing).
+release_notes_of() {
+    printf 'Notes.%s\n%s\n<!-- cut: %s -->%s\n' "$3" "$3" "$2" "$3" > "$work/answers/tag-$1"
+}
+# The versions 1, 2 and 3 were cut on 2026-11-02, -04 and -06, at 10:00. The notes of the version
+# 3 were edited on the web page, which gives them Windows line ends. The version 5 has notes
+# without a cut line, and the version 4 has no release.
+release_notes_of 1 2026-11-02T10:00:00Z ""
+release_notes_of 2 2026-11-04T10:00:00Z ""
+release_notes_of 3 2026-11-06T10:00:00Z "$(printf '\r')"
+printf 'Notes without a cut line.\n' > "$work/answers/tag-5"
+# The releases of the two programs, told apart by their time. A release counts from the cut time
+# of the previous version (it is in the notes of the next version when it is published at that
+# very second) up to, and not including, the cut time of this version: before the version 1, at
+# the cut of 1, between 1 and 2, at the cut of 2, after 2.
 tab="$(printf '\t')"
 printf '%s\n' "2026-11-01T09:00:00Z${tab}v0.5.34" "2026-11-02T10:00:00Z${tab}v0.5.35" \
     "2026-11-03T12:00:00Z${tab}v0.5.36" "2026-11-05T12:00:00Z${tab}v0.5.37" \
+    "2026-11-04T10:00:00Z${tab}v0.5.38" \
     > "$work/answers/releases-example-server"
 printf '%s\n' "2026-11-03T08:00:00Z${tab}v0.2.1" > "$work/answers/releases-example-client"
-printf '2026-11-02T10:00:00Z\n' > "$work/answers/tag-1"
-printf '2026-11-04T10:00:00Z\n' > "$work/answers/tag-2"
-printf '2026-11-06T10:00:00Z\n' > "$work/answers/tag-3"
 
 repo="$work/repo"
 git init -q -b main "$repo"
@@ -96,47 +108,61 @@ $git tag 2
 merge 7
 $git tag 3
 $git tag 4
+$git tag 5
 
-# $1 case name, $2 previous tag (may be empty), $3 the commit, $4 status wanted, $5 output wanted.
+# $1 case name, $2 previous tag (may be empty), $3 the commit, $4 the cut time of the release,
+# $5 status wanted, $6 output wanted.
 notes() {
     status=0
     got="$(cd "$repo" && ANSWERS="$work/answers" PATH="$work/bin:$PATH" REPO=owner/repo \
-        CHANGE_LOG_SCRIPT="$work/reader.sh" sh "$root/scripts/release-notes.sh" "$2" "$3" 2>"$work/err")" || status=$?
-    if [ "$status" -eq "$4" ] && [ "$got" = "$5" ]; then
+        CHANGE_LOG_SCRIPT="$work/reader.sh" sh "$root/scripts/release-notes.sh" "$2" "$3" "$4" 2>"$work/err")" || status=$?
+    if [ "$status" -eq "$5" ] && [ "$got" = "$6" ]; then
         printf 'ok   %s\n' "$1"
     else
-        printf 'FAIL %s: want %s "%s" got %s "%s"\n' "$1" "$4" "$5" "$status" "$got"
+        printf 'FAIL %s: want %s "%s" got %s "%s"\n' "$1" "$5" "$6" "$status" "$got"
         failed=$((failed + 1))
     fi
 }
 
-notes "the pull requests and the program releases after the previous tag, oldest first, and no earlier one" 1 2 0 "- Entry five.
+notes "the pull requests and the program releases from the previous cut up to this one, oldest first, and the cut line" 1 2 2026-11-04T10:00:00Z 0 "- Entry five.
 - Entry five, second line.
 - Internal: a dependency is updated. Nothing changes for users.
+- Release of server v0.5.35.
 - Release of client v0.2.1.
 - Release of server v0.5.36.
-- Release of server v0.5.37."
+<!-- cut: 2026-11-04T10:00:00Z -->"
 : > "$work/answers/asked"
-notes "without a previous tag every pull request counts and no release does" "" 2 0 "- Entry four.
+notes "without a previous tag every pull request counts, no release does, and the cut is recorded" "" 2 2026-11-02T10:00:00Z 0 "- Entry four.
 - Entry five.
 - Entry five, second line.
-- Internal: a dependency is updated. Nothing changes for users."
+- Internal: a dependency is updated. Nothing changes for users.
+<!-- cut: 2026-11-02T10:00:00Z -->"
 if grep -q releases "$work/answers/asked"; then
     echo "FAIL no release is asked for without a previous tag"
     failed=$((failed + 1))
 else
     echo "ok   no release is asked for without a previous tag"
 fi
-notes "a release alone, with no pull request merged since the previous tag" 2 2 0 "- Release of server v0.5.37."
-notes "nothing merged and nothing released since the previous tag, no notes" 3 3 0 ""
-notes "a previous tag without a release of its own stops the notes" 4 4 1 ""
+# The releases at the cut of the version 2 and after it are the ones the notes above left out:
+# together the two sets hold every release from the cut of 1 on, once.
+notes "a release alone, with no pull request merged; one published at the previous cut is in it" 2 2 2026-11-06T10:00:00Z 0 "- Release of server v0.5.38.
+- Release of server v0.5.37.
+<!-- cut: 2026-11-06T10:00:00Z -->"
+notes "nothing merged and nothing released since the previous cut, only the cut line; a cut line with Windows line ends is read" 3 3 2026-11-07T10:00:00Z 0 "<!-- cut: 2026-11-07T10:00:00Z -->"
+notes "a previous tag without a release of its own stops the notes" 4 4 2026-11-07T10:00:00Z 1 ""
 err="$(cat "$work/err")"
 if printf '%s\n' "$err" | grep -q 'version tag 4 has no release'; then echo "ok   the failure names the tag"; else
     echo "FAIL the failure names the tag: $err"
     failed=$((failed + 1))
 fi
+notes "a previous release without a cut line stops the notes" 5 5 2026-11-07T10:00:00Z 1 ""
+err="$(cat "$work/err")"
+if printf '%s\n' "$err" | grep -q 'release 5 has no cut line'; then echo "ok   the failure names the release"; else
+    echo "FAIL the failure names the release: $err"
+    failed=$((failed + 1))
+fi
 : > "$work/answers/asked"
-notes "the pull request that has no change log section stops the notes" 2 main 1 ""
+notes "the pull request that has no change log section stops the notes" 2 main 2026-11-07T10:00:00Z 1 ""
 err="$(cat "$work/err")"
 if printf '%s\n' "$err" | grep -q '#7'; then echo "ok   the failure names the pull request"; else
     echo "FAIL the failure names the pull request: $err"
@@ -153,7 +179,7 @@ fi
 # The program that is released from a repository it does not name stops the notes: a release
 # would go out with a program release missing.
 printf 'name=x\nprogram=x\nprograms=x\ndocs=x\n' > "$repo/programs/server/program.conf"
-notes "a program that names no release repository stops the notes" 2 2 1 ""
+notes "a program that names no release repository stops the notes" 2 2 2026-11-07T10:00:00Z 1 ""
 err="$(cat "$work/err")"
 if printf '%s\n' "$err" | grep -q 'programs/server/program.conf does not set release_repo'; then
     echo "ok   the failure names the program file"
