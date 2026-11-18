@@ -1,13 +1,9 @@
 name: CI
 
-# Only pull requests and merge groups are tested. main gets nothing but branches that passed
-# here, so a run on main would test the same files a second time. A merge group is what the merge
-# queue builds: the pull request on top of main and of the pull requests ahead of it. It runs
-# every job, because it is the last test of the tip that main will have.
+# Only pull requests are tested. main gets nothing but branches that passed here, so a run on
+# main would test the same files a second time.
 on:
   pull_request:
-  merge_group:
-    types: [checks_requested]
 
 permissions:
   contents: read
