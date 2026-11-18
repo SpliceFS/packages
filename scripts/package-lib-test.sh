@@ -76,7 +76,7 @@ refuses_program() {
 
 reads "$tree" demo 'splicefs-demo|demod|demod democtl|README.md guide/setup.md|/etc/splicefs/demo|alpha.d,beta.d|example/demo'
 reads "$tree" other 'splicefs-other|otherd|otherd|README.md|/etc/splicefs/other|gamma.d|example/other'
-reads "$root" server 'splicefs-server|splicefsd|splicefsd|README.md CHANGELOG.md docs/configuration.md|/etc/splicefs/server|conf.d,shares.d|SpliceFS/server'
+reads "$root" server 'splicefs-server|splicefsd|splicefsd splicefsdctl|README.md CHANGELOG.md docs/configuration.md|/etc/splicefs/server|conf.d,shares.d|SpliceFS/server'
 reads "$root" client 'splicefs-client|splicefs|splicefs splicefsctl|README.md CHANGELOG.md docs/configuration.md|/etc/splicefs/client|conf.d,clusters.d,mounts.d|SpliceFS/client'
 refuses_program 'PROGRAM is not set' -u PROGRAM
 refuses_program 'programs/nothing/program.conf' PROGRAM=nothing
@@ -229,6 +229,7 @@ etc/rc.d/otherd
 PLIST
 plist_of "$root" server <<'PLIST'
 bin/splicefsd
+bin/splicefsdctl
 etc/rc.d/splicefsd
 @dir etc/splicefs/server/conf.d
 @dir etc/splicefs/server/shares.d
@@ -246,6 +247,33 @@ etc/rc.d/splicefs
 @dir etc/splicefs/client
 @dir etc/splicefs
 PLIST
+
+# The deb and FreeBSD packages install the programs of program.conf. The Alpine and rpm definitions
+# name their programs themselves, so they are the ones that can fall behind it: a program that
+# is listed and not installed. $1 the program.
+installs_every_program() {
+    # The inner shell expands $1, which is the program.
+    # shellcheck disable=SC2016
+    listed="$(cd "$root" && PROGRAM="$1" VERSION=v1.2.3 REVISION=0 PACKAGE_DATE=20261112 sh -c \
+        '. scripts/package-lib.sh; echo $programs' sh "$1" 2>&1)"
+    missing=""
+    for each in $listed; do
+        grep -qF "\"\$STAGE/$each\" \"\$pkgdir/usr/bin/$each\"" "programs/$1/alpine/APKBUILD" ||
+            missing="$missing APKBUILD:$each"
+        grep -qF "%{stage}/$each %{buildroot}/usr/bin/$each" "programs/$1"/rpm/*.spec ||
+            missing="$missing spec-install:$each"
+        grep -qxF "/usr/bin/$each" "programs/$1"/rpm/*.spec || missing="$missing spec-files:$each"
+    done
+    if [ -z "$missing" ]; then
+        printf 'ok   the Alpine and rpm definitions of %-6s install %s\n' "$1" "$listed"
+    else
+        printf 'FAIL the Alpine and rpm definitions of %s do not install:%s\n' "$1" "$missing"
+        failed=$((failed + 1))
+    fi
+}
+
+installs_every_program server
+installs_every_program client
 
 # $1 VERSION, $2 REVISION, then the six strings of the formats: the deb version (the revision
 # is part of it), the rpm version and release, the Alpine version and release, and the FreeBSD
