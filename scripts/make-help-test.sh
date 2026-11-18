@@ -72,7 +72,7 @@ check "the real Makefile and README agree with make help" "$root" ""
 
 mkdir "$work/readme"
 cp "$root/Makefile" "$work/readme/"
-{ cat "$root/README.md"; echo 'Run `make no-such-target` first.'; } > "$work/readme/README.md"
+{ cat "$root/README.md"; echo 'make no-such-target   # a line of a code block'; } > "$work/readme/README.md"
 check "a README that names a target the Makefile lacks" "$work/readme" \
     "README names make no-such-target, which the Makefile does not define"
 
