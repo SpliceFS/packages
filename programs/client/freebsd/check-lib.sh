@@ -19,6 +19,7 @@ extra_checks() {
     check_work="$(mktemp -d)"
     check_rc_order
     check_late_line
+    check_user_mode
 }
 
 # The line number of the script $1 in the list that rcorder wrote, or nothing when it is not in it.
@@ -68,4 +69,145 @@ check_late_line() {
     fi
     if mount | grep -qF "$check_work/files"; then fail "a cluster that is not defined was mounted"; fi
     echo "mount -a -L: the late line ran the helper, was refused, and failok let the boot go on"
+}
+
+# --- the client run by an ordinary user ---------------------------------------------------------
+
+# "Run as yourself" on the install page: the steps the administrator takes once, as root, and
+# then the client started by the user. The commands below are the ones the page shows, for the
+# user the page names; scripts/freebsd-service-test.sh compares them with the page, the README and
+# steps/user-mode-start.sh. The machine has no cluster, and the cluster of the page is only
+# defined: a client with no mounts does not contact it, so the page's address stays as it is.
+user_mode_user=alice
+
+# One command to a line, run one at a time by user_mode_root_steps.
+user_mode_root_text() {
+    cat <<'ROOT_STEPS'
+sysctl vfs.usermount=1
+echo 'vfs.usermount=1' >> /etc/sysctl.conf
+sysrc kld_list+=fusefs && kldload fusefs
+pw groupmod operator -m alice
+printf '[fuse_users=10]\nadd path fuse mode 0660 group operator\n' >> /etc/devfs.rules
+sysrc devfs_system_ruleset=fuse_users && service devfs restart
+ROOT_STEPS
+}
+
+# The block the user runs, as steps/user-mode-start.sh has it.
+user_mode_start_text() {
+    cat <<'START_STEPS'
+# Your own folders, in your home directory: your cluster and its password.
+config="${XDG_CONFIG_HOME:-$HOME/.config}/splicefs/client"
+mkdir -p "$config/clusters.d" "$config/secrets" ~/files
+
+# Your cluster. The file name is the cluster name.
+cat > "$config/clusters.d/example.yaml" <<'EOF'
+url: "https://east.example.com/api"
+user: alice
+password_file: secrets/example
+EOF
+(umask 077; cat > "$config/secrets/example")   # type the password, then Ctrl-D
+
+# Start the client as yourself. It stays in the foreground: give it a terminal of its own.
+splicefs
+START_STEPS
+}
+
+# Runs the command line $1 as the user, in a login: the group the root steps gave is only there
+# after a new login, as the page says.
+as_user() {
+    su -l "$user_mode_user" -c "$1"
+}
+
+# Status 0 when the client of the user answers over the socket it finds by itself.
+user_client_answers() {
+    as_user 'splicefsctl status'
+}
+
+# The service of this machine has loaded fusefs already, so the page's kldload says that and
+# fails; on a machine where the service is off it succeeds. What the line is for, a loaded module
+# that is loaded at every boot, is proved after the steps. Any other step must succeed.
+user_mode_step_failed() {
+    case "$1" in
+        *'kldload fusefs') ;;
+        *) fail "the documented step failed: $1" ;;
+    esac
+}
+
+# The root steps of the page, and what they are for: the user, the mount permission, the module,
+# the group and the device.
+user_mode_prepare() {
+    pw useradd "$user_mode_user" -m -s /bin/sh || fail "pw could not add $user_mode_user"
+    user_mode_root_text > "$check_work/root-steps"
+    while IFS= read -r step; do
+        sh -c "$step" < /dev/null || user_mode_step_failed "$step"
+    done < "$check_work/root-steps"
+    usermount="$(sysctl -n vfs.usermount)"
+    [ "$usermount" = 1 ] || fail "vfs.usermount is not 1 after the root steps"
+    grep -qx 'vfs.usermount=1' /etc/sysctl.conf || fail "/etc/sysctl.conf does not keep vfs.usermount"
+    kldstat -q -m fusefs || fail "fusefs is not loaded"
+    sysrc -n kld_list | grep -qw fusefs || fail "kld_list does not load fusefs at boot"
+    id -Gn "$user_mode_user" | tr ' ' '\n' | grep -qx operator || fail "$user_mode_user is not in the operator group"
+    device="$(stat -f '%Sp %Sg' /dev/fuse)"
+    [ "$device" = 'crw-rw---- operator' ] ||
+        fail "/dev/fuse is not mode 0660 of group operator after the devfs rule"
+}
+
+# Starts the block of the page as the user, in the background: the client stays in the
+# foreground of the block. The password is typed on standard input, as the page says. The
+# folder of the work is made enterable, so that the user can read the block.
+user_mode_start() {
+    start_block="$check_work/user-start.sh"
+    user_mode_start_text > "$start_block"
+    chmod 711 "$check_work"
+    chmod 644 "$start_block"
+    printf 'secret\n' | as_user "sh $start_block" > "$check_work/user-client.log" 2>&1 &
+    user_client_job=$!
+}
+
+# What the client put where the page says it does: the user's own folders, and a socket folder
+# that only the user may enter.
+user_mode_prove_folders() {
+    # The user's shell expands HOME, as it does for the user in a terminal.
+    # shellcheck disable=SC2016
+    home="$(as_user 'echo "$HOME"')"
+    uid="$(id -u "$user_mode_user")"
+    socket_folder="$(stat -f '%Su %Lp' "/tmp/splicefs-$uid")"
+    [ "$socket_folder" = "$user_mode_user 700" ] ||
+        fail "/tmp/splicefs-$uid is not owned by $user_mode_user with mode 700"
+    [ -f "$home/.config/splicefs/client/clusters.d/example.yaml" ] || fail "the cluster is not in $home/.config/splicefs/client"
+    [ -f "$home/.config/splicefs/client/secrets/example" ] || fail "the password is not in $home/.config/splicefs/client"
+    # The cache folder is made with the first mount, so what is proved is the place the client chose.
+    as_user 'splicefs config show' | grep -qF "$home/.cache/splicefs" || fail "the cache is not in $home/.cache/splicefs"
+}
+
+# Opening the device is what a mount does first. It fails for a user who is not in the group
+# or when the devfs rule did not apply.
+user_mode_prove_device() {
+    as_user 'exec 3<>/dev/fuse' || fail "$user_mode_user cannot open /dev/fuse"
+}
+
+# Ends the client with the signal the page's Ctrl-C sends, and waits for the block to end, which
+# is the signal that the client has stopped.
+user_mode_stop() {
+    pid="$(pgrep -u "$user_mode_user" -x splicefs)" || fail "no splicefs process of $user_mode_user"
+    kill -TERM "$pid" || fail "could not stop the client of $user_mode_user"
+    wait "$user_client_job" || true
+    if pgrep -u "$user_mode_user" -x splicefs >/dev/null; then fail "the client of $user_mode_user is still running"; fi
+    # user_client_answers is one command whose status is the answer, so running it without set -e changes nothing.
+    # shellcheck disable=SC2310
+    if user_client_answers >/dev/null 2>&1; then fail "the client of $user_mode_user still answers after it was stopped"; fi
+}
+
+check_user_mode() {
+    user_mode_prepare
+    user_mode_start
+    wait_for 20 user_client_answers
+    # wait_for is the job's, and it sets wait_status.
+    # shellcheck disable=SC2154
+    if [ "$wait_status" -ne 0 ]; then cat "$check_work/user-client.log"; fail "the client of $user_mode_user does not answer status"; fi
+    user_mode_prove_folders
+    user_mode_prove_device
+    user_mode_stop
+    pw userdel -n "$user_mode_user" -r || fail "pw could not remove $user_mode_user"
+    echo "user mode: the root steps ran, $user_mode_user started the client, status answered, the folders are $user_mode_user's, /dev/fuse opens, the client stopped"
 }
