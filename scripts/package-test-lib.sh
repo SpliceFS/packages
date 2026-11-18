@@ -5,11 +5,22 @@
 # What program.conf and package-lib.sh set is unknown to ShellCheck, which cannot follow them.
 # shellcheck disable=SC2154
 
+# The program $1 reports the version the package was built as.
+check_version_of() {
+    "$1" --version | grep -qF "$VERSION" || fail "$1 --version does not report $VERSION"
+}
+
 # Every program of the package reports the version it was built as.
 check_versions() {
     for each in $programs; do
-        "$each" --version | grep -qF "$VERSION" || fail "$each --version does not report $VERSION"
+        check_version_of "$each"
     done
+}
+
+# For a package that was published before program.conf listed what it lists now: a program added
+# since (the server's control program) is not in it, and the service program is in every package.
+check_service_version() {
+    check_version_of "$program"
 }
 
 # The links the program installs lead to a program. The here-document keeps fail in this shell;

@@ -12,8 +12,8 @@
 # it held, and the user owns no file outside their own places.
 # Runs on the host (make user-mode-test); it needs Docker. Environment: the version comes from
 # dist/client/version (scripts/package-record.sh); SERVER_BIN is the folder that holds the
-# splicefsd program built for the CPU type of the container; PLATFORM and ONLY as for
-# scripts/service-test.sh.
+# programs of the server (splicefsd and splicefsdctl) built for the CPU type of the container;
+# PLATFORM and ONLY as for scripts/service-test.sh.
 #
 # What a container cannot show: that /dev/fuse is there on a host that has not loaded the FUSE
 # module (the test host must), and how a login session sets XDG_RUNTIME_DIR; without it the
