@@ -1,0 +1,9 @@
+# actionlint's type of the job context predates job.workflow_sha and job.workflow_repository, which
+# GitHub documents: the commit and the repository of the workflow file that defines the job, which
+# in a called workflow is the called file and not the caller's. The workflows check this repository
+# out at that commit (see scripts/workflow-checkout-test.sh), and github.workflow_sha is the
+# caller's commit, so only these two properties are accepted here.
+paths:
+  .github/workflows/*.yml:
+    ignore:
+      - 'property "workflow_(sha|repository)" is not defined in object type'
