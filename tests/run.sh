@@ -22,52 +22,19 @@ platform=${PLATFORM:-$(docker version --format '{{.Server.Os}}/{{.Server.Arch}}'
 # because Docker only shares some folders of the host with its containers.
 work=$(mktemp -d "$parts/run.XXXXXX")
 site=$work/site
-server_pid=
-timer_pid=
+. "$root/scripts/site-server-lib.sh"
 cleanup() {
-  [ -z "$timer_pid" ] || kill "$timer_pid" 2>/dev/null || true
-  [ -z "$server_pid" ] || kill "$server_pid" 2>/dev/null || true
-  # The server is waited for, so its port is closed and it is gone when this script ends.
-  [ -z "$server_pid" ] || wait "$server_pid" 2>/dev/null || true
+  stop_site_server
   rm -rf "$work"
 }
 trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-# Kills the process $1 after a minute. It is a safety stop only: nothing waits for this time
-# to pass, the start below waits for the line the server prints. TERM ends it early and takes
-# its sleep along.
-safety_stop() {
-  trap 'kill $!; exit 0' TERM
-  sleep 60 &
-  wait $!
-  kill "$1"
-}
-
-# The server prints one line on stdout once its socket is bound, and the port is in that line.
-# A pipe carries it, so the read below returns when the line is there, or at end of file when
-# the server died first. Nothing else goes to stdout, so no one has to drain the pipe. The
-# site is built after the port is known, and the server finds its files only per request, so
-# it can start before the site folder exists.
-mkfifo "$work/banner"
-python3 -u -m http.server 0 --bind 0.0.0.0 --directory "$site" >"$work/banner" 2>"$work/server.log" &
-server_pid=$!
-safety_stop "$server_pid" >/dev/null 2>&1 &
-timer_pid=$!
-exec 3<"$work/banner"
-banner=
-read -r banner <&3 || true
-exec 3<&-
-kill "$timer_pid" 2>/dev/null || true
-wait "$timer_pid" 2>/dev/null || true
-timer_pid=
-case "$banner" in
-  "Serving HTTP on "*" port "[0-9]*) ;;
-  *) echo "web server did not start" >&2; cat "$work/server.log" >&2; exit 1 ;;
-esac
-port=${banner#* port }
-port=${port%% *}
+# The site is built after the port is known, and the server finds its files only per request,
+# so it starts before the site folder exists.
+start_site_server "$site" "$work"
+port=$site_port
 
 # The address of the site is part of the setup script and its checksum, so the site is built
 # now, with the port the server got.

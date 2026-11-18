@@ -176,7 +176,7 @@ ONLY ?=
 PLATFORM ?=
 TEST_VARS = PROGRAM=$(PROGRAM) VERSION=$(VERSION) PLATFORM=$(PLATFORM) ONLY=$(ONLY)
 
-.PHONY: built-apk-packages built-packages package-order-test package-test
+.PHONY: built-apk-packages built-packages package-order-test apk-resign-test package-test
 
 # Stop at once, with the name of what is missing, before any image starts. A test that uses the
 # Alpine packages only (fstab-test) needs built-apk-packages; the others need every format.
@@ -195,9 +195,14 @@ built-packages: built-apk-packages
 package-order-test:
 	scripts/package-order-test.sh
 
+# Signs the Alpine packages of dist/PROGRAM again with a new key (scripts/apk-resign.sh, which the
+# lifecycle test uses) and checks that apk accepts them with that key and refuses them without it.
+apk-resign-test: built-apk-packages
+	PROGRAM=$(PROGRAM) APK_IMAGE=$(APK_IMAGE) scripts/apk-resign-test.sh
+
 # Installs and removes the package in a clean, booted server of every system listed in
 # packaging/test-systems and reports each system's result.
-package-test: built-packages package-order-test
+package-test: built-packages package-order-test apk-resign-test
 	$(TEST_VARS) scripts/package-test.sh
 
 # Proves the service, not only the files: in a container per system that is booted as a server,
@@ -239,17 +244,42 @@ upgrade-diff-test:
 upgrade-test: built-packages
 	$(TEST_VARS) scripts/upgrade-test.sh
 
+# The whole life of the packages in one booted server per system of packaging/test-systems: our
+# repository is set up with setup.sh, the published release of the server and the client is
+# installed from it, upgraded to the new packages, removed, installed again, removed, and the
+# repository taken away with setup.sh --remove; the system must then match the one it started as
+# (what is left out is in scripts/lifecycle-excluded). It needs the new packages of both
+# programs in dist/server and dist/client (make packages for each), Docker and the network.
+# ONLY limits it to one format or one image; PLATFORM is as for the other tests.
+.PHONY: lifecycle-repo lifecycle-test
+lifecycle-repo:
+	$(MAKE) built-packages PROGRAM=server
+	$(MAKE) built-packages PROGRAM=client
+	$(MAKE) keys
+	for p in server client; do \
+		PROGRAM=$$p PLATFORM=$(PLATFORM) scripts/lifecycle-repo.sh && \
+		scripts/part.sh apk-resign $(REPO_RUN) $(APK_IMAGE) sh scripts/apk-resign.sh /repo/dist/lifecycle/$$p && \
+		$(MAKE) repo PROGRAM=$$p REPO_DIR=dist/lifecycle/$$p || exit 1; \
+	done
+
+lifecycle-test: lifecycle-repo
+	PROGRAM=server PLATFORM=$(PLATFORM) ONLY=$(ONLY) scripts/lifecycle-test.sh
+
 # Signed package repositories in dist/PROGRAM/repo, made from the packages make packages left in
 # dist/PROGRAM (it builds none). Keys come from scripts/signing-keys.sh, which is the one place
 # that picks real or throwaway keys. Each format runs in the image of its own distribution's
 # tools, with the keys mounted read-only.
 REPO_RUN = docker run --rm --user "$(shell id -u):$(shell id -g)" $(KEYS_MOUNT) -v "$(CURDIR)":/repo -w /repo
 
+#   REPO_DIR  the folder that holds the packages and receives the repository in REPO_DIR/repo;
+#             dist/PROGRAM unless the lifecycle test makes a repository of its own.
+REPO_DIR ?= dist/$(PROGRAM)
+
 .PHONY: repo repo-test
 repo: built-packages keys
-	scripts/part.sh repo-apt $(REPO_RUN) $(GO_IMAGE) sh scripts/repo-apt.sh /repo/dist/$(PROGRAM)
-	scripts/part.sh repo-rpm $(REPO_RUN) $(RPM_IMAGE) sh scripts/repo-rpm.sh /repo/dist/$(PROGRAM)
-	scripts/part.sh repo-apk $(REPO_RUN) $(APK_IMAGE) sh scripts/repo-apk.sh /repo/dist/$(PROGRAM)
+	scripts/part.sh repo-apt $(REPO_RUN) $(GO_IMAGE) sh scripts/repo-apt.sh /repo/$(REPO_DIR)
+	scripts/part.sh repo-rpm $(REPO_RUN) $(RPM_IMAGE) sh scripts/repo-rpm.sh /repo/$(REPO_DIR)
+	scripts/part.sh repo-apk $(REPO_RUN) $(APK_IMAGE) sh scripts/repo-apk.sh /repo/$(REPO_DIR)
 
 # Installs from the repository on every system in packaging/test-systems with signature checks
 # on, and checks that a damaged repository is refused.

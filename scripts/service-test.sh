@@ -60,79 +60,9 @@ cleanup() {
 trap cleanup EXIT
 trap 'exit 130' INT TERM
 
-# A server that runs a firewall (firewalld on Rocky Linux) refuses the port of the service
-# until its owner opens it, so the test opens it the way a user of that system does, for good
-# so that it holds after the reboot. A system without a running firewalld has nothing to open,
-# and neither has a program that listens on no port.
-open_firewall() {
-    [ -n "${port:-}" ] || return 0
-    docker exec "$1" sh -c '
-        firewall-cmd --state >/dev/null 2>&1 || exit 0
-        firewall-cmd --permanent --add-port="$1/tcp" >/dev/null && firewall-cmd --reload >/dev/null' sh "$port"
-}
-
-active_and_answering() {
-    service_active "$1" && answers "$1"
-}
-
-inactive() {
-    ! service_active "$1"
-}
-
-# Installing is not a decision to run the service. It happens inside the install command, so
-# the state right after the install is the whole answer and nothing is waited for.
-check_idle_after_install() {
-    refuse "the service is enabled after the install" service_enabled "$1"
-    refuse "the service is running after the install" service_active "$1"
-    echo "ok: installed, not enabled and not running"
-}
-
-check_documented_start() {
-    service_start_enable "$1" || fail "the documented start command failed"
-    service_enabled "$1" || fail "the service is not enabled after the documented start command"
-    must "the service is not active 20 seconds after the documented start command" wait_for 20 service_active "$1"
-    echo "ok: the documented start command enables and starts it"
-}
-
-check_user() {
-    user="$(service_user "$1")" || fail "cannot find the main process of the service"
-    [ "$user" = "$expected_user" ] ||
-        fail "the service runs as '$user', not as '$expected_user'"
-    echo "ok: runs as $user"
-}
-
-check_answers() {
-    must "the service does not do its job: expected that it $answers_text" wait_for 10 answers "$1"
-    echo "ok: $answers_text"
-}
-
-check_restart() {
-    service_restart "$1" || fail "the restart failed"
-    must "the service is not active and answering 20 seconds after a restart" \
-        wait_for 20 active_and_answering "$1"
-    echo "ok: active and answering after a restart"
-}
-
-check_reboot() {
-    docker restart "$1" >/dev/null || fail "docker restart failed"
-    must "the service is not active and answering 60 seconds after a reboot" \
-        wait_for 60 active_and_answering "$1"
-    echo "ok: active and answering after a reboot, because it was enabled"
-}
-
-# An upgrade restarts a service that was running, so that it runs the new files. The process id
-# changes only when it was restarted, which is how a restart is told from a service that was
-# left alone.
-check_upgrade_keeps_running() {
-    before="$(service_pid "$1")" || fail "cannot find the main process before the upgrade"
-    upgrade_package "$1" || fail "upgrading the package failed"
-    must "the service is not active and answering 20 seconds after an upgrade" \
-        wait_for 20 active_and_answering "$1"
-    after="$(service_pid "$1")" || fail "cannot find the main process after the upgrade"
-    [ "$after" != "$before" ] || fail "the upgrade did not restart the running service"
-    service_enabled "$1" || fail "the upgrade turned the service off"
-    echo "ok: an upgrade restarted the running service"
-}
+# The checks that tell whether the service works (wait_for, must, refuse, check_*).
+# shellcheck source=service-check-lib.sh
+. scripts/service-check-lib.sh
 
 # An upgrade never starts a service the administrator stopped, and never changes whether it is
 # enabled.
@@ -143,17 +73,6 @@ check_upgrade_keeps_stopped() {
     refuse "the upgrade started a stopped service" service_active "$1"
     service_enabled "$1" || fail "the upgrade changed the enabled service to not enabled"
     echo "ok: an upgrade left the stopped service stopped and enabled"
-}
-
-check_removal() {
-    remove_package "$1" || fail "removing the package failed"
-    must "the service is still active after the package was removed" wait_for 10 inactive "$1"
-    refuse "the service still answers after the package was removed" answers "$1"
-    refuse "the service is still enabled after the package was removed" service_enabled "$1"
-    # wait_booted is one test whose status is the answer, so set -e being off inside it changes nothing.
-    # shellcheck disable=SC2310
-    wait_booted "$format" "$1" || fail "the service manager is not healthy after the package was removed"
-    echo "ok: stopped, disabled and silent after the removal, the service manager is healthy"
 }
 
 # After a remove the package manager may still remember the old install (Debian keeps the old
@@ -183,7 +102,7 @@ run_checks() {
     check_answers "$1"
     check_restart "$1"
     check_reboot "$1"
-    check_upgrade_keeps_running "$1"
+    check_upgrade_keeps_running "$1" upgrade_package
     check_upgrade_keeps_stopped "$1"
     # Started again, so that the removal has a running service to stop.
     check_documented_start "$1"
