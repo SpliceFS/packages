@@ -76,6 +76,29 @@ sysrc -x splicefsd_enable    # the server
 sysrc -x splicefs_enable     # the client
 ```
 
+### Mount at boot from fstab (client, Linux)
+
+The client can also mount from the boot mounts of the system. The cluster must be defined in
+`/etc/splicefs/client/clusters.d`, and the client service must be running: the mount helper
+(`/usr/sbin/mount.splicefs`) only asks the running client. Add a line of type `splicefs` to
+`/etc/fstab`; the options are listed in the
+[client configuration](https://github.com/SpliceFS/client/blob/main/docs/configuration.md).
+
+systemd (Debian, Ubuntu, Rocky Linux, Amazon Linux, openSUSE), as root:
+
+```
+echo 'example:/ /mnt/files splicefs _netdev,nofail,x-systemd.requires=splicefs.service 0 0' >> /etc/fstab
+```
+
+OpenRC (Alpine), as root. `netmount` mounts the `_netdev` lines once the network is up, and the
+`fuse` service loads the FUSE kernel module at boot. The package turns neither on:
+
+```
+echo 'example:/ /mnt/files splicefs _netdev,nofail 0 0' >> /etc/fstab
+rc-update add fuse boot && rc-service fuse start
+rc-update add netmount default && rc-service netmount start
+```
+
 ## Remove the repository
 
 `sh setup.sh --remove` takes away what the setup added, and nothing else: the repository
@@ -156,6 +179,7 @@ make e2e-freebsd  # runs the setup script in a FreeBSD machine of every supporte
 make packages PROGRAM=server BIN=<programs> SRC=<source> VERSION=v1.2.3   # builds deb, rpm and apk into dist/server (PROGRAM=client for the client)
 make package-test PROGRAM=server   # installs and removes each package on every server image (ONLY=deb or ONLY=<image> for one)
 make service-test PROGRAM=server   # proves the service installs idle, starts when told, answers, restarts, upgrades and stops, on every image
+make fstab-test PROGRAM=client SERVER_BIN=<splicefsd folder>   # proves an fstab line is mounted by OpenRC's netmount on every Alpine image
 make upgrade-test PROGRAM=server  # installs the newest published release, then upgrades to the packages in dist (only when the packaging changed)
 make repo PROGRAM=server           # builds the signed apt, rpm and Alpine repositories into dist/server/repo
 make repo-test PROGRAM=server      # installs from them with signature checks on
