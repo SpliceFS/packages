@@ -1,12 +1,13 @@
 #!/bin/sh
 # Checks that the versions package-lib.sh makes sort the way a release process needs in each
 # package manager: dpkg in Debian, rpm in Rocky Linux, apk in Alpine, each in its own
-# container. Runs on the host (make package-order-test, part of make package-test, so CI and
-# the release job run it). Every version in the list below must compare as older than the
-# next one, and apk must accept every Alpine version as valid. A version is a version of the
-# program and a revision of the package, so the list shows that a revision sorts above the
-# release itself and below the next release. FreeBSD's pkg version -t is not here: it runs on
-# FreeBSD only, where scripts/freebsd-lib-test.sh and the FreeBSD machine are the place for it.
+# container. Runs on the host (make package-order-test; CI runs it once for a change, as a job of
+# ci.yml, because no package or program changes the answer). Every version in the list below must
+# compare as older than the next one, and apk must accept every Alpine version as valid. A
+# version is a version of the program and a revision of the package, so the list shows that a
+# revision sorts above the release itself and below the next release. FreeBSD's pkg version -t is
+# not here: it runs on FreeBSD only, where scripts/freebsd-lib-test.sh and the FreeBSD machine are
+# the place for it.
 # The container is the first system of its format in packaging/test-systems, as in the upgrade
 # test. It is not booted, because the package manager alone answers the question.
 # Environment: PACKAGE_DATE as for the build. The versions do not depend on the program, but
