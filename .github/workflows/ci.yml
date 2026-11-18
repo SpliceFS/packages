@@ -21,6 +21,17 @@ jobs:
       - name: Build the site and check the script, the manual steps and the page
         run: make check
 
+  # The versions the packages are given sort right in dpkg, rpm and Alpine's apk. The answer
+  # depends on this repository only, not on a program, a package or a CPU type, so one job is
+  # enough for the run.
+  version-order:
+    name: Version order
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Check the order of the package versions in each package manager
+        run: make package-order-test
+
   # The packaging is tested on the newest release of each program: the release archives are
   # proven by their signature, packaged with the definitions of this commit, and the packages
   # are tested on the server images. A change to a definition, a script or a test system
@@ -76,7 +87,7 @@ jobs:
   # nowhere else. The other workflows of this repository are separate runs and are not in it.
   all-checks:
     name: All checks
-    needs: [check, released, lifecycle]
+    needs: [check, version-order, released, lifecycle]
     if: ${{ always() }}
     runs-on: ubuntu-latest
     steps:

@@ -63,6 +63,12 @@ jobs:
       - name: Install and remove the package in a clean system of every release
         working-directory: packages
         run: make package-test PROGRAM="$PROGRAM" ONLY="$FORMAT"
+      # scripts/apk-resign.sh signs Alpine packages again for the lifecycle test; this proves what
+      # it makes. Only the Alpine jobs have Alpine packages to test it on.
+      - name: Sign the Alpine packages again
+        if: ${{ matrix.format == 'apk' && !cancelled() }}
+        working-directory: packages
+        run: make apk-resign-test PROGRAM="$PROGRAM"
       # The containers above have no service manager running. These do: process 1 is
       # systemd or OpenRC, and the service must start by itself, come back after a reboot
       # and stop when the package is removed.
