@@ -27,7 +27,10 @@ gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-splicefs
 REPO
     # The exact version is named because the repository may hold older builds.
     pm_install() { dnf install -y "$name-$rpmver-$rpmrel"; }
-    pm_clean() { dnf clean all >/dev/null 2>&1; }
+    # Only the cache of our repository goes. dnf clean has no way to name a repository: it drops
+    # the metadata of every one, and the next call fetches the distribution's again, which is
+    # most of what this test spends.
+    pm_clean() { rm -rf "/var/cache/dnf/$name"-* "/var/cache/dnf/$name.solv"; }
 else
     repofile=/etc/zypp/repos.d/splicefs.repo
     rpm --import "$key"
@@ -46,7 +49,7 @@ REPO
         fail "zypper refresh failed on the good repository"
     }
     pm_install() { zypper --non-interactive install "$name=$rpmver-$rpmrel"; }
-    pm_clean() { zypper --non-interactive clean --all >/dev/null 2>&1; }
+    pm_clean() { zypper --non-interactive clean --all "$name" >/dev/null 2>&1; }
 fi
 
 # The package manager's status is read after the call, never in a condition: a function in a

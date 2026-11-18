@@ -1,0 +1,98 @@
+name: Check packages
+
+# Tests the packages that build-packages.yml built, in one program's run: the FreeBSD packages are
+# built and checked in a FreeBSD machine of each release of packaging/freebsd/releases, and the
+# deb, rpm and Alpine packages are tested on the server images of packaging/test-systems by
+# test-packages.yml. package-and-test.yml and the CI of this repository call it after the build.
+# Nothing it makes is published.
+on:
+  workflow_call:
+    inputs:
+      program:
+        description: The program to package, a folder of programs/ (server or client)
+        type: string
+        required: true
+      bin-artifact:
+        description: Artifact of the calling run that holds dist/bin; empty tests the newest release
+        type: string
+        default: ""
+      packages-ref:
+        description: Commit, branch or tag of SpliceFS/packages to use; keep it the ref of the uses line
+        type: string
+        default: main
+      source:
+        description: The outputs of the build-packages.yml call that built the packages, as JSON
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  # The FreeBSD packages, one job for each release of packaging/freebsd/releases. FreeBSD cannot
+  # run in a container, so make package-freebsd starts a virtual machine of the release, which
+  # needs the hardware virtualization that ubuntu-latest (amd64) offers; the make target stops
+  # at once when /dev/kvm is missing (scripts/freebsd-require-kvm.sh). The machine builds the
+  # packages for amd64 and arm64, installs the amd64 one from the repository it signed with the
+  # throwaway key, starts the service, upgrades and removes it, and checks the boot order and
+  # the fstab line (programs/<program>/freebsd/check-lib.sh). Nothing of it is kept: no test of
+  # test-packages.yml uses a FreeBSD package.
+  freebsd:
+    name: FreeBSD packages (${{ matrix.release }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        release: ${{ fromJSON(fromJSON(inputs.source).freebsd-releases) }}
+    steps:
+      - name: Packages
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: SpliceFS/packages
+          ref: ${{ inputs.packages-ref }}
+          path: packages
+          persist-credentials: false
+      - name: Source of the program
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ fromJSON(inputs.source).repository }}
+          ref: ${{ fromJSON(inputs.source).ref }}
+          path: src
+          persist-credentials: false
+      - name: Programs of the calling build
+        if: ${{ inputs.bin-artifact != '' }}
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ${{ inputs.bin-artifact }}
+          path: bin
+      - name: FreeBSD programs of the release, proven by its signature
+        if: ${{ inputs.bin-artifact == '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PROGRAM: ${{ inputs.program }}
+          REPOSITORY: ${{ fromJSON(inputs.source).repository }}
+          TAG: ${{ fromJSON(inputs.source).ref }}
+        run: |
+          gh release download "$TAG" --repo "$REPOSITORY" --dir release \
+            --pattern '*-freebsd-*.tar.gz' --pattern SHA256SUMS --pattern SHA256SUMS.asc
+          packages/scripts/release-bin.sh "$TAG" "$PWD/release" "$PWD/bin"
+      - name: Build the packages on FreeBSD and check them
+        working-directory: packages
+        env:
+          PROGRAM: ${{ inputs.program }}
+          VERSION: ${{ fromJSON(inputs.source).version }}
+          REVISION: ${{ fromJSON(inputs.source).revision }}
+          RELEASE: ${{ matrix.release }}
+        run: |
+          make package-freebsd PROGRAM="$PROGRAM" BIN="$GITHUB_WORKSPACE/bin" SRC="$GITHUB_WORKSPACE/src" \
+            VERSION="$VERSION" REVISION="$REVISION" FREEBSD="$RELEASE"
+
+  # Installs, starts, upgrades and installs from the repository, on every system of
+  # packaging/test-systems. The jobs are in a workflow of their own, which the release of a
+  # program calls too, so that a release runs the same tests on the packages it publishes.
+  tests:
+    name: Tests
+    uses: ./.github/workflows/test-packages.yml
+    with:
+      program: ${{ inputs.program }}
+      packages-ref: ${{ inputs.packages-ref }}
