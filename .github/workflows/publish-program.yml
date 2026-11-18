@@ -1,19 +1,30 @@
 name: Publish programs
 
-# A number tag (1, 2, 3, ...) on main publishes the packages of the programs of this repository:
-# the release bot puts the tag on main right after a change is merged, and after a release of a
-# program (server or client), so every change and every release of a program is one tag. A person
-# can run it by hand too, started on a tag (not on a branch). The publish environment, which holds
-# the signing and upload keys, allows only tags.
+# A number tag (1, 2, 3, ...) on main publishes the site (the setup script, the keys, the install
+# page) and the packages of the programs of this repository: the release bot puts the tag on main
+# right after a change is merged, and after a release of a program (server or client), so every
+# change and every release of a program is one tag. A person can run it by hand too, started on a
+# tag (not on a branch). The publish environment, which holds the signing and upload keys, allows
+# only tags. This is the only workflow a tag starts that talks to the package site.
+#
+#   plan -> wait -> fetch -> program (each) -> publish -> website, homebrew
+#   plan -> check ------------------------------^
 #
 # One run handles every program of programs/ (scripts/list-programs.sh). For each program, the
 # latest GitHub release of it is looked at by publish-one-program.yml:
 #   - it is not published at all: its packages are published as revision 0;
 #   - it is published, and the packaging differs from the newest published revision: the packages
 #     are published as the next revision (scripts/next-revision.sh);
-#   - it is published and nothing differs: nothing is published, and the summary of the run says so.
-# The site (the setup script, the keys, the install page) is published by release.yml, which the
-# same tag starts.
+#   - it is published and nothing differs: nothing of it is published, and the summary says so.
+#
+# The upload key reaches the whole site, and the site lets one rsync session at a time in with
+# it: a second one fails with "Another instance of rrsync is already accessing this directory",
+# whatever folder it is for. So the run talks to the site twice, never at once: the fetch job reads
+# what is published of every program, one after another, and hands it on as an artifact; the
+# publish job, after every build and test of every program has passed, writes the repositories of
+# each program and then the site files, one after another. scripts/site-order-test.sh proves from
+# `needs` that no other job of the run of a tag opens a session. The jobs that only read the site
+# (the revision, the decision and the tests) use HTTPS, which has no such limit.
 on:
   push:
     tags: ["[0-9]*"]
@@ -44,11 +55,100 @@ jobs:
         id: programs
         run: echo "programs=$(scripts/list-programs.sh)" >> "$GITHUB_OUTPUT"
 
-  # One call for each program. A program that fails does not stop the others: each publishes its
-  # own folder of the package site.
-  program:
-    name: Publish ${{ matrix.program }}
+  # The site and every check of this repository, before anything is published. This job holds no
+  # key.
+  check:
+    name: Build the site and run every check
     needs: plan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - run: make check
+
+  # Two runs must not overlap. Each one builds the repositories on top of what is published, so
+  # one that starts while an earlier one is still running would publish without the earlier
+  # version, and the later run must be the one whose setup script ends up published. So a run
+  # waits here, before it reads anything, until every earlier run has ended. This job holds no key
+  # and is not part of the publish environment.
+  wait:
+    name: Wait for earlier publishes
+    needs: plan
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+    steps:
+      - name: Wait until no earlier publish is running
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          # Run numbers of GitHub only grow, so a smaller one is an earlier publish, also
+          # when it is a failed one that was started again.
+          for attempt in $(seq 1 180); do
+            earlier="$(gh api "repos/$REPO/actions/workflows/publish-program.yml/runs?per_page=100" \
+              --jq "[.workflow_runs[] | select(.id < $RUN_ID and .status != \"completed\")] | length")"
+            if [ "$earlier" = 0 ]; then
+              echo "no earlier publish is running"
+              exit 0
+            fi
+            echo "$earlier earlier publish(es) still running, attempt $attempt"
+            sleep 20
+          done
+          echo "::error::an earlier publish did not end within an hour"
+          exit 1
+
+  # What is published, read once for the whole run: the only job that reads the package site
+  # over rsync. The programs are read one after another, in one job, so their sessions never
+  # overlap. Each repository goes into one tar, because the upload of an artifact refuses the
+  # colons in the names of the FreeBSD folders, and the FreeBSD jobs and the publish job start
+  # from them. It runs after the wait job, and every later run waits for this one, so what it
+  # reads is what is published when the publish job writes.
+  fetch:
+    name: Published repositories
+    needs: [plan, wait]
+    runs-on: ubuntu-latest
+    environment: publish
+    env:
+      PROGRAMS: ${{ needs.plan.outputs.programs }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: The signing and upload secrets are there
+        env:
+          SIGNING_OPENPGP_SUBKEY: ${{ secrets.SIGNING_OPENPGP_SUBKEY }}
+          SIGNING_ALPINE_KEY: ${{ secrets.SIGNING_ALPINE_KEY }}
+          UPLOAD_SSH_KEY: ${{ secrets.UPLOAD_SSH_KEY }}
+          UPLOAD_KNOWN_HOSTS: ${{ vars.UPLOAD_KNOWN_HOSTS }}
+        run: scripts/require-env.sh SIGNING_OPENPGP_SUBKEY SIGNING_ALPINE_KEY UPLOAD_SSH_KEY UPLOAD_KNOWN_HOSTS
+      - uses: ./.github/actions/release-keys
+        with:
+          signing-openpgp-subkey: ${{ secrets.SIGNING_OPENPGP_SUBKEY }}
+          signing-alpine-key: ${{ secrets.SIGNING_ALPINE_KEY }}
+          upload-ssh-key: ${{ secrets.UPLOAD_SSH_KEY }}
+          upload-known-hosts: ${{ vars.UPLOAD_KNOWN_HOSTS }}
+      - name: Download and pack the published repositories of every program
+        run: |
+          for program in $(printf '%s' "$PROGRAMS" | jq -r '.[]'); do
+            make program-fetch PROGRAM="$program"
+            make published-pack PROGRAM="$program"
+          done
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: published-repos
+          path: dist/*/published-repo.tar
+          if-no-files-found: error
+      - name: Remove the secret files
+        if: always()
+        uses: ./.github/actions/remove-release-keys
+
+  # One call for each program: it builds and tests the packages and leaves them for the publish
+  # job as artifacts; it opens no session to the package site.
+  program:
+    name: Packages of ${{ matrix.program }}
+    needs: [plan, fetch]
     strategy:
       fail-fast: false
       matrix:
@@ -60,16 +160,162 @@ jobs:
     uses: ./.github/workflows/publish-one-program.yml
     with:
       program: ${{ matrix.program }}
-    # The bot keys of the notify jobs. The keys of the publish environment are not passed: the jobs
-    # that use them name the environment themselves.
     secrets: inherit
+
+  # The only job that writes to the package site, after every build and test of every program
+  # has passed. For each program whose packages are to be published (the ones that left signed
+  # packages) it makes the signed repositories from what is published and the new packages, and
+  # only when all of them are made, uploads them one program after another: the packages, then
+  # the index files and their signatures (the two passes of scripts/publish-program.sh). Then it
+  # signs the setup script and uploads the site files. A program that publishes nothing is named
+  # in the summary.
+  publish:
+    name: Publish
+    needs: [plan, check, wait, fetch, program]
+    runs-on: ubuntu-latest
+    environment: publish
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      programs: ${{ steps.which.outputs.programs }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: The signing and upload secrets are there
+        env:
+          SIGNING_OPENPGP_SUBKEY: ${{ secrets.SIGNING_OPENPGP_SUBKEY }}
+          SIGNING_ALPINE_KEY: ${{ secrets.SIGNING_ALPINE_KEY }}
+          UPLOAD_SSH_KEY: ${{ secrets.UPLOAD_SSH_KEY }}
+          UPLOAD_KNOWN_HOSTS: ${{ vars.UPLOAD_KNOWN_HOSTS }}
+        run: scripts/require-env.sh SIGNING_OPENPGP_SUBKEY SIGNING_ALPINE_KEY UPLOAD_SSH_KEY UPLOAD_KNOWN_HOSTS
+      - uses: ./.github/actions/release-keys
+        with:
+          signing-openpgp-subkey: ${{ secrets.SIGNING_OPENPGP_SUBKEY }}
+          signing-alpine-key: ${{ secrets.SIGNING_ALPINE_KEY }}
+          upload-ssh-key: ${{ secrets.UPLOAD_SSH_KEY }}
+          upload-known-hosts: ${{ vars.UPLOAD_KNOWN_HOSTS }}
+      # A program leaves signed packages only when they are to be published, so the artifacts of
+      # the run say which programs to write.
+      - name: The programs to publish
+        id: which
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+          PROGRAMS: ${{ needs.plan.outputs.programs }}
+        run: |
+          gh api --paginate "repos/$REPO/actions/runs/$RUN_ID/artifacts?per_page=100" \
+            --jq '.artifacts[].name' > "$RUNNER_TEMP/artifacts"
+          write=''
+          for program in $(printf '%s' "$PROGRAMS" | jq -r '.[]'); do
+            if grep -qx "signed-packages-$program" "$RUNNER_TEMP/artifacts"; then
+              write="$write${write:+ }$program"
+            else
+              echo "$program: nothing to publish, its packaging did not change" >> "$GITHUB_STEP_SUMMARY"
+            fi
+          done
+          echo "programs=$write" >> "$GITHUB_OUTPUT"
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        if: steps.which.outputs.programs != ''
+        with:
+          pattern: signed-packages-*
+          merge-multiple: true
+          path: dist
+      # Each in a folder named after it: the tars of two programs have the same names.
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        if: steps.which.outputs.programs != ''
+        with:
+          pattern: freebsd-repo-*
+          path: ${{ runner.temp }}/freebsd
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        if: steps.which.outputs.programs != ''
+        with:
+          name: published-repos
+          path: dist
+      # The repository the tests used holds this version only. The one that is published is made
+      # from what is published, so every older version stays. freebsd-unpack stops when the tar
+      # of a FreeBSD release is missing: the published catalog of its major version would stay in
+      # place, and the upload would not notice.
+      - name: Build the signed package repositories of each program
+        env:
+          WRITE: ${{ steps.which.outputs.programs }}
+        run: |
+          for program in $WRITE; do
+            for release in $(scripts/freebsd-releases.sh | jq -r '.[]'); do
+              part="$RUNNER_TEMP/freebsd/freebsd-repo-$program-$release/freebsd-repo-$release.tar"
+              [ ! -f "$part" ] || mv "$part" "dist/$program/"
+            done
+            make published-unpack PROGRAM="$program"
+            make freebsd-unpack PROGRAM="$program"
+            make repo PROGRAM="$program"
+          done
+      # Before any upload, so that a key that cannot sign stops the run with nothing written.
+      - name: Sign the setup script and verify it with the public key
+        run: SIGNING_KEY_FILE="$SIGNING_DIR/splicefs-openpgp-signing-subkey.asc" make sign
+      # Nothing is uploaded before this step, so a build that failed or a file that is missing
+      # above publishes nothing.
+      - name: Publish the repositories of each program
+        env:
+          WRITE: ${{ steps.which.outputs.programs }}
+        run: |
+          for program in $WRITE; do
+            make program-publish PROGRAM="$program"
+          done
+          [ -n "$WRITE" ] || echo "no program has packages to publish" >> "$GITHUB_STEP_SUMMARY"
+      # make publish rebuilds the site first, which removes the signature, so it signs again.
+      - name: Publish the site
+        run: SIGNING_KEY_FILE="$SIGNING_DIR/splicefs-openpgp-signing-subkey.asc" make publish
+      - name: Remove the secret files
+        if: always()
+        uses: ./.github/actions/remove-release-keys
+
+  # The change log page of splicefs.org is built from CHANGELOG.md of this repository and the
+  # change logs of the programs, so the website is published again after every publish. This job
+  # runs outside the publish environment and holds none of its keys. When it fails, the release is
+  # out all the same.
+  website:
+    name: Rebuild the change log page of the website
+    needs: publish
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - name: Bot token for the website repository
+        id: bot
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          app-id: ${{ vars.RELEASE_BOT_APP_ID }}
+          private-key: ${{ secrets.RELEASE_BOT_PRIVATE_KEY }}
+          owner: SpliceFS
+          repositories: org-site
+      - name: Ask the website to publish again
+        env:
+          GH_TOKEN: ${{ steps.bot.outputs.token }}
+        run: gh api repos/SpliceFS/org-site/dispatches -f event_type=release-published
+
+  # The Homebrew formulas install the newest release, so the tap is told when packages of a
+  # program were published. It then opens a pull request that tests the new version on macOS
+  # before it is merged. This job runs outside the publish environment and holds none of its keys.
+  # When it fails, the packages are out all the same.
+  homebrew:
+    name: Tell the Homebrew tap about this version
+    needs: publish
+    if: needs.publish.outputs.programs != ''
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - name: Ask the tap to update its formulas
+        env:
+          GH_TOKEN: ${{ secrets.MERGE_BOT_TOKEN }}
+        run: gh api repos/SpliceFS/homebrew-tap/dispatches -f event_type=release-published
 
   # A failed run of this workflow opens an issue assigned to the account in the repository
   # variable ALERT_ASSIGNEE, so that someone gets an email; GitHub sends none for runs the
   # bots start.
   alert:
     name: Report a failure
-    needs: [plan, program]
+    needs: [plan, check, wait, fetch, program, publish, website, homebrew]
     if: ${{ failure() }}
     permissions:
       issues: write
