@@ -637,6 +637,7 @@ run "9. user-mode-packaging-test.sh: the packages leave the system to the admini
 run "9. list-programs.sh: the programs of the repository as a JSON array for a workflow matrix" sh scripts/list-programs-test.sh
 run "9. freebsd-releases.sh: the FreeBSD releases as a JSON array for a workflow matrix" sh scripts/freebsd-releases-test.sh
 run "9. release-tag-check.sh: only a number tag on a commit of main may use the keys" sh scripts/release-tag-check-test.sh
+run "9. make help: every target with a comment is listed, and every target the README names exists" sh scripts/make-help-test.sh
 
 if [ "$FAILS" -eq 0 ]; then
   echo "all checks passed"

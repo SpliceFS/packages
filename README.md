@@ -36,22 +36,13 @@ Alpine and FreeBSD) and at https://packages.splicefs.org/keys/.
 ## Build and check
 
 ```
-make site     # writes dist/site
+make help     # every target, with what it does and the variables it needs
 make check    # builds, then runs every check
-make e2e-prepare  # builds ../server and ../client with throwaway keys into dist/e2e
-make e2e      # runs the setup script in a container of every supported system
-make e2e-freebsd  # runs the setup script in a FreeBSD machine of every supported release (FREEBSD=15.1 for one)
-make packages PROGRAM=server BIN=<programs> SRC=<source> VERSION=v1.2.3   # builds deb, rpm and apk into dist/server (PROGRAM=client for the client)
-make package-test PROGRAM=server   # installs and removes each package on every server image (ONLY=deb or ONLY=<image> for one)
-make service-test PROGRAM=server   # proves the service installs idle, starts when told, answers, restarts, upgrades and stops, on every image
-make fstab-test PROGRAM=client SERVER_BIN=<server programs folder>   # proves an fstab line is mounted by OpenRC's netmount on every Alpine image
-make user-mode-test PROGRAM=client SERVER_BIN=<server programs folder>   # proves an ordinary user can run the client and mount, on the first image of each format
-make upgrade-test PROGRAM=server  # installs the newest package published on the site when the packages were built (UPGRADE_FROM of make packages; the newest on the site when none), then upgrades to the packages in dist (only when the packaging changed)
-make repo PROGRAM=server           # builds the signed apt, rpm and Alpine repositories into dist/server/repo
-make repo-test PROGRAM=server      # installs from them with signature checks on
-make package-order-test                           # checks that the package versions sort right in dpkg, rpm and apk
-make apk-resign-test PROGRAM=server               # checks that Alpine packages signed again are trusted with the new key only
+make lint     # ShellCheck on every shell file
 ```
+
+A target that works on one program takes `PROGRAM=<program>`, a folder of `programs/`. The comments
+in the `Makefile` describe every variable.
 
 The tests need Docker and the packages that `make packages` left in `dist/<program>`. `make packages`
 records the version it built in `dist/<program>/version`, and the tests read it from there, so they
