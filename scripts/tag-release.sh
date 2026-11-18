@@ -6,10 +6,12 @@
 #
 # The next version is the highest number tag plus one, and 1 when there is none (number-tags.sh
 # says what a number tag is). The notes are the change log entries of the pull requests merged
-# since that highest tag (release-notes.sh). A program release (the environment names PROGRAM and
-# PROGRAM_TAG) changes no pull request, so its notes are one line that names it, and it may be
-# tagged on a commit that already has a number: the release of a program is an event of its own.
-# A merge to main is only tagged once, so a second run for the same commit is refused.
+# since that highest tag and a line for every program release published since then
+# (release-notes.sh). A merge to main is only tagged once, so a second run for the same commit is
+# refused. A program release is an event of its own: when PROGRAM_RELEASED is not empty the
+# commit may have a number already, because the release of a program changes no pull request,
+# and the number is the point of it. Which program is released is not told to this script, and
+# the notes do not depend on it: they read the releases themselves.
 #
 # Needs REPO, CHANGE_LOG_SCRIPT (see release-notes.sh) and a GH_TOKEN of the release bot, because
 # a tag made with the token of a workflow starts no workflow. The notes are made first, so that a
@@ -30,22 +32,14 @@ next=$((${previous:-0} + 1))
 notes="$(mktemp)"
 trap 'rm -f "$notes"' EXIT
 
-if [ -n "${PROGRAM:-}" ]; then
-    # The words come from the payload of an event and end up in a text that people read: only
-    # the shapes of a program name and of a release tag are let through.
-    printf '%s\n' "$PROGRAM" | grep -qE '^[a-z0-9][a-z0-9-]*$' ||
-        { echo "tag-release: PROGRAM is not a program name" >&2; exit 1; }
-    printf '%s\n' "${PROGRAM_TAG:-}" | grep -qE '^v[0-9][0-9A-Za-z.+-]*$' ||
-        { echo "tag-release: PROGRAM_TAG is not a release tag" >&2; exit 1; }
-    printf -- '- Release of %s %s.\n' "$PROGRAM" "$PROGRAM_TAG" > "$notes"
-else
+if [ -z "${PROGRAM_RELEASED:-}" ]; then
     have="$(git tag --points-at "$commit" | sh "$here/number-tags.sh" | tail -n 1)"
     if [ -n "$have" ]; then
         echo "tag-release: $commit already has the version tag $have; it is not tagged again" >&2
         exit 1
     fi
-    sh "$here/release-notes.sh" "$previous" "$commit" > "$notes"
 fi
+sh "$here/release-notes.sh" "$previous" "$commit" > "$notes"
 
 gh api "repos/$REPO/git/refs" -f "ref=refs/tags/$next" -f "sha=$commit" --silent
 gh release create "$next" --repo "$REPO" --verify-tag --title "$next" --notes-file "$notes"

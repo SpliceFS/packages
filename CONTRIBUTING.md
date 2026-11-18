@@ -92,7 +92,7 @@ A pull request merges with one merge commit. Squash and fast-forward merges are 
 | CI | builds the site and runs every check in `scripts/check.sh` |
 | Rules | on pull requests: checks the `## Change log` section of the description |
 | Main | on every push to `main`: rebuilds the open pull requests on the new tip |
-| Tag | on every push to `main`: puts the next version number on it as a tag and makes the release |
+| Tag | on every push to `main` and every release of a program: puts the next version number on it as a tag and makes the release |
 | Security | ShellCheck on all shell files, CodeQL on the page's script, dependency review on pull requests |
 | SonarQube | quality and security rating on SonarQube Cloud |
 | Install tests | runs the setup script on every supported system, on x86-64 and arm64, weekly as well |
@@ -107,9 +107,11 @@ about compatibility between two numbers: every change is just a change. No file 
 Every merge into `main` is a version. Right after the merge, the Tag workflow puts the next number
 (the highest number tag plus one) on the merge commit as a tag, which starts the build, and makes
 a GitHub release for it. The notes of the release are the `## Change log` entries of the pull
-requests merged since the previous number. Nobody creates tags or release branches by hand: only
-the release bot can create a tag, and a tag never changes. A release of the server or the client
-also gets a number, with a note that names it.
+requests merged since the previous number, then a line ("Release of server v1.2.3.") for every
+release of the server or the client published since then, read from their own releases. Nobody
+creates tags or release branches by hand: only the release bot can create a tag, and a tag never
+changes. A release of the server or the client also gets a number, even when the tip of `main`
+has one already.
 
 The Release workflow runs the checks, signs `setup.sh` with the signing subkey, publishes the
 site over rsync and creates the GitHub release with `setup.sh` and `setup.sh.asc`, and the SHA-256

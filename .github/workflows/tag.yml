@@ -3,11 +3,12 @@ name: Tag
 # Every merge into main is a version, and a version is a plain number: 1, 2, 3. This puts the
 # next number on the commit as a tag, which starts the build, and makes the GitHub release of that
 # tag, whose notes are the change log entries of the pull requests merged since the previous
-# number (scripts/tag-release.sh). No version is written in any file.
+# number and a line for every program release published since then (scripts/tag-release.sh). No
+# version is written in any file.
 #
-# A program release (repository_dispatch of type program-released, client_payload: program, tag)
-# also gets a number, with a note that names it, because the packages of a program release are
-# published from a number tag.
+# A program release (repository_dispatch of type program-released) also gets a number, because
+# the packages of a program release are published from a number tag. The dispatch only says "tag
+# now": its payload is not read, and the notes read the releases of the programs themselves.
 on:
   push:
     branches: [main]
@@ -18,10 +19,9 @@ permissions:
   contents: read
 
 # One run at a time, so two runs never choose the same number. A run that waits is replaced by a
-# newer one that waits, and that is fine for a push: the number of the newer run is taken from
-# the tags that exist then, and its notes hold every pull request since the previous tag, so the
-# commits and notes of the replaced run are in it. A replaced run of a program release gets its
-# number from the newer run but not its own line in the notes.
+# newer one that waits, and that is fine: the number of the newer run is taken from the tags that
+# exist then, and its notes hold every pull request and every program release since the previous
+# tag, so the commits and notes of the replaced run are in it, whichever event it was.
 concurrency:
   group: number-tags
   cancel-in-progress: false
@@ -57,9 +57,9 @@ jobs:
           GH_TOKEN: ${{ steps.bot.outputs.token }}
           REPO: ${{ github.repository }}
           CHANGE_LOG_SCRIPT: ${{ github.workspace }}/rules/processes/pull-request-rules/v1/change-log.sh
-          # Empty for a push. They are checked by the script before they are used.
-          PROGRAM: ${{ github.event.client_payload.program }}
-          PROGRAM_TAG: ${{ github.event.client_payload.tag }}
+          # Not empty for a program release: that one is tagged even when the tip of main has a
+          # number already, which a push never is.
+          PROGRAM_RELEASED: ${{ github.event_name == 'repository_dispatch' && 'yes' || '' }}
         run: scripts/tag-release.sh "$GITHUB_SHA"
 
   # A failed run of this workflow opens an issue assigned to the account in the repository

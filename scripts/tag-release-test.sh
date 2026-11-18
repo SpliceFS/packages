@@ -10,14 +10,19 @@ trap 'rm -rf "$work"' EXIT
 failed=0
 mkdir "$work/bin" "$work/answers"
 
-# The stand-in answers the pull request lookups from files and records the other calls in
-# "calls": the tag as "tag NAME SHA", the release as "release NAME" and its notes in notes-NAME.
-# FAIL_TAG makes the creation of the tag fail, as it does when the name is already taken.
+# The stand-in answers the lookups of pull requests, of the release of a version (when it was
+# published) and of the program releases from files, and records the other calls in "calls": the
+# tag as "tag NAME SHA", the release as "release NAME" and its notes in notes-NAME. FAIL_TAG makes
+# the creation of the tag fail, as it does when the name is already taken.
 cat > "$work/bin/gh" <<'GH'
 #!/bin/sh
 case "$1 $2" in
     "api repos/owner/repo/pulls/"*)
         cat "$ANSWERS/pr-${2##*/}" ;;
+    "api repos/owner/repo/releases/tags/"*)
+        cat "$ANSWERS/tag-${2##*/}" ;;
+    "api repos/example/server/releases")
+        cat "$ANSWERS/server-releases" ;;
     "api repos/owner/repo/git/refs")
         [ -z "${FAIL_TAG:-}" ] || exit 1
         echo "tag ${4#ref=refs/tags/} ${6#sha=}" >> "$ANSWERS/calls" ;;
@@ -38,6 +43,14 @@ grep '^- '
 READER
 printf 'alice\n## Change log\n\n- Entry four.\n' > "$work/answers/pr-4"
 printf 'alice\n## Change log\n\n- Entry five.\n' > "$work/answers/pr-5"
+# The version 1 was published on 2026-11-02 and the version 2 on 2026-11-04. The first program
+# release is before the version 1, the second between the versions, the third after the version 2.
+tab="$(printf '\t')"
+printf '%s\n' "2026-11-01T09:00:00Z${tab}v1.2.1" "2026-11-03T09:00:00Z${tab}v1.2.2" \
+    "2026-11-05T09:00:00Z${tab}v1.2.3" > "$work/answers/server-releases"
+printf '2026-11-02T10:00:00Z\n' > "$work/answers/tag-1"
+printf '2026-11-04T10:00:00Z\n' > "$work/answers/tag-2"
+printf '2026-11-06T10:00:00Z\n' > "$work/answers/tag-3"
 
 repo="$work/repo"
 git init -q -b main "$repo"
@@ -48,7 +61,11 @@ merge() {
     $git checkout -q main
     $git merge -q --no-ff -m "Merge pull request #$1 from owner/pr-$1" "pr-$1"
 }
-$git commit -q --allow-empty -m "start"
+mkdir -p "$repo/programs/server"
+printf 'name=splicefs-server\nprogram=x\nprograms=x\ndocs=x\nrelease_repo=example/server\n' \
+    > "$repo/programs/server/program.conf"
+$git add programs
+$git commit -q -m "start"
 first="$($git rev-parse HEAD)"
 merge 4
 fourth="$($git rev-parse HEAD)"
@@ -100,23 +117,27 @@ $git tag 1 "$fourth"
 run "the next version" "$tip"
 expect "the next is one more than the highest number, a v tag is not counted" 0 "tag 2 $tip
 release 2"
-notes_are "its notes hold only the pull requests since the previous number" 2 "- Entry five."
+notes_are "its notes hold the pull requests and the program releases since the previous number" 2 "- Entry five.
+- Release of server v1.2.2.
+- Release of server v1.2.3."
 
 run "a commit that has a version already" "$fourth"
 expect "a commit that already has a number is refused and nothing is made" 1 ""
 grep -q 'already' "$work/out" || { echo "FAIL the refusal says why"; failed=$((failed + 1)); }
 
 $git tag 2 "$tip"
-run "a program release on a tagged commit" "$tip" PROGRAM=server PROGRAM_TAG=v1.2.3
+run "a program release on a tagged commit" "$tip" PROGRAM_RELEASED=yes
 expect "a program release gets a new number on a commit that has one" 0 "tag 3 $tip
 release 3"
-notes_are "its notes name the program release" 3 "- Release of server v1.2.3."
+notes_are "its notes hold the program releases since the previous number, not the earlier ones" 3 "- Release of server v1.2.3."
 
-for bad in "PROGRAM=ser/ver PROGRAM_TAG=v1.2.3" "PROGRAM=server PROGRAM_TAG=main" "PROGRAM=server PROGRAM_TAG="; do
-    # shellcheck disable=SC2086 # the pair is split into the two assignments on purpose
-    run "a program release that names no real release" "$tip" $bad
-    expect "a program release with \"$bad\" is refused and nothing is made" 1 ""
-done
+# A dispatch whose line was lost to a newer one: the newer run tags once and has the line.
+$git tag 3 "$tip"
+run "a program release when none came since the previous number" "$tip" PROGRAM_RELEASED=yes
+expect "it is tagged all the same, a number is the event" 0 "tag 4 $tip
+release 4"
+notes_are "its notes are empty" 4 ""
+$git tag -d 3 >/dev/null
 
 $git tag -d 2 >/dev/null
 printf 'alice\nNo section.\n' > "$work/answers/pr-5"
