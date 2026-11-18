@@ -53,16 +53,18 @@ jobs:
   # Says what is packaged, once, so that every job of the run packages the same thing: where
   # the source is (the newest release is named here, also when a release is made meanwhile),
   # the version and revision of every package format, and the FreeBSD releases to build on. The
-  # newest release is read here and nowhere else in the run: the packages record it
-  # (upgrade-from), and the tests start their upgrade from the recorded one, because a release
-  # made meanwhile is newer than the packages and would turn the upgrade into a downgrade.
+  # newest package of the program on the package site is read here and nowhere else in the run:
+  # the packages record it (upgrade-from), and the tests start their upgrade from the recorded
+  # one, because a package published meanwhile is newer than the new packages and would turn the
+  # upgrade into a downgrade. What people have installed is what the site serves, so a release on
+  # GitHub, which carries no packages, is never the start of an upgrade.
   source:
     name: Source
     runs-on: ubuntu-latest
     outputs:
       repository: ${{ steps.release.outputs.repository || github.repository }}
       ref: ${{ steps.release.outputs.ref || github.sha }}
-      upgrade-from: ${{ steps.release.outputs.ref }}
+      upgrade-from: ${{ steps.published.outputs.version }}
       version: ${{ steps.version.outputs.version }}
       revision: ${{ steps.version.outputs.revision }}
       freebsd-releases: ${{ steps.freebsd.outputs.releases }}
@@ -85,6 +87,14 @@ jobs:
           echo "newest release of $PROGRAM: $tag of $release_repo"
           echo "repository=$release_repo" >> "$GITHUB_OUTPUT"
           echo "ref=$tag" >> "$GITHUB_OUTPUT"
+      - name: Newest package of the program on the package site
+        id: published
+        env:
+          PROGRAM: ${{ inputs.program }}
+        run: |
+          version="$(scripts/published-newest.sh "$PROGRAM")"
+          echo "newest published package of $PROGRAM: ${version:-none}"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
       - name: Source of the program
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

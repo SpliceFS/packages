@@ -1,15 +1,16 @@
 #!/bin/sh
 # Collects the packages of the test repository of the program PROGRAM in dist/lifecycle/PROGRAM:
-# the new packages of dist/PROGRAM and the published release they were built next to (UPGRADE_FROM
-# of the version record; the newest release when the record has none), so that the repository is
-# what a release would publish (scripts/repo-*.sh keep the older version next to the new one).
-# The published packages are downloaded the way the upgrade test does (scripts/published-lib.sh)
-# for this machine's CPU type. They were made with the release key, which the test repository
-# does not have: the Alpine ones, the new ones too, are signed again with the key of dist/keys
-# (scripts/apk-resign.sh, the make target lifecycle-repo runs it after this script); the others
-# are signed by the repository step. The tag of the published release is written to
-# dist/lifecycle/PROGRAM/published for the test. Runs on the host (make lifecycle-test). Needs
-# curl. Environment: PROGRAM; PLATFORM.
+# the new packages of dist/PROGRAM and the newest package of the program on the package site at the
+# time of the build (UPGRADE_FROM of the version record; the newest on the site when the record has
+# none), so that the repository is what a publish would make (scripts/repo-*.sh keep the older
+# version next to the new one). The published packages are downloaded from the site the way the
+# upgrade test does (scripts/published-lib.sh) for this machine's CPU type. They were made with the
+# release key, which the test repository does not have: the Alpine ones, the new ones too, are
+# signed again with the key of dist/keys (scripts/apk-resign.sh, the make target lifecycle-repo runs
+# it after this script); the others are signed by the repository step. The program version and the
+# revision of the published package are written to dist/lifecycle/PROGRAM/published for the test.
+# Runs on the host (make lifecycle-test). Needs curl. Environment: PROGRAM; PLATFORM;
+# PACKAGE_SITE (https://packages.splicefs.org).
 set -eu
 
 : "${PROGRAM:?PROGRAM is not set}"
@@ -19,7 +20,6 @@ cd "$root"
 use_recorded_version
 . scripts/package-lib.sh
 . scripts/published-lib.sh
-: "${release_repo:?$defs/program.conf does not set release_repo, the repository the program is released from}"
 
 platform="${PLATFORM:-$(docker version --format '{{.Server.Os}}/{{.Server.Arch}}')}"
 case "$platform" in
@@ -29,13 +29,9 @@ case "$platform" in
 esac
 
 # shellcheck disable=SC2310
-tag="$(upgrade_from_tag "$release_repo")" || fail "could not ask for the newest release of $release_repo"
-[ -n "$tag" ] || fail "$release_repo has no release; the lifecycle test starts from the published one"
-# shellcheck disable=SC2310
-names="$(release_versions "$tag")" || fail "could not work out the file names of $tag"
-read -r old_debver old_rpmver old_rpmrel old_apkver old_apkrel _ <<LIST
-$names
-LIST
+from="$(upgrade_from_version)" || fail "could not read the newest published package of $PROGRAM from $site_url"
+[ -n "$from" ] || fail "nothing is published of $PROGRAM at $site_url; the lifecycle test starts from the published package"
+use_published_version "$from"
 
 out="dist/lifecycle/$PROGRAM"
 published="dist/$PROGRAM/published"
@@ -52,16 +48,15 @@ for apk in dist/"$PROGRAM"/alpine/*/*.apk; do
 done
 
 for format in deb rpm apk; do
-    file="$(release_file_name "$format" "$old_debver" "$old_rpmver" "$old_rpmrel" "$old_apkver" "$old_apkrel")"
+    path="$(published_path "$format" "$old_debver" "$old_rpmver" "$old_rpmrel" "$old_apkver" "$old_apkrel")"
     # shellcheck disable=SC2310
-    download_release_file "$release_repo" "$tag" "$file" "$published" ||
-        fail "could not download https://github.com/$release_repo/releases/download/$tag/$file"
+    download_published_file "$path" "$published" || fail "could not download $site_url/$path"
+    # The published files are where the repository step finds the packages of a format: an Alpine
+    # package in the folder of its CPU type, the others beside the new ones.
     case "$format" in
-        apk)
-            cp "$published/$file" "$out/alpine/$apk_arch/$name-$old_apkver-r$old_apkrel.apk"
-            ;;
-        *) cp "$published/$file" "$out/" ;;
+        apk) cp "$published/$(basename "$path")" "$out/alpine/$apk_arch/" ;;
+        *) cp "$published/$(basename "$path")" "$out/" ;;
     esac
 done
-printf 'TAG=%s\n' "$tag" > "$out/published"
-echo "collected the new packages and $tag in $out"
+printf 'TAG=%s\nREVISION=%s\n' "$old_tag" "$old_revision" > "$out/published"
+echo "collected the new packages and $old_tag revision $old_revision in $out"

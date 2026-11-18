@@ -1,13 +1,13 @@
 #!/bin/sh
 # Tests the whole life of the packages on every system in packaging/test-systems, in ONE boot of
 # the server image per system, the way a person would use them: set up our repository, install
-# the published release of both programs, upgrade to the new packages, remove them, install the
+# the newest published packages of both programs, upgrade to the new packages, remove them, install the
 # new ones fresh, uninstall as the documentation says, and find the system as it was.
 # Runs on the host after make packages (make lifecycle-test); it needs Docker, curl and python3.
 # The steps, in one booted system:
 #   1. the file list and the checksums of /etc are written down (scripts/lifecycle-snapshot.sh);
 #   2. sh setup.sh, built for the local test site, registers the repository;
-#   3. the published release of the server and the client is installed from the repository, the
+#   3. the published packages of the server and the client are installed from the repository, the
 #      documented start command enables and starts the services (a release may already have done
 #      so), and they are checked;
 #   4. the new packages are installed over them with the package manager's upgrade: the running
@@ -23,7 +23,7 @@
 #      sh setup.sh --remove, run as they are written; nothing of ours is installed or running;
 #   9. the file list and the checksums of /etc are the same as in step 1, apart from the paths of
 #      scripts/lifecycle-excluded.
-# The test repository is the published release plus the new packages (scripts/lifecycle-repo.sh,
+# The test repository is the newest published packages plus the new ones (scripts/lifecycle-repo.sh,
 # make lifecycle-repo), served from this machine like tests/run.sh serves the end to end site. The
 # checks are those of the other tests: the service checks (scripts/service-check-lib.sh, the
 # service check of each program) and the package checks (scripts/package-test-lib.sh).
@@ -45,7 +45,6 @@ PROGRAM=server
 use_recorded_version
 . scripts/package-lib.sh
 . scripts/service-check-lib.sh
-. scripts/published-lib.sh
 . scripts/site-server-lib.sh
 
 platform="${PLATFORM:-$(docker version --format '{{.Server.Os}}/{{.Server.Arch}}')}"
@@ -91,8 +90,8 @@ as_program() {
 }
 
 # The same for the program $1 as it was built (new, the version and revision of the record that
-# make packages wrote) or as it was published (the tag that scripts/lifecycle-repo.sh wrote down,
-# at the revision of a release), as v1.2.3.
+# make packages wrote) or as it was published (the version and revision that
+# scripts/lifecycle-repo.sh wrote down), as v1.2.3.
 as_new() {
     version="$(sed -n 's/^VERSION=//p' "dist/$1/version")"
     revision="$(sed -n 's/^REVISION=//p' "dist/$1/version")"
@@ -102,9 +101,10 @@ as_new() {
 }
 as_published() {
     version="$(sed -n 's/^TAG=//p' "dist/lifecycle/$1/published")"
+    revision="$(sed -n 's/^REVISION=//p' "dist/lifecycle/$1/published")"
     program_name="$1"
     shift
-    as_program "$program_name" "$version" "$released_revision" "$@"
+    as_program "$program_name" "$version" "$revision" "$@"
 }
 
 # Runs the package checks of scripts/package-test-lib.sh, which look at the system they run in,
@@ -128,7 +128,7 @@ check_service_after_install() {
     check_answers "$1"
 }
 
-# The published release is whatever was released: a release made before the packages stopped
+# The published package is whatever was published: a package made before the packages stopped
 # starting the service on install starts it, a later one leaves it idle. Which it is is not
 # this test's to judge, so only the state the next steps need is made and checked: installed, and
 # enabled and running by the documented command, which changes nothing when it is so already.
@@ -215,7 +215,7 @@ run_lifecycle() {
     must "setup.sh failed" docker exec "$c" sh /site/setup.sh
     as_new server must "refreshing the package index failed" repo_refresh "$c"
 
-    echo "step 3: the published release is installed from the repository"
+    echo "step 3: the published package is installed from the repository"
     for p in $packaged; do
         as_published "$p" must "installing the published $p failed" repo_install "$c"
         as_published "$p" in_system "$c" check_versions

@@ -1,70 +1,141 @@
 # shellcheck shell=sh
-# What the tests that start from the published release have in common (scripts/upgrade-test.sh,
-# scripts/lifecycle-repo.sh): which release they start from, what its files are called and how
-# they are downloaded. Sourced after scripts/package-lib.sh, which says what the version is called
-# in each package format (package_versions). The downloads insist on HTTPS, also after a
-# redirect, so that a redirect can never hand over a package from a plain address. name,
-# deb_arch, rpm_arch, apk_arch and PACKAGE_DATE are set by the files this one is sourced after.
-# shellcheck disable=SC2154
+# What the scripts that read the package site have in common (scripts/published-newest.sh,
+# scripts/next-revision.sh, scripts/upgrade-test.sh, scripts/lifecycle-repo.sh,
+# scripts/revision-listings.sh): where the site is, what the published files are called and where
+# they are, and how they are downloaded. What people have installed is what the site serves, so
+# nothing here asks GitHub. Sourced after scripts/package-lib.sh (or scripts/program-conf.sh for the
+# scripts that only read the index), which says what the program and its versions are called. The
+# downloads insist on HTTPS, also after a redirect, so that a redirect can never hand over a package
+# from a plain address. name, deb_arch, rpm_arch, apk_arch and PACKAGE_DATE are set by the files
+# this one is sourced after.
+# The words use_published_version sets are read by the scripts that source this file.
+# shellcheck disable=SC2154,SC2034
 
-# Prints the tag of the newest release of the repository $1 (release_repo of program.conf), or
-# nothing when it has none: GitHub answers with the releases page itself then. A network
-# failure is a failure and not a reason to skip, so the status is 1 for it.
-latest_release_tag() {
-    final_url="$(curl -fsSIL --proto =https --proto-redir =https --retry 3 -o /dev/null -w '%{url_effective}' "https://github.com/$1/releases/latest")" ||
+# The address of the folder of the program PROGRAM on the package site. PACKAGE_SITE
+# (https://packages.splicefs.org) is the site.
+site_url="${PACKAGE_SITE:-https://packages.splicefs.org}/$PROGRAM"
+
+# Downloads the address $1 into the file $2. It is written under another name first, so an
+# interrupted download is never mistaken for the file. Status 1 when the download failed.
+fetch_site_file() {
+    if ! curl -fsSL --proto =https --proto-redir =https --retry 3 -o "$2.part" "$1" ||
+        ! mv "$2.part" "$2"; then
+        rm -f "$2.part"
         return 1
-    case "$final_url" in
-        */releases/tag/*) printf '%s\n' "${final_url##*/}" ;;
-        *) ;;
-    esac
+    fi
 }
 
-# Prints the tag of the release the tests start from, for the repository $1 (release_repo of
-# program.conf): the one the build recorded (UPGRADE_FROM, which use_recorded_version sets), so
-# that a release made after the build, which is newer than the packages, never turns the upgrade
-# into a downgrade. A build that recorded none (a build by hand) starts from the newest release,
-# as latest_release_tag says. The status is 1 when that could not be asked.
-upgrade_from_tag() {
+# Writes the apt index of the program, which lists every version ever published, into the file
+# $1. INDEX_FILE is a test hook that names a local index file and replaces the download. A failed
+# download must never read as "nothing is published": the packages would then be built as
+# revision 0 over a published one, or the upgrade test skipped.
+fetch_apt_index() {
+    if [ -n "${INDEX_FILE:-}" ]; then
+        cp "$INDEX_FILE" "$1" 2>/dev/null || fail "could not read the index $INDEX_FILE"
+    else
+        apt_index_url="$site_url/apt/dists/stable/main/binary-amd64/Packages"
+        fetch_site_file "$apt_index_url" "$1" || fail "could not read $apt_index_url"
+    fi
+}
+
+# Prints the versions of the package of the program that the apt index in the file $1 lists, one
+# for each stanza, as the index writes them: 1.2.3 for revision 0 and 1.2.3-N for revision N. A
+# revision is the same in every format (scripts/package-lib.sh), so one format is enough to read
+# the published versions from.
+published_debvers() {
+    awk -v name="$name" '
+        $1 == "Package:" { package = $2 }
+        $1 == "Version:" && package == name { print $2 }
+    ' "$1"
+}
+
+# Prints the newest of the deb versions on the standard input, or nothing when there is none. The
+# order is the one the package managers use: the parts of the version as numbers, a pre-release
+# (1.2.3~rc.1) before its release and after the version before it, then the revision as a number.
+# A line that is not a version of ours is not counted, as package_release_of_debver refuses it.
+newest_debver() {
+    LC_ALL=C awk '
+        {
+            version = $0
+            revision = 0
+            if (match(version, /-[0-9]+$/)) {
+                revision = substr(version, RSTART + 1) + 0
+                version = substr(version, 1, RSTART - 1)
+            }
+            pre = ""
+            if (index(version, "~") > 0) {
+                pre = substr(version, index(version, "~") + 1)
+                version = substr(version, 1, index(version, "~") - 1)
+            }
+            if (version !~ /^[0-9]+\.[0-9]+\.[0-9]+$/) next
+            split(version, part, ".")
+            # A release sorts above every pre-release of it.
+            rank = 9
+            number = 0
+            if (pre != "") {
+                if (pre !~ /^(alpha|beta|pre|rc)\.?[0-9]*$/) next
+                word = pre
+                sub(/[.0-9]+$/, "", word)
+                number = pre
+                sub(/^[a-z]+\.?/, "", number)
+                rank = (word == "alpha") ? 1 : (word == "beta") ? 2 : (word == "pre") ? 3 : 4
+            }
+            # Digits of one width, so that a comparison of the text is a comparison of the numbers.
+            key = sprintf("%09d%09d%09d%d%09d%09d", part[1], part[2], part[3], rank, number, revision)
+            if (best == "" || key > best) {
+                best = key
+                newest = $0
+            }
+        }
+        END { if (newest != "") print newest }
+    '
+}
+
+# Prints the published version the upgrade starts from: the one the build recorded
+# (UPGRADE_FROM, which use_recorded_version sets), so that a package published after the build,
+# which is newer than the packages, never turns the upgrade into a downgrade. A build that
+# recorded none (a build by hand) starts from the newest package on the site, as
+# scripts/published-newest.sh reads it, or has nothing to start from. A package of the program
+# that is being published is never it: only what the site serves counts.
+upgrade_from_version() {
     if [ -n "${UPGRADE_FROM:-}" ]; then
         printf '%s\n' "$UPGRADE_FROM"
     else
-        latest_release_tag "$1"
+        sh scripts/published-newest.sh "$PROGRAM"
     fi
 }
 
-# The packages attached to the release of a program are the revision 0 of that version: they
-# are made when the program is released. A later revision of the same version is a change to the
-# packaging alone and goes to the package repository, never to the release.
-released_revision=0
-
-# Prints the words package_versions makes of the tag $1 as it was released, "<deb> <rpm>
-# <rpm release> <apk> <apk release> <pkg>". A version it refuses ends the shell it runs in, with
-# its message.
-release_versions() {
-    package_versions "$1" "$released_revision" "$PACKAGE_DATE"
+# Sets old_tag and old_revision (the program version and the revision of the published package
+# whose deb version is $1), and old_debver, old_rpmver, old_rpmrel, old_apkver and old_apkrel,
+# what package_versions makes of them. Ends the caller with a message for a version that is not
+# one of ours: call it as a simple command.
+use_published_version() {
+    up_release="$(package_release_of_debver "$1")" || exit 1
+    read -r old_tag old_revision <<LIST
+$up_release
+LIST
+    up_names="$(package_versions "$old_tag" "$old_revision" "$PACKAGE_DATE")" || exit 1
+    read -r old_debver old_rpmver old_rpmrel old_apkver old_apkrel _ <<LIST
+$up_names
+LIST
 }
 
-# Prints the name of the published file of the format $1 for the words of release_versions: $2
-# (deb), $3 and $4 (rpm, and its release), $5 and $6 (apk, and its release), for the CPU types
-# deb_arch, rpm_arch and apk_arch of the caller. The release holds the Alpine package under a
-# name with the CPU type, which is not the name in dist.
-release_file_name() {
+# Prints the path on the site, from the folder of the program, of the published file of the format
+# $1 for the words of use_published_version: $2 (deb), $3 and $4 (rpm, and its release), $5 and $6
+# (apk, and its release), for the CPU types deb_arch, rpm_arch and apk_arch of the caller. An
+# Alpine package file name carries no CPU type: the folder of the CPU type does.
+published_path() {
     case "$1" in
-        deb) echo "${name}_${2}_$deb_arch.deb" ;;
-        rpm) echo "$name-$3-$4.$rpm_arch.rpm" ;;
-        *) echo "$name-$5-r$6.$apk_arch.apk" ;;
+        deb) echo "apt/pool/main/${name%"${name#?}"}/$name/${name}_${2}_$deb_arch.deb" ;;
+        rpm) echo "rpm/$rpm_arch/$name-$3-$4.$rpm_arch.rpm" ;;
+        *) echo "alpine/$apk_arch/$name-$5-r$6.apk" ;;
     esac
 }
 
-# Downloads the file $3 of the release $2 of the repository $1 into the folder $4 unless it is
-# there. It is written under another name first, so an interrupted download is never mistaken
-# for the package. Status 1 when the download failed.
-download_release_file() {
-    [ ! -f "$4/$3" ] || return 0
-    mkdir -p "$4"
-    if ! curl -fsSL --proto =https --proto-redir =https --retry 3 -o "$4/$3.part" "https://github.com/$1/releases/download/$2/$3" ||
-        ! mv "$4/$3.part" "$4/$3"; then
-        rm -f "$4/$3.part"
-        return 1
-    fi
+# Downloads the file at the path $1 of the site (published_path) into the folder $2 unless it is
+# there. Status 1 when the download failed.
+download_published_file() {
+    [ ! -f "$2/$(basename "$1")" ] || return 0
+    mkdir -p "$2"
+    fetch_site_file "$site_url/$1" "$2/$(basename "$1")"
 }
