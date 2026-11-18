@@ -44,10 +44,15 @@ holds "the rpm package requires fuse3" "Requires:       fuse3" "$rpm_spec"
 holds "the Alpine package depends on fuse3" 'depends="fuse3"' "$apkbuild"
 
 # The administrator's settings are never made by a package: not the FUSE helper's mode, not the
-# FreeBSD sysctl, group or devfs rule. check-lib.sh is no package file: the FreeBSD machine runs it,
-# and it runs these steps as the administrator, to prove that the documents are right.
+# FreeBSD sysctl, group or devfs rule. The list names the package files only: check-lib.sh is no
+# package file, the FreeBSD machine runs it, and it runs these steps as the administrator.
 absent "no client package file sets what a user needs from the system" \
-    'usermount|fusermount|sysctl|devfs|chmod u\+s|operator' --exclude=check-lib.sh programs/client packaging/service
+    'usermount|fusermount|sysctl|devfs|chmod u\+s|operator' \
+    programs/client/alpine programs/client/deb programs/client/rpm \
+    programs/client/openrc programs/client/systemd \
+    programs/client/freebsd/manifest.in programs/client/freebsd/splicefs.rc \
+    programs/client/links programs/client/program.conf programs/client/config-folders \
+    packaging/service
 
 # The client finds the folders of an ordinary user by itself (client 0.5.36), so the commands name
 # neither a configuration folder nor a cache folder.
