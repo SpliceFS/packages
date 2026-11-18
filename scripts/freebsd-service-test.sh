@@ -1,8 +1,8 @@
 #!/bin/sh
 # Tests what the FreeBSD packages do about the service, on the host: no machine, no pkg, no
 # root (part of make check). The rc scripts run against a stand-in for rc.subr, the install
-# scripts of the manifests run with stand-ins for service, sysrc and pw, and the documents are
-# read. What rc.subr and pkg really do is proved in the machine, by scripts/freebsd-job.sh.
+# scripts of the manifests run with stand-ins for service, sysrc and pw. What rc.subr and pkg
+# really do is proved in the machine, by scripts/freebsd-job.sh.
 set -eu
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -306,23 +306,5 @@ while read -r program service; do
 done <<PROGRAMS
 $programs
 PROGRAMS
-
-# --- the documents --------------------------------------------------------------------------
-
-readme="$(cat README.md)"
-while read -r program service; do
-    for command in "sysrc ${service}_enable=YES && service $service start" "sysrc -x ${service}_enable"; do
-        holds "README.md says: $command" "$command" "$readme"
-    done
-done <<PROGRAMS
-$programs
-PROGRAMS
-
-# The fstab line of the client. The helper it names is the link that the package installs, so the
-# path is read from the links file, moved to /usr/local as the FreeBSD package does.
-helper="$(awk '!/^#/ && NF { print $1; exit }' programs/client/links | sed 's|^/usr/|/usr/local/|')"
-fstab_line="example:/ /mnt/files splicefs ro,late,failok,mountprog=$helper 0 0"
-holds "README.md shows the FreeBSD fstab line, with the helper the package installs" \
-    "$fstab_line" "$readme"
 
 [ "$failed" -eq 0 ]

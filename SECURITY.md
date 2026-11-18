@@ -28,4 +28,4 @@ Problems in the programs themselves are reported in the
 ## Checking what you run
 
 The published script's SHA-256 and the fingerprint of the signing key are in
-[README.md](README.md#verify-the-setup-script).
+[README.md](README.md#signing-key).

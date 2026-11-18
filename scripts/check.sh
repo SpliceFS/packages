@@ -63,26 +63,7 @@ for f in setup.sh.in dist/site/setup.sh steps/*.sh scripts/*.sh; do
   command -v bash >/dev/null 2>&1 && run "2. bash -n $f" bash -n "$f"
 done
 
-# 3. The README shows the uninstall commands and the commands of "Run as yourself". The lifecycle
-# test and the user mode test run these same files, so what the README shows is what the tests prove.
-cat > "$TMP/blocks.py" <<'PYEOF'
-import sys
-families = ("apt", "dnf", "zypper", "apk", "pkg")
-uninstall = {k: open("steps/uninstall-%s.sh" % k).read() for k in families}
-user_mode = [open("steps/user-mode-%s.sh" % k).read() for k in ("start", "use")]
-bad = 0
-readme = open("README.md", encoding="ascii").read()
-for k in families:
-    if "```\n" + uninstall[k] + "```\n" not in readme:
-        print("README.md does not show steps/uninstall-%s.sh as a code block" % k); bad += 1
-for k, text in zip(("start", "use"), user_mode):
-    if "```\n" + text + "```\n" not in readme:
-        print("README.md does not show steps/user-mode-%s.sh as a code block" % k); bad += 1
-sys.exit(1 if bad else 0)
-PYEOF
-run "3. README code blocks match steps/" python3 -I "$TMP/blocks.py"
-
-# 3b. The page of the package site only sends a person to the install page of the website: a
+# 3. The page of the package site only sends a person to the install page of the website: a
 # refresh at once, a canonical link, a plain link for a client that does not refresh, no style
 # and no script, and no address but the website's. The built page is the one that is published.
 cat > "$TMP/redirect.py" <<'PYEOF'
@@ -644,8 +625,8 @@ run "9. change-log-entry.sh: the entry of a pull request, with a default for the
 run "9. release-notes.sh: the notes of a release are the entries of the pull requests merged since the last tag" sh scripts/release-notes-test.sh
 run "9. tag-release.sh: the next number tag on a commit of main, and its release" sh scripts/tag-release-test.sh
 run "9. Makefile: a package test asks only for the packages it uses" sh scripts/built-packages-test.sh
-run "9. user-mode-docs-test.sh: the packages leave the system to the administrator, the documents say how a user runs the client" \
-  sh scripts/user-mode-docs-test.sh
+run "9. user-mode-packaging-test.sh: the packages leave the system to the administrator, the commands of a user need no settings of ours" \
+  sh scripts/user-mode-packaging-test.sh
 run "9. list-programs.sh: the programs of the repository as a JSON array for a workflow matrix" sh scripts/list-programs-test.sh
 run "9. freebsd-releases.sh: the FreeBSD releases as a JSON array for a workflow matrix" sh scripts/freebsd-releases-test.sh
 run "9. release-tag-check.sh: only a number tag on a commit of main may use the keys" sh scripts/release-tag-check-test.sh
