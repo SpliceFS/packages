@@ -26,6 +26,7 @@ nodes. It only reads; it never writes to a shared directory.
 
 %install
 install -D -m 755 %{stage}/splicefsd %{buildroot}/usr/bin/splicefsd
+install -D -m 755 %{stage}/splicefsdctl %{buildroot}/usr/bin/splicefsdctl
 install -D -m 644 %{unit} %{buildroot}/usr/lib/systemd/system/splicefsd.service
 install -d %{buildroot}/etc/splicefs/server/conf.d %{buildroot}/etc/splicefs/server/shares.d
 install -D -m 644 %{license_file} %{buildroot}/usr/share/doc/%{name}/LICENSE
@@ -33,6 +34,7 @@ install -m 644 %{docs} %{buildroot}/usr/share/doc/%{name}/
 
 %files
 /usr/bin/splicefsd
+/usr/bin/splicefsdctl
 /usr/lib/systemd/system/splicefsd.service
 %dir /etc/splicefs
 %dir /etc/splicefs/server
