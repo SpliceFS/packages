@@ -44,8 +44,13 @@ holds "the Alpine package depends on fuse3" 'depends="fuse3"' "$apkbuild"
 
 # The administrator's settings are never made by a package: not the FUSE helper's mode, not the
 # FreeBSD sysctl, group or devfs rule.
+# Only the files that go into a package: programs/client/freebsd/check-lib.sh is the FreeBSD
+# machine's test, which sets these up on purpose to try the documented steps.
+package_files="$(git ls-files programs/client packaging/service | grep -v '/check-lib\.sh$')"
+# The list is one path per line and the paths hold no spaces.
+# shellcheck disable=SC2086
 absent "no client package file sets what a user needs from the system" \
-    'usermount|fusermount|sysctl|devfs|chmod u\+s|operator' programs/client packaging/service
+    'usermount|fusermount|sysctl|devfs|chmod u\+s|operator' $package_files
 
 # The client finds the folders of an ordinary user by itself (client 0.5.36), so the commands name
 # neither a configuration folder nor a cache folder.
