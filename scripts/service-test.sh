@@ -60,7 +60,7 @@ cleanup() {
 trap cleanup EXIT
 trap 'exit 130' INT TERM
 
-# The checks that tell whether the service works (wait_for, must, refuse, check_*).
+# The checks that tell whether the service works (check_*).
 # shellcheck source=service-check-lib.sh
 . scripts/service-check-lib.sh
 

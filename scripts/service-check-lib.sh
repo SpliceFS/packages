@@ -1,38 +1,11 @@
 # shellcheck shell=sh
 # The checks of a running service, shared by scripts/service-test.sh and scripts/lifecycle-test.sh.
-# Sourced after scripts/package-lib.sh, the service check of the program (what "the service
-# works" means) and the functions of the package format (scripts/service-test-<format>.sh); the
-# first argument of every check is the container. expected_user, answers_text, answers, port,
-# format and the service functions come from those files, which ShellCheck cannot follow.
+# Sourced after scripts/package-lib.sh (which also has wait_for, must and refuse, the helpers
+# every test uses), the service check of the program (what "the service works" means) and the
+# functions of the package format (scripts/service-test-<format>.sh); the first argument of every
+# check is the container. expected_user, answers_text, answers, port, format and the service
+# functions come from those files, which ShellCheck cannot follow.
 # shellcheck disable=SC2154
-
-# Runs the command once a second until it succeeds or the given number of seconds is over.
-wait_for() {
-    limit="$1"
-    shift
-    waited=0
-    until "$@"; do
-        waited=$((waited + 1))
-        [ "$waited" -lt "$limit" ] || return 1
-        sleep 1
-    done
-}
-
-# Ends this system's run with the message when the command fails. The command runs through
-# "$@" because errexit is off in every check (see run_checks): each one is guarded
-# explicitly, and its status is the answer.
-must() {
-    message="$1"
-    shift
-    "$@" || fail "$message"
-}
-
-# The same for a command that has to fail: ends the run with the message when it succeeds.
-refuse() {
-    message="$1"
-    shift
-    if "$@"; then fail "$message"; fi
-}
 
 # A server that runs a firewall (firewalld on Rocky Linux) refuses the port of the service
 # until its owner opens it, so the test opens it the way a user of that system does, for good
