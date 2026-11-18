@@ -3,10 +3,13 @@
 # "Run as yourself" (steps/user-mode-start.sh and steps/user-mode-use.sh, which make check
 # compares with the README and the install page). In a booted container of the first system of each
 # format in packaging/test-systems it installs the client package, starts a real server, adds an
-# ordinary user, and as that user runs the documented commands: the client starts, mounts a folder
-# of the server in the user's folder, a file reads, and the mount goes away again. Then it proves
-# that nothing of root's was touched: the service is neither enabled nor running, the system
-# configuration folder holds what it held, and the user owns no file outside their own places.
+# ordinary user, and as that user runs the documented commands, which give no --config and no cache
+# setting: the client starts, mounts a folder of the server in the user's folder, a file reads, and
+# the mount goes away again. It proves that the client used the user's own folders: the cluster is
+# only in ~/.config/splicefs/client, the cache is in ~/.cache/splicefs, and the control socket is
+# in /tmp/splicefs-<uid>, which only the user may enter. Then it proves that nothing of root's was
+# touched: the service is neither enabled nor running, the system configuration folder holds what
+# it held, and the user owns no file outside their own places.
 # Runs on the host (make user-mode-test); it needs Docker. Environment: the version comes from
 # dist/client/version (scripts/package-record.sh); SERVER_BIN is the folder that holds the
 # splicefsd program built for the CPU type of the container; PLATFORM and ONLY as for
@@ -14,7 +17,7 @@
 #
 # What a container cannot show: that /dev/fuse is there on a host that has not loaded the FUSE
 # module (the test host must), and how a login session sets XDG_RUNTIME_DIR; without it the
-# control socket is in /tmp, which is the case that is tested.
+# control socket is in /tmp/splicefs-<uid>, which is the case that is tested.
 # Every check of run_checks is guarded with fail or must, and errexit is off there (see the loop
 # below), so a function used in a guarded command line is meant: its status is the answer.
 # shellcheck disable=SC2310,SC2312
@@ -41,6 +44,7 @@ trap 'exit 130' INT TERM
 reader=reader
 home="/home/$reader"
 config="$home/.config/splicefs/client"
+cache="$home/.cache/splicefs"
 # The documented steps use the address of the example cluster; the test points it at its server.
 EXAMPLE_URL='https://east.example.com/api'
 SERVER_URL='http://127.0.0.1:18490/api'
@@ -61,8 +65,27 @@ add_user() {
     esac
 }
 
+# No --config: the client and its control program must find the same folders by themselves.
 client_answers() {
-    as_user "$1" splicefsctl --config "$config" status >/dev/null 2>&1
+    as_user "$1" splicefsctl status >/dev/null 2>&1
+}
+
+# Status 0 when the folder $2 of the container $1 is owned by the user and has the mode $3.
+owned_with_mode() {
+    [ "$(docker exec "$1" stat -c '%U %a' "$2")" = "$reader $3" ]
+}
+
+# What the client wrote into the user's own folders. The socket folder is in /tmp because docker
+# exec starts no login session, so XDG_RUNTIME_DIR is not set.
+proves_own_folders() {
+    c="$1"
+    as_user "$c" test -f "$config/clusters.d/example.yaml" || fail "the cluster is not in $config"
+    as_user "$c" test -f "$config/secrets/example" || fail "the password is not in $config"
+    [ -n "$(docker exec "$c" find "$cache" -mindepth 1 -user "$reader")" ] || fail "the cache $cache holds nothing of the user"
+    uid="$(docker exec "$c" id -u "$reader")"
+    owned_with_mode "$c" "/tmp/splicefs-$uid" 700 || fail "/tmp/splicefs-$uid is not the user's, mode 700"
+    docker exec "$c" sh -c 'find "$1" -type s | grep -q .' sh "/tmp/splicefs-$uid" ||
+        fail "no control socket in /tmp/splicefs-$uid"
 }
 
 # The process id of the client of the user, read from /proc, which every system has.
@@ -116,6 +139,8 @@ run_checks() {
     printf '%s\n' "$out" | grep -qx media || fail "the mount does not list the share: $out"
     printf '%s\n' "$out" | grep -qx hello || fail "the file does not read: $out"
     echo "ok: the user started the client, mounted, read a file and unmounted"
+    proves_own_folders "$c"
+    echo "ok: the files are in $config, $cache and the user's own socket folder"
     refuse "the mount is still there" as_user "$c" mountpoint -q "$home/files"
 
     docker exec "$c" kill -TERM "$pid" || fail "stopping the client failed"
