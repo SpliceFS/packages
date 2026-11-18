@@ -48,6 +48,11 @@ holds "the Alpine package depends on fuse3" 'depends="fuse3"' "$apkbuild"
 absent "no client package file sets what a user needs from the system" \
     'usermount|fusermount|sysctl|devfs|chmod u\+s|operator' programs/client packaging/service
 
+# The client finds the folders of an ordinary user by itself (client 0.5.36), so the commands name
+# neither a configuration folder nor a cache folder.
+absent "the commands of a user need no --config and no cache.dir" \
+    '--config|cache' steps/user-mode-start.sh steps/user-mode-use.sh
+
 # The page writes && as &amp; and > as &gt;.
 page="$(sed -e 's/&amp;/\&/g' -e 's/&gt;/>/g' site/index.html)"
 readme="$(cat README.md)"
