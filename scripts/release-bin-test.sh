@@ -6,7 +6,10 @@ set -eu
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
 work="$(mktemp -d)"
-trap 'rm -rf "$work"' EXIT
+# shellcheck source=short-tmp-lib.sh
+. "$root/scripts/short-tmp-lib.sh"
+keys="$(short_tmp_dir)"
+trap 'remove_short_tmp "$keys"; rm -rf "$work"' EXIT
 # Where the script unpacks to.
 bin="$work/bin"
 failed=0
@@ -20,13 +23,13 @@ printf 'name=splicefs-demo\nprogram=alphad\nprograms="alphad alphactl"\ndocs=REA
 
 # Two keys: the one the project publishes and one that is not.
 new_key() {
-    mkdir -m 700 "$work/home-$1"
-    GNUPGHOME="$work/home-$1" gpg --batch --quiet --passphrase '' \
+    mkdir -m 700 "$keys/home-$1"
+    GNUPGHOME="$keys/home-$1" gpg --batch --quiet --passphrase '' \
         --quick-generate-key "$1 <$1@example.invalid>" ed25519 sign never >/dev/null 2>&1
 }
 new_key project
 new_key other
-GNUPGHOME="$work/home-project" gpg --batch --armor --export project > "$tree/keys/splicefs.asc"
+GNUPGHOME="$keys/home-project" gpg --batch --armor --export project > "$tree/keys/splicefs.asc"
 
 # Makes a release in the folder $1 the way the release makes it: the archives of linux-amd64 and
 # linux-arm64 of version 1.2.3, each with a folder of its own holding the programs, the license
@@ -57,7 +60,7 @@ fi
 sign() {
     (cd "$1" && sums ./*.tar.gz | sed 's|  \./|  |' > SHA256SUMS)
     rm -f "$1/SHA256SUMS.asc"
-    GNUPGHOME="$work/home-$2" gpg --batch --quiet --armor --detach-sign \
+    GNUPGHOME="$keys/home-$2" gpg --batch --quiet --armor --detach-sign \
         --output "$1/SHA256SUMS.asc" "$1/SHA256SUMS"
 }
 
