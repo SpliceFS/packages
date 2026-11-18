@@ -8,7 +8,7 @@ The change log of all parts of SpliceFS, side by side: https://splicefs.org/chan
 
 ## [0.4.26] - 2026-11-18
 
-- Internal: the FreeBSD packages are built and checked on every pull request.
+- Internal: the lifecycle test no longer counts files of the systems' own services.
 
 ## [0.4.25] - 2026-11-18
 
