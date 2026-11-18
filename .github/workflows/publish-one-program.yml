@@ -117,15 +117,18 @@ jobs:
           exit 1
 
   # The revision of the packages, once, for every job that builds them: 0 for a release that is
-  # not published, and otherwise the one after the highest published. It is computed here, after
-  # the wait, because an earlier run may be adding a revision right now. Whether the packages are
-  # published at all is decided after they are built (the packages job). This job holds no key.
+  # not published, and otherwise the one after the highest published. The newest package on the
+  # package site, which the upgrade tests start from, is read here too, once. Both are read here,
+  # after the wait, because an earlier run may be adding a package right now. Whether the packages
+  # are published at all is decided after they are built (the packages job). This job holds no
+  # key.
   revision:
     name: The revision of the packages
     needs: [verify, wait]
     runs-on: ubuntu-latest
     outputs:
       revision: ${{ steps.revision.outputs.revision }}
+      upgrade-from: ${{ steps.published.outputs.version }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -139,6 +142,16 @@ jobs:
           revision="$(scripts/next-revision.sh "$PROGRAM" "$TAG")"
           echo "$PROGRAM $TAG is built as revision $revision"
           echo "revision=$revision" >> "$GITHUB_OUTPUT"
+      # What people have installed is what the site serves: the upgrade tests start from the newest
+      # package there, which is not the release of this run (a release carries no packages).
+      - name: The newest package on the package site
+        id: published
+        env:
+          PROGRAM: ${{ inputs.program }}
+        run: |
+          version="$(scripts/published-newest.sh "$PROGRAM")"
+          echo "newest published package of $PROGRAM: ${version:-none}"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
 
   # The deb, rpm and apk packages of both CPU types, signed with the real keys, and the signed
   # repositories the tests install from. Only the packages and the public keys are uploaded:
@@ -156,6 +169,7 @@ jobs:
       PROGRAM: ${{ inputs.program }}
       TAG: ${{ needs.verify.outputs.tag }}
       REVISION: ${{ needs.revision.outputs.revision }}
+      UPGRADE_FROM: ${{ needs.revision.outputs.upgrade-from }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: The signing secrets are there
@@ -183,8 +197,9 @@ jobs:
             --pattern '*-linux-*.tar.gz' --pattern SHA256SUMS --pattern SHA256SUMS.asc
           scripts/release-bin.sh "$TAG" "$PWD/release" "$PWD/bin"
       - name: Build the deb, rpm and apk packages
-        # The tag is the release of this run, read once by verify; the upgrade tests start from it.
-        run: make packages PROGRAM="$PROGRAM" BIN="$PWD/bin" SRC="$PWD/src" VERSION="$TAG" REVISION="$REVISION" UPGRADE_FROM="$TAG"
+        # UPGRADE_FROM is the newest package on the site, read once by the revision job; the
+        # upgrade tests start from it.
+        run: make packages PROGRAM="$PROGRAM" BIN="$PWD/bin" SRC="$PWD/src" VERSION="$TAG" REVISION="$REVISION" UPGRADE_FROM="$UPGRADE_FROM"
       # Right after the build, so that nothing else runs for a tag that changes nothing: the
       # release is published as it is built when it is not published yet, and a later revision only
       # when the packages differ from the newest published revision (scripts/revision-decide.sh).

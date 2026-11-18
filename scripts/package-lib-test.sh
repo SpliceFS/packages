@@ -322,6 +322,53 @@ refuse abc1234-dirty abc1234-dirty
 refuse dev dev
 refuse 1.2.3 1.2.3
 
+# $1 a deb version as the package site writes it, $2 the "tag revision" it stands for. The words
+# package_versions makes of that pair must give the same deb version back, so the two functions
+# cannot drift apart.
+check_release_of() {
+    got="$(VERSION=v1.2.3 REVISION=0 PACKAGE_DATE=20261112 sh -c \
+        '. scripts/package-lib.sh; package_release_of_debver "$1"' sh "$1" 2>&1)" || true
+    back=""
+    if [ "$got" = "$2" ]; then
+        # The words are split on purpose.
+        # shellcheck disable=SC2086
+        back="$(VERSION=v1.2.3 REVISION=0 PACKAGE_DATE=20261112 sh -c \
+            '. scripts/package-lib.sh; set -- $1; package_versions "$1" "$2" 20261112' sh "$got" 2>&1)" || true
+        back="${back%% *}"
+    fi
+    if [ "$got" = "$2" ] && [ "$back" = "$1" ]; then
+        printf 'ok   deb version %-18s is %s\n' "$1" "$2"
+    else
+        printf 'FAIL deb version %s: want "%s" got "%s", and back "%s"\n' "$1" "$2" "$got" "$back"
+        failed=$((failed + 1))
+    fi
+}
+
+# $1 a deb version that is not one of ours, which must be refused.
+refuse_release_of() {
+    if got="$(VERSION=v1.2.3 REVISION=0 PACKAGE_DATE=20261112 sh -c \
+        '. scripts/package-lib.sh; package_release_of_debver "$1"' sh "$1" 2>&1)"; then
+        printf 'FAIL deb version "%s" was accepted: %s\n' "$1" "$got"
+        failed=$((failed + 1))
+    else
+        printf 'ok   deb version "%s" refused: %s\n' "$1" "$got"
+    fi
+}
+
+check_release_of 0.5.34 'v0.5.34 0'
+check_release_of 0.5.34-1 'v0.5.34 1'
+check_release_of 0.5.34-10 'v0.5.34 10'
+check_release_of 1.0.0~rc.1 'v1.0.0-rc.1 0'
+check_release_of 1.0.0~rc.1-2 'v1.0.0-rc.1 2'
+check_release_of 1.0.0~beta.2 'v1.0.0-beta.2 0'
+check_release_of 1.0.0~alpha 'v1.0.0-alpha 0'
+refuse_release_of 1.2
+refuse_release_of 0.5.34-01
+refuse_release_of 0.5.34-x
+refuse_release_of 0.5.34+dirty
+refuse_release_of v0.5.34
+refuse_release_of ''
+
 # $1 REVISION that must be refused. A revision is a whole number without leading zeros: the
 # formats compare it as a number, so "01" would be a second spelling of 1.
 refuse_revision() {

@@ -1,12 +1,14 @@
 #!/bin/sh
-# Test that the tests which start from a published release (scripts/lifecycle-repo.sh and
-# scripts/upgrade-test.sh) start from the release the build recorded (UPGRADE_FROM of
-# dist/PROGRAM/version), and ask for the newest release only when the build recorded none. A
-# release made between the build and the test must change nothing: the newest release would be
-# newer than the packages, and the upgrade a downgrade. Runs on the host, no Docker and no network
-# (part of make check): curl and docker are stand-ins in a folder at the front of PATH. The newest
-# release is the tag in the file "latest" of the stand-ins, which the test changes after the build
-# to make a release happen.
+# Test that the tests which start from the published packages (scripts/lifecycle-repo.sh and
+# scripts/upgrade-test.sh) start from the newest package the package site serves, the one the build
+# recorded (UPGRADE_FROM of dist/PROGRAM/version, which scripts/published-newest.sh read once), and
+# that they download it from the site and from nowhere else: a release on GitHub holds no packages.
+# A package published between the build and the test must change nothing: it would be newer than
+# the new packages, and the upgrade a downgrade. Runs on the host, no Docker and no network (part
+# of make check): curl and docker are stand-ins in a folder at the front of PATH. The stand-in
+# curl serves the site from the folder "site" of the stand-ins (the index of the program is a file
+# there; a package is any path that ends in .deb, .rpm or .apk, and holds its own address) and
+# refuses every address that is not the site, which is where GitHub would be.
 set -eu
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -16,9 +18,7 @@ failed=0
 
 stand="$work/stand-in"
 mkdir -p "$stand/bin"
-# curl: the newest release is the one in "latest"; a download writes its own URL into the file.
-# Every call is logged. docker: a pull works and nothing runs, so a test ends at its first
-# container, after it has downloaded what it starts from.
+site=https://site.example
 cat > "$stand/bin/curl" <<'STUB'
 #!/bin/sh
 echo "$*" >> "$STAND_IN/calls"
@@ -33,10 +33,20 @@ while [ "$#" -gt 0 ]; do
     shift
 done
 case "$url" in
-    */releases/latest) printf 'https://github.com/x/releases/tag/%s' "$(cat "$STAND_IN/latest")" ;;
-    *) printf '%s\n' "$url" > "$out" ;;
+    https://site.example/*) path="${url#https://site.example/}" ;;
+    *) exit 6 ;;
 esac
+if [ -f "$STAND_IN/site/$path" ]; then
+    cp "$STAND_IN/site/$path" "$out"
+else
+    case "$path" in
+        *.deb | *.rpm | *.apk) printf '%s\n' "$url" > "$out" ;;
+        *) exit 22 ;;
+    esac
+fi
 STUB
+# docker: a pull works and nothing runs, so a test ends at its first container, after it has
+# downloaded what it starts from.
 cat > "$stand/bin/docker" <<'STUB'
 #!/bin/sh
 [ "$1" = pull ]
@@ -48,66 +58,140 @@ tree="$work/tree"
 mkdir -p "$tree"
 cp -R "$root/scripts" "$root/programs" "$root/packaging" "$tree/"
 
-# Makes the packages of the client in the tree, as make packages leaves them, recorded as
-# v0.5.35 revision 1 with the release $1 to upgrade from (empty: none).
+# Runs the script $1 of the tree, with the arguments that follow, for the client with the
+# stand-ins in front.
+run_script() {
+    script="$1"
+    shift
+    (cd "$tree" && STAND_IN="$stand" PATH="$stand/bin:$PATH" PACKAGE_SITE="$site" PROGRAM=client \
+        PLATFORM=linux/amd64 sh "scripts/$script" "$@")
+}
+
+# Writes the index of the site: the versions of the client, one for each argument.
+publish() {
+    index="$stand/site/client/apt/dists/stable/main/binary-amd64/Packages"
+    mkdir -p "$(dirname "$index")"
+    : > "$index"
+    for version in "$@"; do
+        printf 'Package: splicefs-client\nVersion: %s\nArchitecture: amd64\n\n' "$version" >> "$index"
+    done
+}
+
+# Makes the packages of the client in the tree, as make packages leaves them, recorded as the
+# version $1 at the revision $2, with the published version $3 to upgrade from (empty: none).
 build() {
     rm -rf "$tree/dist"
-    # The inner shell expands $1 and $2, which are the tree and the release.
+    # The inner shell expands $1 and $2, which are the tree, the version and the revision.
     # shellcheck disable=SC2016
-    files="$(cd "$tree" && PROGRAM=client VERSION=v0.5.35 REVISION=1 PACKAGE_DATE=20261112 \
+    files="$(cd "$tree" && PROGRAM=client VERSION="$1" REVISION="$2" PACKAGE_DATE=20261112 \
         sh -c '. scripts/package-lib.sh; echo "${name}_${debver}_amd64.deb $name-$rpmver-$rpmrel.x86_64.rpm $name-$apkver-r$apkrel.apk"')"
     # The names are words on purpose.
     # shellcheck disable=SC2086
-    set -- $files "$1"
+    set -- $files "$1" "$2" "$3"
     mkdir -p "$tree/dist/client/alpine/x86_64"
     : > "$tree/dist/client/$1"
     : > "$tree/dist/client/$2"
     : > "$tree/dist/client/alpine/x86_64/$3"
-    (cd "$tree" && PROGRAM=client VERSION=v0.5.35 REVISION=1 PACKAGE_DATE=20261112 UPGRADE_FROM="$4" \
+    (cd "$tree" && PROGRAM=client VERSION="$4" REVISION="$5" PACKAGE_DATE=20261112 UPGRADE_FROM="$6" \
         sh -c '. scripts/package-record.sh && write_package_record')
 }
 
-# $1 case name, $2 script, $3 the release the build recorded (empty: none), $4 the release that is
-# the newest when the script runs, $5 the release the script must download, $6 yes when it must
-# have asked for the newest release.
+# $1 case name, $2 script, $3 the version of the build, $4 its revision, $5 the published version
+# the build recorded ("read" means the build read it from the site, as the workflows do; empty:
+# none), $6 the published version the script must download, in the three formats, $7 yes when the
+# script must have asked the site for its index, which a recorded version makes needless.
 starts_from() {
-    build "$3"
-    printf '%s\n' "$4" > "$stand/latest"
+    : > "$stand/calls"
+    from="$5"
+    if [ "$from" = read ]; then
+        from="$(run_script published-newest.sh client)"
+    fi
+    build "$3" "$4" "$from"
     : > "$stand/calls"
     # The status of the script does not matter: upgrade-test.sh ends in its first container.
-    (cd "$tree" && STAND_IN="$stand" PATH="$stand/bin:$PATH" PROGRAM=client PLATFORM=linux/amd64 \
-        sh "scripts/$2" > "$work/out" 2>&1) || true
+    # shellcheck disable=SC2310
+    run_script "$2" > "$work/out" 2>&1 || true
     asked=no
-    if grep -q '/releases/latest' "$stand/calls"; then asked=yes; fi
-    downloads="$(grep -c '/releases/download/' "$stand/calls" || true)"
-    wrong="$(grep '/releases/download/' "$stand/calls" | grep -vc "/releases/download/$5/" || true)"
-    if [ "$downloads" -gt 0 ] && [ "$wrong" -eq 0 ] && [ "$asked" = "$6" ]; then
-        printf 'ok   %s: %s downloads from %s, asked for the newest release: %s\n' "$1" "$downloads" "$5" "$asked"
+    if grep -q 'Packages' "$stand/calls"; then asked=yes; fi
+    grep -Eo 'https://[^ ]+\.(deb|rpm|apk)$' "$stand/calls" | LC_ALL=C sort > "$work/downloads" || true
+    if [ -n "$6" ]; then printf '%s\n' "$6" | LC_ALL=C sort > "$work/want"; else : > "$work/want"; fi
+    others="$(grep -o 'https://[^ ]*' "$stand/calls" | grep -vc "^$site/" || true)"
+    if cmp -s "$work/downloads" "$work/want" && [ "$asked" = "$7" ] && [ "$others" -eq 0 ]; then
+        printf 'ok   %s\n' "$1"
     else
-        printf 'FAIL %s: %s downloads, %s of them from another release than %s, asked for the newest release: %s (want %s)\n' \
-            "$1" "$downloads" "$wrong" "$5" "$asked" "$6"
+        printf 'FAIL %s: asked for the index: %s (want %s), addresses that are not the site: %s, downloads want\n' \
+            "$1" "$asked" "$7" "$others"
+        sed 's/^/     /' "$work/want"
+        echo '     got'
+        sed 's/^/     /' "$work/downloads"
         sed 's/^/     /' "$work/out"
         failed=$((failed + 1))
     fi
 }
 
+# What the site serves of the client at the published version 0.5.34-1, which is rpm release 2 and
+# Alpine release r1: the pool of the deb, the folder of the CPU type of the others.
+from_34_1="$site/client/apt/pool/main/s/splicefs-client/splicefs-client_0.5.34-1_amd64.deb
+$site/client/rpm/x86_64/splicefs-client-0.5.34-2.x86_64.rpm
+$site/client/alpine/x86_64/splicefs-client-0.5.34-r1.apk"
+from_35_1="$site/client/apt/pool/main/s/splicefs-client/splicefs-client_0.5.35-1_amd64.deb
+$site/client/rpm/x86_64/splicefs-client-0.5.35-2.x86_64.rpm
+$site/client/alpine/x86_64/splicefs-client-0.5.35-r1.apk"
+
 for script in lifecycle-repo.sh upgrade-test.sh; do
-    starts_from "$script: a release made after the build is not the one to start from" \
-        "$script" v0.5.35 v0.5.36 v0.5.35 no
-    starts_from "$script: a build that recorded none starts from the newest release" \
-        "$script" "" v0.5.36 v0.5.36 yes
+    # The release being published is newer than anything on the site, and its release on GitHub
+    # holds no packages: the baseline is the newest package of the site.
+    publish 0.5.33 0.5.34 0.5.34-1
+    starts_from "$script: a new release starts from the newest package on the site" \
+        "$script" v0.5.35 0 read "$from_34_1" no
+
+    # A revision of a release that is published is built next to its newest revision.
+    publish 0.5.34-1 0.5.35 0.5.35-1
+    starts_from "$script: a later revision starts from the newest revision on the site" \
+        "$script" v0.5.35 2 read "$from_35_1" no
+
+    # A package published after the build is newer than the packages: not the one to start from.
+    publish 0.5.34-1 0.5.35
+    starts_from "$script: a package published after the build is not the one to start from" \
+        "$script" v0.5.35 1 0.5.34-1 "$from_34_1" no
+
+    publish 0.5.33 0.5.34 0.5.34-1
+    starts_from "$script: a build that recorded none starts from the newest package on the site" \
+        "$script" v0.5.35 0 "" "$from_34_1" yes
 done
 
-# lifecycle-test.sh reads the tag that lifecycle-repo.sh wrote down, so that is the tag to prove.
-build v0.5.35
-printf '%s\n' v0.5.36 > "$stand/latest"
-(cd "$tree" && STAND_IN="$stand" PATH="$stand/bin:$PATH" PROGRAM=client PLATFORM=linux/amd64 \
-    sh scripts/lifecycle-repo.sh > "$work/out" 2>&1) || true
-written="$(cat "$tree/dist/lifecycle/client/published" 2>/dev/null || true)"
-if [ "$written" = "TAG=v0.5.35" ]; then
-    echo "ok   lifecycle-repo.sh: the tag written down for the lifecycle test is the recorded one"
+# Nothing published: the upgrade test skips, and the lifecycle test, which starts from a published
+# version, says so and stops.
+publish
+starts_from "upgrade-test.sh: nothing is published, nothing is downloaded" upgrade-test.sh v0.5.35 0 "" "" yes
+if grep -q 'skip deb: no published version yet' "$work/out"; then
+    echo "ok   upgrade-test.sh: nothing is published, the test skips"
 else
-    printf 'FAIL lifecycle-repo.sh: the tag written down is "%s"\n' "$written"
+    printf 'FAIL upgrade-test.sh: nothing is published, but it did not skip:\n'
+    sed 's/^/     /' "$work/out"
+    failed=$((failed + 1))
+fi
+starts_from "lifecycle-repo.sh: nothing is published, nothing is downloaded" lifecycle-repo.sh v0.5.35 0 "" "" yes
+if grep -q 'nothing is published' "$work/out"; then
+    echo "ok   lifecycle-repo.sh: nothing is published, it says so"
+else
+    printf 'FAIL lifecycle-repo.sh: nothing is published, but it did not say so:\n'
+    sed 's/^/     /' "$work/out"
+    failed=$((failed + 1))
+fi
+
+# lifecycle-test.sh reads the version and revision that lifecycle-repo.sh wrote down, so that is
+# what to prove.
+publish 0.5.33 0.5.34 0.5.34-1
+build v0.5.35 0 0.5.34-1
+# shellcheck disable=SC2310
+run_script lifecycle-repo.sh > "$work/out" 2>&1 || true
+written="$(cat "$tree/dist/lifecycle/client/published" 2>/dev/null || true)"
+if [ "$written" = "TAG=v0.5.34
+REVISION=1" ]; then
+    echo "ok   lifecycle-repo.sh: the version written down for the lifecycle test is the published one"
+else
+    printf 'FAIL lifecycle-repo.sh: the version written down is "%s"\n' "$written"
     failed=$((failed + 1))
 fi
 

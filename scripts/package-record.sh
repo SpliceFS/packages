@@ -7,10 +7,11 @@
 # never run against packages of another version than the ones in dist.
 
 # Writes the record from PROGRAM, VERSION, PACKAGE_DATE and REVISION of the environment, and from
-# UPGRADE_FROM, the tag of the published release the packages stand next to, which the caller
-# read once for the whole run: every job of the run then starts its upgrade from that release,
-# also when a newer one is published meanwhile, which would turn the upgrade into a downgrade.
-# Empty when the caller read none; the tests then ask for the newest release themselves.
+# UPGRADE_FROM, the version of the newest package of the program on the package site, as the apt
+# index writes it (0.5.34-1; scripts/published-newest.sh), which the caller read once for the whole
+# run: every job of the run then starts its upgrade from that package, also when a newer one is
+# published meanwhile, which would turn the upgrade into a downgrade. Empty when the caller read
+# none; the tests then ask the site themselves.
 write_package_record() {
     : "${PROGRAM:?PROGRAM is not set}"
     : "${VERSION:?VERSION is not set}"

@@ -113,6 +113,77 @@ echo 'example:/ /mnt/files splicefs ro,late,failok,mountprog=/usr/local/sbin/mou
 stopping the boot; without it FreeBSD drops into single user mode. Run `mount /mnt/files` once by
 hand to see that the line works.
 
+## Run as yourself
+
+The services run as root. To run the client as yourself instead, install the package, leave the
+service off, and start the client from your own account. It needs no `sudo`: your configuration,
+your password and your cache are in your home directory, and the mount is yours.
+
+Linux: the package depends on `fuse3`, and `fusermount3` from it is what mounts for an ordinary
+user. The package does not change that program. If `/dev/fuse` does not exist, load the module
+once, as root: `modprobe fuse`.
+
+FreeBSD (pkg), once, as root. The package sets none of this. `vfs.usermount` lets a user mount,
+the `operator` group may open `/dev/fuse` after the devfs rule, and the `fusefs` module must be
+loaded because the service that loads it is off. Log in again after the group change. The folder
+you mount on must be yours.
+
+```
+sysctl vfs.usermount=1
+echo 'vfs.usermount=1' >> /etc/sysctl.conf
+sysrc kld_list+=fusefs && kldload fusefs
+pw groupmod operator -m alice
+printf '[fuse_users=10]\nadd path fuse mode 0660 group operator\n' >> /etc/devfs.rules
+sysrc devfs_system_ruleset=fuse_users && service devfs restart
+```
+
+Start the client as yourself. The first block makes your folders and your cluster, then runs the
+client in the foreground, so give it a terminal of its own. Change the address and the user to
+your cluster's; the cluster must exist, as in the quick start of the client. This needs client
+0.5.36 or newer; an older client wants `--config` and a `cache.dir` setting.
+
+```
+# Your own folders, in your home directory: your cluster and its password.
+config="${XDG_CONFIG_HOME:-$HOME/.config}/splicefs/client"
+mkdir -p "$config/clusters.d" "$config/secrets" ~/files
+
+# Your cluster. The file name is the cluster name.
+cat > "$config/clusters.d/example.yaml" <<'EOF'
+url: "https://east.example.com/api"
+user: alice
+password_file: secrets/example
+EOF
+(umask 077; cat > "$config/secrets/example")   # type the password, then Ctrl-D
+
+# Start the client as yourself. It stays in the foreground: give it a terminal of its own.
+splicefs
+```
+
+In a second terminal, mount the cluster in your folder, look at it, read a file, and unmount it:
+
+```
+# In a second terminal: mount the cluster in your folder, see it, read it, unmount it.
+splicefsctl mount example:/ ~/files
+splicefsctl status
+ls ~/files
+cat ~/files/media/hello.txt   # a file of your cluster
+splicefsctl umount ~/files
+```
+
+To stop the client, press Ctrl-C in its terminal. It unmounts what it mounted.
+
+Where the files go, with no option and no setting:
+
+- Your settings, clusters and password are in `~/.config/splicefs/client`. `$XDG_CONFIG_HOME`
+  replaces the `~/.config` part.
+- The cache is in `~/.cache/splicefs`. `$XDG_CACHE_HOME` replaces the `~/.cache` part.
+- The control socket is in `splicefs` under `$XDG_RUNTIME_DIR`, or in `/tmp/splicefs-<uid>` (only
+  you may enter it) when that variable is not set. `splicefsctl` finds it by itself.
+- Nothing is written to `/etc` or to the service manager.
+
+This is tested on Linux (`make user-mode-test`). On FreeBSD the steps are written down and not
+tested yet.
+
 ## Remove the repository
 
 `sh setup.sh --remove` takes away what the setup added, and nothing else: the repository
@@ -289,7 +360,8 @@ make packages PROGRAM=server BIN=<programs> SRC=<source> VERSION=v1.2.3   # buil
 make package-test PROGRAM=server   # installs and removes each package on every server image (ONLY=deb or ONLY=<image> for one)
 make service-test PROGRAM=server   # proves the service installs idle, starts when told, answers, restarts, upgrades and stops, on every image
 make fstab-test PROGRAM=client SERVER_BIN=<splicefsd folder>   # proves an fstab line is mounted by OpenRC's netmount on every Alpine image
-make upgrade-test PROGRAM=server  # installs the published release the packages were built next to (UPGRADE_FROM of make packages; the newest when none), then upgrades to the packages in dist (only when the packaging changed)
+make user-mode-test PROGRAM=client SERVER_BIN=<splicefsd folder>   # proves an ordinary user can run the client and mount, on the first image of each format
+make upgrade-test PROGRAM=server  # installs the newest package published on the site when the packages were built (UPGRADE_FROM of make packages; the newest on the site when none), then upgrades to the packages in dist (only when the packaging changed)
 make repo PROGRAM=server           # builds the signed apt, rpm and Alpine repositories into dist/server/repo
 make repo-test PROGRAM=server      # installs from them with signature checks on
 make package-order-test                           # checks that the package versions sort right in dpkg, rpm and apk
@@ -331,11 +403,14 @@ that the lifecycle test starts when both programs are built and does not wait fo
 `packages-ref` (default `main`) is the ref of this repository the jobs use; keep it the same as the
 ref of the `uses` line.
 
-A run reads the newest release of a program once, in its `source` job, and gives that tag to
-`make packages` as `UPGRADE_FROM`. The version record in `dist/<program>/version` keeps it, and the
-upgrade and lifecycle tests start from it, so a release made while the run is going never turns
-the upgrade into a downgrade. Without `UPGRADE_FROM` (a build by hand, or a caller with
-`bin-artifact`) the tests ask for the newest release when they run.
+A run reads the newest package of a program on the package site once (`scripts/published-newest.sh`,
+which prints a version such as `0.5.34-1`) and gives it to `make packages` as `UPGRADE_FROM`. The
+version record in `dist/<program>/version` keeps it, and the upgrade and lifecycle tests download that
+package from the site and start from it, so a package published while the run is going never turns
+the upgrade into a downgrade. A release on GitHub carries no packages: what people have installed is
+what the site serves. Without `UPGRADE_FROM` (a build by hand) the tests ask the site when they run,
+and a program with no package on the site yet has nothing to upgrade from, so the upgrade test says so
+and skips.
 
 `make check` needs `python3`. It also uses `node`, `dash` and `bash` when they are installed.
 
@@ -354,7 +429,7 @@ the upgrade into a downgrade. Without `UPGRADE_FROM` (a build by hand, or a call
 - `programs/<program>/`: the package definitions of one program (deb, rpm, Alpine, systemd, OpenRC)
   and its `program.conf`, which says what the program is: package name, service program,
   programs, documents, and the repository its releases are published in (`release_repo`, which
-  the upgrade test downloads the newest release from). `BIN` is a folder of compiled programs,
+  the workflows read the newest release from). `BIN` is a folder of compiled programs,
   one folder `<os>-<arch>` each, and `SRC` the program's source tree at that version, which holds
   the documents the packages ship.
   A program that installs links names them in `programs/<program>/links`, one `<link> <target>`

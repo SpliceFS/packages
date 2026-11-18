@@ -80,10 +80,11 @@ e2e-freebsd: freebsd-kvm
 #             that release: the way distributions number it (deb 1.2.3-1, rpm release 2, Alpine
 #             -r1, FreeBSD 1.2.3_1). Revision 0 is named as the packages published before
 #             revisions existed. scripts/package-lib.sh says how each format writes it.
-#   UPGRADE_FROM  the tag of the published release the upgrade tests start from. A run that
-#             reads the newest release gives that one tag here, so that every job of the run
-#             upgrades from it, also when a newer release is published meanwhile. Empty (the
-#             default) leaves the tests to ask for the newest release when they run.
+#   UPGRADE_FROM  the version of the newest package of the program on the package site, as the apt
+#             index writes it (0.5.34-1; scripts/published-newest.sh prints it), which the upgrade
+#             tests start from. A run reads it once and gives it here, so that every job of the run
+#             upgrades from it, also when a newer package is published meanwhile. Empty (the
+#             default) leaves the tests to ask the site when they run.
 # The packages are written to dist/PROGRAM: deb, rpm, and Alpine packages in alpine/<cpu>. SIGNING_DIR
 # names a folder with the real signing keys (scripts/signing-keys.sh says which); without it throwaway
 # keys are generated, and a package signed with them must never be published.
@@ -241,28 +242,37 @@ SERVER_BIN ?=
 fstab-test: built-apk-packages
 	$(TEST_VARS) SERVER_BIN=$(SERVER_BIN) scripts/fstab-test.sh
 
+# Proves that an ordinary user can run the client under their own account, with the commands of
+# "Run as yourself" (scripts/user-mode-test.sh): on the first system of each format in
+# packaging/test-systems it installs the client package next to a real server (SERVER_BIN, as for
+# fstab-test), and as a new user starts the client, mounts a folder, reads a file and unmounts,
+# then checks that nothing of root's was touched.
+.PHONY: user-mode-test
+user-mode-test: built-packages
+	$(TEST_VARS) SERVER_BIN=$(SERVER_BIN) scripts/user-mode-test.sh
+
 # The part of the upgrade test that decides whether the packaging changed, checked against small
 # hand-made package listings. It needs no Docker, so it is part of check.
 .PHONY: upgrade-diff-test upgrade-test
 upgrade-diff-test:
 	scripts/upgrade-diff-test.sh
 
-# Installs the published release of the program the packages were built next to (UPGRADE_FROM of
-# make packages; the newest release when the build recorded none), downloaded from the releases of
-# the repository named by release_repo in programs/PROGRAM/program.conf, in a clean, booted server of
-# the first system of each format in packaging/test-systems, writes a configuration line and a data
-# file, and installs the packages in dist/PROGRAM over it, the way a user upgrades. It checks that
-# both survived, the service user exists, the new version is installed and every file the new
-# package lists is there. It runs only for a format whose packaging changed since that release: a
-# version that differs only in the programs and the changelog cannot break an upgrade. When the
-# packaging changed and the version is the published one, the packages must be a later revision
-# (make packages REVISION=N): the test says so when they are not. scripts/next-revision.sh prints
-# the revision that follows the highest one published. It needs Docker and the network.
+# Installs the newest package of the program that was published when the packages were built
+# (UPGRADE_FROM of make packages; the newest on the package site when the build recorded none),
+# downloaded from the site, in a clean, booted server of the first system of each format in
+# packaging/test-systems, writes a configuration line and a data file, and installs the packages in
+# dist/PROGRAM over it, the way a user upgrades. It checks that both survived, the service user
+# exists, the new version is installed and every file the new package lists is there. It runs only
+# for a format whose packaging changed since that package: a version that differs only in the
+# programs and the changelog cannot break an upgrade. When the packaging changed and the version is
+# the published one, the packages must be a later revision (make packages REVISION=N): the test says
+# so when they are not. scripts/next-revision.sh prints the revision that follows the highest one
+# published. It needs Docker and the network.
 upgrade-test: built-packages
 	$(TEST_VARS) scripts/upgrade-test.sh
 
 # The whole life of the packages in one booted server per system of packaging/test-systems: our
-# repository is set up with setup.sh, the published release of the server and the client is
+# repository is set up with setup.sh, the newest published package of the server and the client is
 # installed from it, upgraded to the new packages, removed, installed again, removed, and the
 # repository taken away with setup.sh --remove; the system must then match the one it started as
 # (what is left out is in scripts/lifecycle-excluded). It needs the new packages of both
