@@ -183,7 +183,8 @@ jobs:
             --pattern '*-linux-*.tar.gz' --pattern SHA256SUMS --pattern SHA256SUMS.asc
           scripts/release-bin.sh "$TAG" "$PWD/release" "$PWD/bin"
       - name: Build the deb, rpm and apk packages
-        run: make packages PROGRAM="$PROGRAM" BIN="$PWD/bin" SRC="$PWD/src" VERSION="$TAG" REVISION="$REVISION"
+        # The tag is the release of this run, read once by verify; the upgrade tests start from it.
+        run: make packages PROGRAM="$PROGRAM" BIN="$PWD/bin" SRC="$PWD/src" VERSION="$TAG" REVISION="$REVISION" UPGRADE_FROM="$TAG"
       # Right after the build, so that nothing else runs for a tag that changes nothing: the
       # release is published as it is built when it is not published yet, and a later revision only
       # when the packages differ from the newest published revision (scripts/revision-decide.sh).
