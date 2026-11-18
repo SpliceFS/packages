@@ -16,7 +16,7 @@ advisory is published and the reporter is credited unless they ask not to be.
 
 ## Scope
 
-In scope: anything that lets the setup script or the manual steps make a system accept a
+In scope: anything that lets the setup script make a system accept a
 package that is not signed by the SpliceFS key, run code other than the published script, or
 leave a system less protected than it was (weakened signature checks, wrong file
 permissions).

@@ -14,7 +14,7 @@ before work is spent on it.
 ```sh
 make site     # writes dist/site
 make check    # builds, then runs every check
-make lint     # ShellCheck on the built script, the manual steps and the build scripts
+make lint     # ShellCheck on the built script, the steps and the build scripts
 ```
 
 `make check` needs `python3`. It also uses `dash` and `bash` when they are installed.
@@ -59,14 +59,13 @@ A pull request merges with one merge commit. Squash and fast-forward merges are 
 
 ## Standards
 
-### The setup script and the manual steps
+### The setup script
 
 - POSIX `sh` only. The script runs under dash, BusyBox ash and bash.
 - Idempotent: run again at any point, it repairs what is broken and changes nothing that
   works. A change that breaks this does not merge.
 - Never weaken a signature check, and never add an option that skips one.
-- The script and the manual steps in `steps/` must set up the repository the same way, and
-  the steps end with the commands the script prints. The script installs no package.
+- The script installs no package. It prints the commands that do.
 - No temporary files in folders other users can write to.
 - ShellCheck reports nothing. A finding is fixed, or disabled on that line with the reason.
 

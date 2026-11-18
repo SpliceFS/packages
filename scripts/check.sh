@@ -178,7 +178,7 @@ next_text() {
   printf 'The SpliceFS package repository is set up. Next:\n\n  %s %s\n  %s %s splicefs-server    # the server\n  %s %s splicefs-client    # the client\n' \
     "$1" "$2" "$1" "$3" "$1" "$3"
 }
-# Arguments: family, rpm tool, the printed manager, update word, install word, step file.
+# Arguments: family, rpm tool, the printed manager, update word, install word.
 expect_next() {
   next_text "$3" "$4" "$5" > "$TMP/want"
   FAMILY=$1 RPM_TOOL=$2 sh -c '. "$1"; next_steps' sh "$TMP/next.sh" > "$TMP/got" 2>&1
@@ -187,17 +187,6 @@ expect_next() {
   else
     fail "6. next steps for $1 ($3 $4)"
     diff "$TMP/want" "$TMP/got" | sed 's/^/        /'
-  fi
-  # The manual steps on the page must end with the same three command lines.
-  if [ -n "${6:-}" ]; then
-    tail -n 3 "$TMP/want" | sed 's/^  //' > "$TMP/want3"
-    tail -n 3 "steps/$6.sh" > "$TMP/got3"
-    if cmp -s "$TMP/want3" "$TMP/got3"; then
-      pass "6. steps/$6.sh ends with the lines the script prints"
-    else
-      fail "6. steps/$6.sh ends with the lines the script prints"
-      diff "$TMP/want3" "$TMP/got3" | sed 's/^/        /'
-    fi
   fi
 }
 # Arguments: family, rpm tool, the printed manager, the word that removes a package.
@@ -218,12 +207,12 @@ expect_remove_steps dnf yum 'sudo yum' remove
 expect_remove_steps zypper '' 'sudo zypper' remove
 expect_remove_steps apk '' apk del
 expect_remove_steps pkg '' pkg delete
-expect_next apt '' 'sudo apt-get' update install apt
-expect_next dnf dnf 'sudo dnf' makecache install dnf
+expect_next apt '' 'sudo apt-get' update install
+expect_next dnf dnf 'sudo dnf' makecache install
 expect_next dnf yum 'sudo yum' makecache install
-expect_next zypper '' 'sudo zypper' refresh install zypper
-expect_next apk '' apk update add apk
-expect_next pkg '' pkg update install pkg
+expect_next zypper '' 'sudo zypper' refresh install
+expect_next apk '' apk update add
+expect_next pkg '' pkg update install
 
 # The self-check is taken out of the built script with the functions it calls and run against
 # a folder that stands in for the published site, read through file:// by curl. The script
