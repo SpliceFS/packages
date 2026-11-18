@@ -8,7 +8,8 @@ The change log of all parts of SpliceFS, side by side: https://splicefs.org/chan
 
 ## [0.4.25] - 2026-11-18
 
-- Internal: fixes the package tests, which could not run one of their scripts.
+- Internal: fixes the package tests, which could not run one of their scripts, and a publish that
+  could miss a changed index file.
 
 ## [0.4.24] - 2026-11-18
 
