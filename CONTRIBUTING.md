@@ -96,7 +96,8 @@ A pull request merges with one merge commit. Squash and fast-forward merges are 
 | Security | ShellCheck on all shell files, CodeQL on the page's script, dependency review on pull requests |
 | SonarQube | quality and security rating on SonarQube Cloud |
 | Install tests | runs the setup script on every supported system, on x86-64 and arm64, weekly as well |
-| Release | on a version tag: signs the script, publishes the site, creates the release |
+| Release | on a number tag: signs the script and publishes the site |
+| Publish programs | on a number tag: builds, tests and publishes the packages of every program in `programs/` |
 | Scorecard | OpenSSF Scorecard, published weekly and on every push |
 
 ## Versioning and releases
@@ -116,11 +117,18 @@ creates tags or release branches by hand: only the release bot can create a tag,
 changes. A release of the server or the client also gets a number, even when the tip of `main`
 has one already.
 
-The Release workflow runs the checks, signs `setup.sh` with the signing subkey, publishes the
-site over rsync and creates the GitHub release with `setup.sh` and `setup.sh.asc`, and the SHA-256
-of `setup.sh` in the release text. `setup.sh.asc` is `setup.sh` clearsigned: the script and its
-signature in one file, so no second file has to match it. The keys live in the `publish`
-environment, which only version tags can use.
+The Release workflow runs the checks, signs `setup.sh` with the signing subkey and publishes the
+site over rsync. `setup.sh.asc` is `setup.sh` clearsigned: the script and its signature in one
+file, so no second file has to match it. The GitHub release of the tag is made with the tag, not
+by this workflow. The keys live in the `publish`
+environment, which only tags can use.
+
+The Publish programs workflow starts on the same tag. For each program in `programs/` it takes the
+latest GitHub release of the program. A release that is not published yet is published as revision
+0 of its packages. A published release gets the next revision only when the packaging differs from
+the newest published revision; otherwise nothing is published and the summary of the run says so.
+Both workflows check first that the tag is a whole number and its commit is on `main`. A person can
+run Publish programs by hand, started on a tag.
 
 The Upload check workflow, started by hand, lists the remote site folder to prove the upload
 credentials work without publishing.

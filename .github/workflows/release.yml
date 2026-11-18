@@ -1,10 +1,12 @@
 name: Release
 
-# A version tag signs the setup script, publishes the site and creates the GitHub release.
-# Only version tags can use the publish environment, which holds the signing and upload keys.
+# A number tag (1, 2, 3, ...) on main signs the setup script and publishes the site. The same tag
+# starts publish-program.yml, which publishes the packages, so a tag publishes the site and the
+# packages. The GitHub release of the tag is made with the tag (tag.yml), not here. Only tags can
+# use the publish environment, which holds the signing and upload keys.
 on:
   push:
-    tags: ["v*"]
+    tags: ["[0-9]*"]
 
 permissions:
   contents: read
@@ -42,33 +44,18 @@ jobs:
           exit 1
 
   release:
-    name: Sign, publish and release
+    name: Sign and publish the site
     needs: wait
     runs-on: ubuntu-latest
     environment: publish
-    permissions:
-      # Needed to create the release.
-      contents: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-      # A tag can sit on any commit. Only a commit on main may publish, and the tag must
-      # name the version that VERSION gives. This runs before any key is written.
+      # A tag can sit on any commit. Only a number tag on a commit of main may publish. This runs
+      # before any key is written.
       - name: The tag is a release of main
-        run: |
-          # Fetch main by name, so that origin/main is the current tip and not the state
-          # of the last checkout.
-          git fetch --no-tags origin main
-          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
-            echo "::error::the tagged commit is not on main, so it cannot be released"
-            exit 1
-          fi
-          version="$(cat VERSION)"
-          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
-            echo "::error::the tag is $GITHUB_REF_NAME, but VERSION says v$version"
-            exit 1
-          fi
+        run: scripts/release-tag-check.sh "$GITHUB_REF_TYPE" "$GITHUB_REF_NAME" "$GITHUB_SHA"
       - name: Build the site and run every check
         run: make check
       - name: Write the keys and the known hosts line to files
@@ -92,27 +79,6 @@ jobs:
           UPLOAD_KEY_FILE: ${{ runner.temp }}/upload_key
           UPLOAD_KNOWN_HOSTS_FILE: ${{ runner.temp }}/known_hosts
         run: make publish
-      - name: Create the GitHub release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          SUM=$(sha256sum dist/site/setup.sh | cut -d ' ' -f 1)
-          {
-            echo "Setup script for $GITHUB_REF_NAME."
-            echo
-            echo "SHA-256 of setup.sh: \`$SUM\`"
-            echo
-            echo "setup.sh.asc is the same script with its signature inside. Verify it with the"
-            echo "SpliceFS key (fingerprint in the README) and write the verified script:"
-            echo
-            echo '    curl -fsSLO https://packages.splicefs.org/keys/splicefs.asc'
-            echo '    gpg --import splicefs.asc'
-            echo '    gpg --verify setup.sh.asc &&'
-            echo '      gpg --output setup.sh --decrypt setup.sh.asc'
-          } > "$RUNNER_TEMP/notes.md"
-          gh release create "$GITHUB_REF_NAME" --verify-tag --title "$GITHUB_REF_NAME" \
-            --notes-file "$RUNNER_TEMP/notes.md" \
-            dist/site/setup.sh dist/site/setup.sh.asc
       - name: Remove the secret files
         if: always()
         run: rm -f "$RUNNER_TEMP/upload_key" "$RUNNER_TEMP/signing_key.asc" "$RUNNER_TEMP/known_hosts"

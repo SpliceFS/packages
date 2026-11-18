@@ -652,7 +652,7 @@ run "9. part.sh: the timer every package target runs through" sh scripts/part-te
 run "9. package-record.sh: the version make packages built, read by the tests" sh scripts/package-record-test.sh
 run "9. upgrade-diff.sh: when the packaging of two versions differs" sh scripts/upgrade-diff-test.sh
 run "9. next-revision.sh: the revision a build needs to upgrade what is published" sh scripts/next-revision-test.sh
-run "9. revision-decide.sh: when a change is published as a package revision" sh scripts/revision-decide-test.sh
+run "9. revision-decide.sh: when the packages of a release are published, as revision 0 or a later one" sh scripts/revision-decide-test.sh
 run "9. freebsd-lib.sh: the FreeBSD machines, their device, job folder and package check" \
   sh scripts/freebsd-lib-test.sh
 run "9. freebsd-repo-files.sh: the input archive of a FreeBSD machine holds the key and is removed" \
@@ -668,6 +668,8 @@ run "9. number-tags.sh: which tag names are versions of this repository" sh scri
 run "9. change-log-entry.sh: the entry of a pull request, with a default for the dependency bot only" sh scripts/change-log-entry-test.sh
 run "9. release-notes.sh: the notes of a release are the entries of the pull requests merged since the last tag" sh scripts/release-notes-test.sh
 run "9. tag-release.sh: the next number tag on a commit of main, and its release" sh scripts/tag-release-test.sh
+run "9. list-programs.sh: the programs of the repository as a JSON array for a workflow matrix" sh scripts/list-programs-test.sh
+run "9. release-tag-check.sh: only a number tag on a commit of main may use the keys" sh scripts/release-tag-check-test.sh
 
 if [ "$FAILS" -eq 0 ]; then
   echo "all checks passed"
