@@ -1,4 +1,5 @@
 name: Changes
+# Every job has a time limit: 3 times its longest run, so a hang fails in minutes.
 
 # Says which test groups a run needs, as a JSON array that the if of each job reads
 # (scripts/changed-groups.sh, .github/test-groups). A pull request needs the groups of the files
@@ -19,6 +20,7 @@ jobs:
   changes:
     name: Changed files
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     outputs:
       groups: ${{ steps.groups.outputs.groups }}
     steps:
