@@ -5,9 +5,10 @@
 # The published packages are downloaded the way the upgrade test does (scripts/published-lib.sh)
 # for this machine's CPU type. They were made with the release key, which the test repository
 # does not have: the Alpine ones, the new ones too, are signed again with the key of dist/keys
-# (scripts/apk-resign.py); the others are signed by the repository step. The tag of the
-# published release is written to dist/lifecycle/PROGRAM/published for the test. Runs on the host
-# (make lifecycle-test). Needs python3, openssl and curl. Environment: PROGRAM; PLATFORM.
+# (scripts/apk-resign.sh, the make target lifecycle-repo runs it after this script); the others
+# are signed by the repository step. The tag of the published release is written to
+# dist/lifecycle/PROGRAM/published for the test. Runs on the host (make lifecycle-test). Needs
+# curl. Environment: PROGRAM; PLATFORM.
 set -eu
 
 : "${PROGRAM:?PROGRAM is not set}"
@@ -42,11 +43,11 @@ mkdir -p "$out/alpine/$apk_arch"
 cp dist/"$PROGRAM"/*.deb dist/"$PROGRAM"/*.rpm "$out/"
 # The new Alpine packages were signed with the key of the build that made them. The server and
 # the client are built in runs of their own, with keys of their own, so they are signed again with
-# the key of this repository, as the published ones are below.
+# the key of this repository, as the published ones are.
 for apk in dist/"$PROGRAM"/alpine/*/*.apk; do
     arch="$(basename "$(dirname "$apk")")"
     mkdir -p "$out/alpine/$arch"
-    python3 -I scripts/apk-resign.py "$apk" dist/keys/splicefs.rsa splicefs.rsa.pub "$out/alpine/$arch/$(basename "$apk")"
+    cp "$apk" "$out/alpine/$arch/"
 done
 
 for format in deb rpm apk; do
@@ -56,8 +57,7 @@ for format in deb rpm apk; do
         fail "could not download https://github.com/$release_repo/releases/download/$tag/$file"
     case "$format" in
         apk)
-            python3 -I scripts/apk-resign.py "$published/$file" dist/keys/splicefs.rsa splicefs.rsa.pub \
-                "$out/alpine/$apk_arch/$name-$old_apkver-r$old_apkrel.apk"
+            cp "$published/$file" "$out/alpine/$apk_arch/$name-$old_apkver-r$old_apkrel.apk"
             ;;
         *) cp "$published/$file" "$out/" ;;
     esac

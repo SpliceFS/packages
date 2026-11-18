@@ -176,7 +176,7 @@ ONLY ?=
 PLATFORM ?=
 TEST_VARS = PROGRAM=$(PROGRAM) VERSION=$(VERSION) PLATFORM=$(PLATFORM) ONLY=$(ONLY)
 
-.PHONY: built-apk-packages built-packages package-order-test package-test
+.PHONY: built-apk-packages built-packages package-order-test apk-resign-test package-test
 
 # Stop at once, with the name of what is missing, before any image starts. A test that uses the
 # Alpine packages only (fstab-test) needs built-apk-packages; the others need every format.
@@ -195,9 +195,14 @@ built-packages: built-apk-packages
 package-order-test:
 	scripts/package-order-test.sh
 
+# Signs the Alpine packages of dist/PROGRAM again with a new key (scripts/apk-resign.sh, which the
+# lifecycle test uses) and checks that apk accepts them with that key and refuses them without it.
+apk-resign-test: built-apk-packages
+	PROGRAM=$(PROGRAM) APK_IMAGE=$(APK_IMAGE) scripts/apk-resign-test.sh
+
 # Installs and removes the package in a clean, booted server of every system listed in
 # packaging/test-systems and reports each system's result.
-package-test: built-packages package-order-test
+package-test: built-packages package-order-test apk-resign-test
 	$(TEST_VARS) scripts/package-test.sh
 
 # Proves the service, not only the files: in a container per system that is booted as a server,
@@ -253,6 +258,7 @@ lifecycle-repo:
 	$(MAKE) keys
 	for p in server client; do \
 		PROGRAM=$$p PLATFORM=$(PLATFORM) scripts/lifecycle-repo.sh && \
+		scripts/part.sh apk-resign $(REPO_RUN) $(APK_IMAGE) sh scripts/apk-resign.sh /repo/dist/lifecycle/$$p && \
 		$(MAKE) repo PROGRAM=$$p REPO_DIR=dist/lifecycle/$$p || exit 1; \
 	done
 

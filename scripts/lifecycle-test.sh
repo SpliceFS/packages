@@ -3,8 +3,8 @@
 # the server image per system, the way a person would use them: set up our repository, install
 # the published release of both programs, upgrade to the new packages, remove them, install the
 # new ones fresh, uninstall as the documentation says, and find the system as it was.
-# Runs on the host after make packages (make lifecycle-test); it needs Docker, curl, python3 and
-# openssl. The steps, in one booted system:
+# Runs on the host after make packages (make lifecycle-test); it needs Docker, curl and python3.
+# The steps, in one booted system:
 #   1. the file list and the checksums of /etc are written down (scripts/lifecycle-snapshot.sh);
 #   2. sh setup.sh, built for the local test site, registers the repository;
 #   3. the published release of the server and the client is installed from the repository, the
