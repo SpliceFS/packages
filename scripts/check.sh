@@ -110,6 +110,8 @@ for i, (got, want) in enumerate(zip(blocks, expected)):
 sys.exit(1 if bad else 0)
 PYEOF
 run "3. page and README code blocks match steps/ and the setup lines" python3 -I "$TMP/blocks.py" "$TMP/blocks.json"
+# The logo of every page leads to the home page of the project, always.
+run "3. the logo links to the home page" grep -q '<a class="mark" href="https://splicefs.org/">' site/index.html
 
 # 4. The built script: keys byte-identical, no placeholder left, last line, line endings.
 cat > "$TMP/built.py" <<'PYEOF'
