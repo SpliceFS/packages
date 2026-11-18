@@ -6,7 +6,7 @@
 # one running, and removing the package stops it and leaves rc.conf alone. The arm64 package is
 # built for its ABI and not installed. What "the service works" means for this program comes
 # from check-lib.sh in the input folder (programs/<program>/freebsd/check-lib.sh): expected_user
-# and answers.
+# and answers, and extra_checks when the program has checks of its own.
 #
 # It also builds the signed package repository. The input archive on the fourth disk holds
 # keys/splicefs.rsa(.pub) and the packages published before (repo/FreeBSD:<major>:<cpu>/All/).
@@ -233,6 +233,12 @@ wait_for 20 answers
 [ "$wait_status" -eq 0 ] || { show; fail "the service does not do its job after a restart"; }
 echo "turned on and started as the message says, running as $expected_user, answering, reload and restart work"
 phase_done "start the service and check it"
+
+# What only this program has to prove, with the service running and answering.
+if command -v extra_checks >/dev/null 2>&1; then
+    extra_checks
+    phase_done "check what only this program needs"
+fi
 
 # An upgrade leaves a running service running and never changes rc.conf. The package cannot
 # restart the service, because pkg ends every process a package script starts, so the running

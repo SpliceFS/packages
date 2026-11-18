@@ -144,6 +144,62 @@ same "splicefs: a client that never answers fails the start after 30 tries and e
 said="$(cat "$box/out")"
 holds "splicefs: a start that fails says why" "does not answer" "$said"
 
+# --- the checks that the machine runs for the client ----------------------------------------
+
+# check-lib.sh runs in the machine with the real rcorder and mount. Here stand-ins show that its
+# checks tell a good boot order and a late line that reaches the helper from a bad one. $1 the
+# order rcorder prints (names of scripts, one to a line), $2 what the stand-in mount does for a
+# late line ("helper" prints the helper's own message and fails, "mounted" succeeds without it)
+# and for a plain mount -a ("skipped" prints nothing, "ran" runs the late line). Sets
+# machine_status to the status of the checks and machine_said to what they said.
+machine_checks() {
+    box="$tree/machine"
+    rm -rf "$box"
+    mkdir -p "$box/bin"
+    printf '/usr/local/sbin/mount.splicefs /usr/local/bin/splicefsctl\n' > "$box/links"
+    printf '%s\n' "$1" > "$box/rcorder.out"
+    printf '#!/bin/sh\ncat "%s/rcorder.out"\n' "$box" > "$box/bin/rcorder"
+    cat > "$box/bin/mount" <<'MOUNT'
+#!/bin/sh
+case " $* " in
+    *" -L "*) [ "$MOUNT_LATE" = mounted ] && exit 0
+              echo "mount.splicefs: cluster nocluster is not defined" >&2; exit 1 ;;
+    *) [ "$MOUNT_PLAIN" = ran ] && echo "mount.splicefs: cluster nocluster is not defined" >&2
+       exit 0 ;;
+esac
+MOUNT
+    chmod 755 "$box/bin/rcorder" "$box/bin/mount"
+    cat > "$box/run.sh" <<'RUN'
+fail() { echo "FAIL: $1"; exit 1; }
+. "$1"
+extra_checks
+RUN
+    status=0
+    machine_said="$(in="$box" PATH="$box/bin:$PATH" MOUNT_LATE="$2" MOUNT_PLAIN="$3" \
+        sh "$box/run.sh" "$root/programs/client/freebsd/check-lib.sh" 2>&1)" || status=$?
+    machine_status="$status"
+}
+
+good_order='/etc/rc.d/DAEMON
+/usr/local/etc/rc.d/splicefs
+/etc/rc.d/mountlate'
+machine_checks "$good_order" helper skipped
+same "the machine accepts splicefs before mountlate, and a late line that reaches the helper" \
+    "0" "$machine_status"
+holds "the machine says that the order is right" "rcorder: splicefs starts before mountlate" "$machine_said"
+holds "the machine says that the late line reached the helper" "the late line ran the helper" "$machine_said"
+machine_checks '/etc/rc.d/mountlate
+/usr/local/etc/rc.d/splicefs' helper skipped
+holds "the machine refuses mountlate before splicefs" "FAIL: rcorder starts mountlate" "$machine_said"
+machine_checks '/etc/rc.d/mountlate' helper skipped
+holds "the machine refuses an rcorder list without splicefs" "FAIL: rcorder does not list" "$machine_said"
+machine_checks "$good_order" mounted skipped
+holds "the machine refuses a late line that mounted a cluster that is not defined" \
+    "FAIL: mount -a -L mounted" "$machine_said"
+machine_checks "$good_order" helper ran
+holds "the machine refuses a plain mount -a that runs a late line" "FAIL: mount -a ran the late line" \
+    "$machine_said"
+
 # --- the install scripts of the manifests ---------------------------------------------------
 
 # Prints the script named $3 of the manifest $1 as the build writes it, with the service name $2
