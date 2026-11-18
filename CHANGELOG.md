@@ -8,8 +8,7 @@ The change log of all parts of SpliceFS, side by side: https://splicefs.org/chan
 
 ## [0.4.29] - 2026-11-18
 
-- Documentation: how to run the SpliceFS client as yourself, without root ("Run as yourself" on the
-  install page).
+- Internal: the FreeBSD upgrade check upgrades to a well-formed next revision.
 
 ## [0.4.28] - 2026-11-18
 
