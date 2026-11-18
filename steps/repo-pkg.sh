@@ -22,6 +22,3 @@ splicefs-client: {
 EOF
 
 # Update the package index, then install the server, the client, or both:
-pkg update
-pkg install splicefs-server    # the server
-pkg install splicefs-client    # the client

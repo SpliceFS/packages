@@ -70,18 +70,27 @@ page = open("site/index.html", encoding="ascii").read()
 blocks = [html.unescape(b) for b in re.findall(r"<pre><code>(.*?)</code></pre>", page, re.S)]
 json.dump(blocks, open(sys.argv[1], "w"))
 families = ("apt", "dnf", "zypper", "apk", "pkg")
-step = {k: open("steps/%s.sh" % k).read() for k in families}
+inits = ("systemd", "openrc", "freebsd")
+def steps(name):
+    return open("steps/%s.sh" % name).read()
+# The install lines of each family, as the setup script prints them (part 6 proves that). The
+# manual setup of a family is its repository lines followed by these same lines.
+install = {k: steps("install-" + k) for k in families}
+manual = {k: steps("repo-" + k) + install[k] for k in families}
 # The uninstall commands. The lifecycle test runs these same files, so what the page and the
 # README show is what the test proves.
-uninstall = {k: open("steps/uninstall-%s.sh" % k).read() for k in families}
+uninstall = {k: steps("uninstall-" + k) for k in families}
 # The commands of "Run as yourself", in the order the page shows them: start, then use. The
 # container test (scripts/user-mode-test.sh) runs these same files as an ordinary user.
-user_mode = [open("steps/user-mode-%s.sh" % k).read() for k in ("start", "use")]
+user_mode = [steps("user-mode-" + k) for k in ("start", "use")]
+user_mode_freebsd = steps("user-mode-freebsd")
+start = [steps("start-" + k) for k in inits]
+fstab = [steps("fstab-" + k) for k in inits]
+restart_freebsd = steps("restart-freebsd")
 base = "https://packages.splicefs.org"
 curl = "curl --proto '=https' --tlsv1.2 -fsSL %s/setup.sh -o ~/splicefs-setup.sh &&\n  sudo sh ~/splicefs-setup.sh\n" % base
 wget = "wget -qO ~/splicefs-setup.sh %s/setup.sh &&\n  sudo sh ~/splicefs-setup.sh\n" % base
 fetch = "fetch -o ~/splicefs-setup.sh %s/setup.sh &&\n  sh ~/splicefs-setup.sh\n" % base
-# Each step file already ends with the update and install commands, so a family is one block.
 # The two blocks that check the signed copy of the script: get the file and the key, then verify.
 get_signed = ("curl -fsSLo ~/splicefs-setup.sh.asc %s/setup.sh.asc\n"
               "curl -fsSLo ~/splicefs.asc %s/keys/splicefs.asc\n"
@@ -91,17 +100,17 @@ verify_signed = ("gpg --verify ~/splicefs-setup.sh.asc &&\n"
                  "  gpg --output ~/splicefs-setup.sh --decrypt ~/splicefs-setup.sh.asc\n")
 # The removal section repeats the three download commands of step 1 with --remove added.
 remove = [b.replace("splicefs-setup.sh\n", "splicefs-setup.sh --remove\n") for b in (curl, wget, fetch)]
-# The page shows the uninstall commands after the removal of the repository, then the manual steps.
-expected = ([curl, wget, fetch, get_signed, verify_signed] + remove +
-            [uninstall[k] for k in families] + [step[k] for k in families] + user_mode)
+# The order of the page: step 1 with its signature check, steps 2 and 3, then the other tasks.
+expected = ([curl, wget, fetch, get_signed, verify_signed] + [install[k] for k in families] + start +
+            fstab + user_mode + [user_mode_freebsd, restart_freebsd] + remove +
+            [uninstall[k] for k in families] + [manual[k] for k in families])
 bad = 0
 readme = open("README.md", encoding="ascii").read()
-for k in families:
-    if "```\n" + uninstall[k] + "```\n" not in readme:
-        print("README.md does not show steps/uninstall-%s.sh as a code block" % k); bad += 1
-for k, text in zip(("start", "use"), user_mode):
-    if "```\n" + text + "```\n" not in readme:
-        print("README.md does not show steps/user-mode-%s.sh as a code block" % k); bad += 1
+in_readme = (["uninstall-" + k for k in families] + ["user-mode-start", "user-mode-use", "user-mode-freebsd",
+             "install-apt"] + ["start-" + k for k in inits] + ["fstab-" + k for k in inits])
+for name in in_readme:
+    if "```\n" + steps(name) + "```\n" not in readme:
+        print("README.md does not show steps/%s.sh as a code block" % name); bad += 1
 if len(blocks) != len(expected):
     print("page has %d code blocks, expected %d" % (len(blocks), len(expected))); bad += 1
 for i, (got, want) in enumerate(zip(blocks, expected)):
@@ -221,15 +230,14 @@ expect_next() {
     fail "6. next steps for $1 ($3 $4)"
     diff "$TMP/want" "$TMP/got" | sed 's/^/        /'
   fi
-  # The manual steps on the page must end with the same three command lines.
+  # Step 2 of the page, and the end of the manual setup, are these same command lines.
   if [ -n "${6:-}" ]; then
     tail -n 3 "$TMP/want" | sed 's/^  //' > "$TMP/want3"
-    tail -n 3 "steps/$6.sh" > "$TMP/got3"
-    if cmp -s "$TMP/want3" "$TMP/got3"; then
-      pass "6. steps/$6.sh ends with the lines the script prints"
+    if cmp -s "$TMP/want3" "steps/install-$6.sh"; then
+      pass "6. steps/install-$6.sh holds the lines the script prints"
     else
-      fail "6. steps/$6.sh ends with the lines the script prints"
-      diff "$TMP/want3" "$TMP/got3" | sed 's/^/        /'
+      fail "6. steps/install-$6.sh holds the lines the script prints"
+      diff "$TMP/want3" "steps/install-$6.sh" | sed 's/^/        /'
     fi
   fi
 }

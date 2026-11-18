@@ -9,6 +9,3 @@ printf '%s\n' https://packages.splicefs.org/server/alpine https://packages.splic
   > /etc/apk/repositories.d/splicefs.list
 
 # Update the package index, then install the server, the client, or both:
-apk update
-apk add splicefs-server    # the server
-apk add splicefs-client    # the client

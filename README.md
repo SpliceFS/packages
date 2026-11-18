@@ -410,9 +410,11 @@ the upgrade into a downgrade. Without `UPGRADE_FROM` (a build by hand, or a call
 ## Layout
 
 - `site/`: the install page (`index.html`).
-- `steps/`: the manual repository setup and the install commands for each package manager
-  (`<family>.sh`), and the uninstall commands (`uninstall-<family>.sh`), shown on the page. The
-  lifecycle test runs the uninstall files.
+- `steps/`: every command block of the page. For each package manager the manual repository
+  setup (`repo-<family>.sh`), the install commands the setup script prints (`install-<family>.sh`,
+  which also end the manual setup) and the uninstall commands (`uninstall-<family>.sh`); for each
+  service manager the start and fstab commands (`start-<init>.sh`, `fstab-<init>.sh`); and the
+  commands of Run as yourself (`user-mode-*.sh`). The lifecycle test runs the uninstall files.
 - `keys/`: the public signing keys.
 - `scripts/`: `build-site.sh`, `sign-site.sh`, `publish.sh` and `check.sh`, `setup-remove-test.sh`
   (setup and removal in a fake root, for every family), and the scripts that

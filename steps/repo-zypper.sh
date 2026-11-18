@@ -5,25 +5,26 @@ sudo chmod a+r /etc/pki/rpm-gpg/RPM-GPG-KEY-splicefs
 sudo rpm --import /etc/pki/rpm-gpg/RPM-GPG-KEY-splicefs
 
 # Add the repository:
-sudo tee /etc/yum.repos.d/splicefs.repo >/dev/null <<'EOF'
+sudo tee /etc/zypp/repos.d/splicefs.repo >/dev/null <<'EOF'
 [splicefs-server]
 name=SpliceFS server
 baseurl=https://packages.splicefs.org/server/rpm/$basearch
 enabled=1
+autorefresh=1
 gpgcheck=1
 repo_gpgcheck=1
+pkg_gpgcheck=1
 gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-splicefs
 
 [splicefs-client]
 name=SpliceFS client
 baseurl=https://packages.splicefs.org/client/rpm/$basearch
 enabled=1
+autorefresh=1
 gpgcheck=1
 repo_gpgcheck=1
+pkg_gpgcheck=1
 gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-splicefs
 EOF
 
 # Update the package index, then install the server, the client, or both:
-sudo dnf makecache
-sudo dnf install splicefs-server    # the server
-sudo dnf install splicefs-client    # the client
