@@ -68,6 +68,82 @@ done <<PROGRAMS
 $programs
 PROGRAMS
 
+# --- the client starts before the late mounts, and only once it answers ---------------------
+
+client_rc=programs/client/freebsd/splicefs.rc
+
+# $1 what is tested, $2 the whole line the script must hold.
+holds_line() {
+    if grep -qx -e "$2" "$client_rc"; then
+        printf 'ok   %s\n' "$1"
+    else
+        printf 'FAIL %s: the line "%s" is missing\n' "$1" "$2"
+        failed=$((failed + 1))
+    fi
+}
+
+# rcorder reads these lines. mountlate runs "mount -a -L", which asks the client for the fstab
+# lines marked late, so the client must be started before it; mountlate itself needs DAEMON, which
+# the client needs too, so the order is DAEMON, client, mountlate.
+holds_line "splicefs: rcorder starts it before mountlate" "# BEFORE: mountlate"
+holds_line "splicefs: rcorder starts it after the network, the daemons and the filesystems" \
+    "# REQUIRE: NETWORKING DAEMON FILESYSTEMS"
+holds_line "splicefs: rc.subr loads the FUSE module before the start" "required_modules=fusefs"
+holds_line "splicefs: the start waits for the client to answer" "start_postcmd=splicefs_wait"
+
+# A stand-in for /etc/rc.subr that runs the function named by $entry, with stand-ins for what the
+# function calls: timeout runs its command without the time limit, sleep and kill only record
+# that they were called, so that no test waits for time to pass. The fake control tool answers
+# from its ANSWER_AT-th call on, which is the delay: calls before it fail, as a client does that
+# has not connected to its cluster yet.
+cat > "$tree/rc-wait.subr" <<'SUBR'
+load_rc_config() { :; }
+timeout() { shift; "$@"; }
+sleep() { echo sleep >> "$box/calls"; }
+kill() { echo "kill $*" >> "$box/calls"; }
+run_rc_command() { "$entry"; }
+SUBR
+cat > "$tree/splicefsctl" <<'CTL'
+#!/bin/sh
+echo ask >> "$box/calls"
+[ "$(grep -c ask "$box/calls")" -ge "$ANSWER_AT" ]
+CTL
+chmod 755 "$tree/splicefsctl"
+
+# Counts the lines of the record that start with $1; grep -c fails when there are none.
+recorded() {
+    grep -c "^$1" "$box/calls" || true
+}
+
+# $1 the number of the call that is answered. Sets wait_result to the exit status of the wait,
+# then what was called: the number of asks and of sleeps, and the kills as they were given.
+wait_for_client() {
+    box="$tree/wait"
+    rm -rf "$box"
+    mkdir -p "$box"
+    : > "$box/calls"
+    echo 4242 > "$box/daemon.pid"
+    sed -e "s|/etc/rc.subr|$tree/rc-wait.subr|" -e "s|/usr/local/bin/splicefsctl|$tree/splicefsctl|" \
+        -e "s|/var/run/splicefs/daemon.pid|$box/daemon.pid|" "$client_rc" > "$tree/rc.script"
+    status=0
+    box="$box" entry=splicefs_wait ANSWER_AT="$1" sh "$tree/rc.script" start > "$box/out" 2>&1 || status=$?
+    asked="$(recorded ask)"
+    slept="$(recorded sleep)"
+    killed="$(grep '^kill' "$box/calls" | tr '\n' ';')" || killed=""
+    wait_result="$status asks=$asked sleeps=$slept $killed"
+}
+
+# Before the first answer the start does not return: it asks again each second.
+wait_for_client 1
+same "splicefs: the start returns at the first answer, without waiting" "0 asks=1 sleeps=0 " "$wait_result"
+wait_for_client 3
+same "splicefs: the start returns only after the answer that comes late" "0 asks=3 sleeps=2 " "$wait_result"
+wait_for_client 31
+same "splicefs: a client that never answers fails the start after 30 tries and ends the supervisor" \
+    "1 asks=30 sleeps=29 kill 4242;" "$wait_result"
+said="$(cat "$box/out")"
+holds "splicefs: a start that fails says why" "does not answer" "$said"
+
 # --- the install scripts of the manifests ---------------------------------------------------
 
 # Prints the script named $3 of the manifest $1 as the build writes it, with the service name $2
