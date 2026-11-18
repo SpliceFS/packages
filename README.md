@@ -46,7 +46,7 @@ make package-test PROGRAM=server   # installs and removes each package on every 
 make service-test PROGRAM=server   # proves the service installs idle, starts when told, answers, restarts, upgrades and stops, on every image
 make fstab-test PROGRAM=client SERVER_BIN=<splicefsd folder>   # proves an fstab line is mounted by OpenRC's netmount on every Alpine image
 make user-mode-test PROGRAM=client SERVER_BIN=<splicefsd folder>   # proves an ordinary user can run the client and mount, on the first image of each format
-make upgrade-test PROGRAM=server  # installs the published release the packages were built next to (UPGRADE_FROM of make packages; the newest when none), then upgrades to the packages in dist (only when the packaging changed)
+make upgrade-test PROGRAM=server  # installs the newest package published on the site when the packages were built (UPGRADE_FROM of make packages; the newest on the site when none), then upgrades to the packages in dist (only when the packaging changed)
 make repo PROGRAM=server           # builds the signed apt, rpm and Alpine repositories into dist/server/repo
 make repo-test PROGRAM=server      # installs from them with signature checks on
 make package-order-test                           # checks that the package versions sort right in dpkg, rpm and apk
@@ -84,11 +84,14 @@ the CI of this repository does that for both programs, so a packaging change is 
 `packages-ref` (default `main`) is the ref of this repository the jobs use; keep it the same as the
 ref of the `uses` line.
 
-A run reads the newest release of a program once, in its `source` job, and gives that tag to
-`make packages` as `UPGRADE_FROM`. The version record in `dist/<program>/version` keeps it, and the
-upgrade and lifecycle tests start from it, so a release made while the run is going never turns
-the upgrade into a downgrade. Without `UPGRADE_FROM` (a build by hand, or a caller with
-`bin-artifact`) the tests ask for the newest release when they run.
+A run reads the newest package of a program on the package site once (`scripts/published-newest.sh`,
+which prints a version such as `0.5.34-1`) and gives it to `make packages` as `UPGRADE_FROM`. The
+version record in `dist/<program>/version` keeps it, and the upgrade and lifecycle tests download that
+package from the site and start from it, so a package published while the run is going never turns
+the upgrade into a downgrade. A release on GitHub carries no packages: what people have installed is
+what the site serves. Without `UPGRADE_FROM` (a build by hand) the tests ask the site when they run,
+and a program with no package on the site yet has nothing to upgrade from, so the upgrade test says so
+and skips.
 
 `make check` needs `python3`. It also uses `dash` and `bash` when they are installed.
 
@@ -106,7 +109,7 @@ the upgrade into a downgrade. Without `UPGRADE_FROM` (a build by hand, or a call
 - `programs/<program>/`: the package definitions of one program (deb, rpm, Alpine, systemd, OpenRC)
   and its `program.conf`, which says what the program is: package name, service program,
   programs, documents, and the repository its releases are published in (`release_repo`, which
-  the upgrade test downloads the newest release from). `BIN` is a folder of compiled programs,
+  the workflows read the newest release from). `BIN` is a folder of compiled programs,
   one folder `<os>-<arch>` each, and `SRC` the program's source tree at that version, which holds
   the documents the packages ship.
   A program that installs links names them in `programs/<program>/links`, one `<link> <target>`
