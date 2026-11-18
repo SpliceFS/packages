@@ -8,7 +8,7 @@ The change log of all parts of SpliceFS, side by side: https://splicefs.org/chan
 
 ## [0.4.28] - 2026-11-18
 
-- Internal: the FreeBSD upgrade check upgrades to a well-formed next revision.
+- Internal: the fstab test works with server releases before and after splicefsdctl.
 
 ## [0.4.27] - 2026-11-18
 
