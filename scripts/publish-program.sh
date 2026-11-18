@@ -194,9 +194,12 @@ send_pass() {
 }
 
 # Pass 1: no deletions, and every index file left out. The patterns hold * and must reach
-# rsync as they are, so file name expansion is off while the options are built.
+# rsync as they are, so file name expansion is off while the options are built. --checksum: a
+# file is sent when its content differs. rsync's own test, size and time stamp, misses a file
+# that changed but kept its size within the same second of its published copy, as an index
+# rebuilt right after a publish can.
 set -f
-set -- -a --chmod=D755,F644 --delay-updates
+set -- -a --checksum --chmod=D755,F644 --delay-updates
 for pattern in $INDEX_PATTERNS; do
   set -- "$@" "--exclude=$pattern"
 done
@@ -209,7 +212,7 @@ send_pass "pass 1 (everything except the index files)" "$@"
 # first match wins: R lets rsync delete what matches (repodata folders and the index files,
 # the same set the dry run allowed), and the final P * protects everything else, so even a
 # file the dry run missed cannot be deleted.
-set -- -a --chmod=D755,F644 --delay-updates --delete-after \
+set -- -a --checksum --chmod=D755,F644 --delay-updates --delete-after \
   --filter='R repodata/***' --filter='R APKINDEX.tar.gz' --filter='R Packages*' \
   --filter='R Release*' --filter='R InRelease' --filter='P *'
 send_pass "pass 2 (the index files and the deletions)" "$@"
