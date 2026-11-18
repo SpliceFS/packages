@@ -1,14 +1,15 @@
 #!/bin/sh
-# Decides whether the packaging of this repository, as it is now, is published as a package
-# revision of the current release of a program. It is when the packages built from the release
-# differ from the packages published for it, in any format, in anything but the program and the
-# changelog (scripts/upgrade-diff.sh, the same comparison the upgrade test makes). A change that
-# touches only tests, documents or workflows builds the same packages and so publishes nothing.
-# A release that is not published at all is left to the publish of the release itself.
+# Decides whether the packages of the current release of a program are published now. They are
+# when the release is not published at all (revision 0), or when the packages built from the
+# release differ from the packages published for it, in any format, in anything but the program
+# and the changelog (scripts/upgrade-diff.sh, the same comparison the upgrade test makes). A
+# change that touches only tests, documents or workflows builds the same packages and so
+# publishes nothing.
 # Usage: revision-decide.sh PROGRAM TAG LISTINGS_DIR
 #   LISTINGS_DIR holds published-FORMAT and built-FORMAT for deb, rpm and apk: the package
 #   listings of scripts/upgrade-lib.sh, of the newest published revision of the release and of
-#   the packages built now (scripts/revision-listings.sh makes them).
+#   the packages built now (scripts/revision-listings.sh makes them; it makes none for a release
+#   that is not published, which needs none).
 # Output: "PROGRAM TAG" on the standard output when a revision must be published, nothing when
 # not; the reason is on the standard error. The revision itself is not decided here: the publish
 # run computes it after it has waited for the runs before it (scripts/next-revision.sh).
@@ -25,7 +26,8 @@ cd "$(dirname "$0")/.."
 
 next="$(sh scripts/next-revision.sh "$PROGRAM" "$TAG")"
 if [ "$next" = 0 ]; then
-    echo "$TAG of $PROGRAM is not published yet: nothing to revise" >&2
+    echo "$TAG of $PROGRAM is not published yet: publishing it as revision 0" >&2
+    echo "$PROGRAM $TAG"
     exit 0
 fi
 

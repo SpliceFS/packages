@@ -4,7 +4,7 @@ name: Test packages
 # package, the service under the real service manager, the repository with signature checks on,
 # the upgrade from the last published version and, for the client, the mount from fstab.
 # package-and-test.yml calls it for the packages it builds with throwaway keys, and
-# publish-program.yml for the packages a release signs with the real keys, so both run the same
+# publish-one-program.yml for the packages a tag signs with the real keys, so both run the same
 # tests. Every job here is part of the result of the call, which both callers wait for before
 # they publish or report.
 #

@@ -8,7 +8,7 @@ The change log of all parts of SpliceFS, side by side: https://splicefs.org/chan
 
 ## [0.4.21] - 2026-11-18
 
-- Alpine: a SpliceFS folder can be mounted at boot from /etc/fstab (see "After the install").
+- Internal: package publishes run from a number tag of this repository.
 
 ## [0.4.20] - 2026-11-17
 

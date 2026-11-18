@@ -1,7 +1,7 @@
 #!/bin/sh
-# Test of scripts/revision-decide.sh: when a change to this repository is published as a package
-# revision of the current release. Runs on the host, no Docker and no network (part of make
-# check): the published index and the package listings are files of the test.
+# Test of scripts/revision-decide.sh: when the packages of the current release of a program are
+# published, as revision 0 or as a later revision. Runs on the host, no Docker and no network
+# (part of make check): the published index and the package listings are files of the test.
 set -eu
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -68,7 +68,18 @@ decide "docs, tests and workflows build the same packages; a new program and cha
 decide "a changed service unit is a change" "$new_unit" index "server v1.2.3"
 decide "a changed install script is a change" "$new_script" index "server v1.2.3"
 decide "a new file is a change" "$new_file" index "server v1.2.3"
-decide "a release that is not published is not revised" "$new_unit" index-unpublished ""
+decide "a release that is not published is published as revision 0" "$new_unit" index-unpublished "server v1.2.3"
+# The listings of a release that is not published are never written, so none is needed.
+empty="$work/empty"
+mkdir "$empty"
+status=0
+got="$(INDEX_FILE="$work/index-unpublished" sh scripts/revision-decide.sh server v1.2.3 "$empty" 2> "$work/err")" || status=$?
+if [ "$status" -eq 0 ] && [ "$got" = "server v1.2.3" ] &&
+    grep -qx 'v1.2.3 of server is not published yet: publishing it as revision 0' "$work/err"; then
+    echo "ok   a release that is not published is decided without listings, and the reason says revision 0"
+else
+    echo "FAIL a release that is not published, without listings"; sed 's/^/     /' "$work/err"; failed=$((failed + 1))
+fi
 
 # One format that differs is enough, and the other two being the same does not hide it.
 dir="$work/one"
