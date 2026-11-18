@@ -686,6 +686,7 @@ run "9. site-order: the run of a tag reads the package site in one job and write
 run "9. release-bin.sh: release archives proven and unpacked to the layout of dist/bin" sh scripts/release-bin-test.sh
 run "9. publish-program.sh: the repositories of a program uploaded in order, nothing published lost" sh scripts/publish-program-test.sh
 run "9. require-env.sh: a release that lacks a secret stops and names it" sh scripts/require-env-test.sh
+run "9. tracked-files.sh: a program, a file over 1 MiB and a private name are refused" sh scripts/tracked-files-test.sh
 run "9. number-tags.sh: which tag names are versions of this repository" sh scripts/number-tags-test.sh
 run "9. change-log-entry.sh: the entry of a pull request, with a default for the dependency bot only" sh scripts/change-log-entry-test.sh
 run "9. release-notes.sh: the notes of a release are the entries of the pull requests merged since the last tag" sh scripts/release-notes-test.sh
