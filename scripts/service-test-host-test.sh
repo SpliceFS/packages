@@ -98,4 +98,24 @@ check "the client answers when the status command succeeds" 0 answers_here clien
 check "the client does not answer when the status command fails" 1 answers_here client 200 1
 check "the status command runs as root, which owns the control socket" 0 grep -q -e '^sudo splicefsctl status$' "$work/calls"
 
+# After a removal the check waits for systemd to settle. A stand-in systemctl answers
+# is-system-running with the states in $work/states, one per call, and keeps the last one.
+mkdir "$work/settle"
+# shellcheck disable=SC2016
+printf '#!/bin/sh\nf="%s/states"\nhead -n 1 "$f"\nif [ "$(wc -l < "$f")" -gt 1 ]; then tail -n +2 "$f" > "$f.next" && mv "$f.next" "$f"; fi\n' "$work" > "$work/settle/systemctl"
+chmod 755 "$work/settle/systemctl"
+# $@ the states systemd reports, one per look.
+settles() {
+    printf '%s\n' "$@" > "$work/states"
+    # The command is for the shell that env starts, which reads $1.
+    # shellcheck disable=SC2016
+    env PROGRAM=server VERSION=v1.2.3 REVISION=0 PACKAGE_DATE=20261112 HOST_SETTLE_SECONDS=3 \
+        PATH="$work/settle:$work/bin:$PATH" \
+        sh -c 'cd "$1" && . scripts/package-lib.sh && . scripts/service-test-host-deb.sh && wait_booted deb host' sh "$root"
+}
+check "a service manager that is starting for a moment, then running, is healthy" 0 settles starting starting running
+check "a degraded service manager is healthy" 0 settles degraded
+check "a service manager that never settles is not healthy" 1 settles starting
+said "the state it ends in is named" "still 'starting' after 3 seconds"
+
 [ "$failed" -eq 0 ]

@@ -44,10 +44,20 @@ answers() {
     answers_here
 }
 
-# The machine booted before the job started, so there is nothing to wait for: the check after a
-# removal asks only that its service manager is healthy. A machine with systemd that is still
-# starting or is stopping is not.
-wait_booted() {
+# The check after a removal asks that the machine's service manager is healthy: running, or
+# degraded (a runner has units of its own that fail). Right after a package is removed, systemd is
+# often still "starting" for a moment while it reloads units and finishes jobs, so the check waits
+# for the state to settle (HOST_SETTLE_SECONDS, 60 unless a test sets it) instead of looking once,
+# and names the state it ends in.
+host_settled() {
     state="$(systemctl is-system-running 2>/dev/null)" || true
     case "$state" in running | degraded) return 0 ;; *) return 1 ;; esac
+}
+
+wait_booted() {
+    # host_settled is one test whose status is the answer, so set -e being off inside it changes nothing.
+    # shellcheck disable=SC2310
+    wait_for "${HOST_SETTLE_SECONDS:-60}" host_settled && return 0
+    echo "systemd is still '$state' after ${HOST_SETTLE_SECONDS:-60} seconds" >&2
+    return 1
 }
