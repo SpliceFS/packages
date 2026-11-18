@@ -283,7 +283,14 @@ WRAP
     new_pkg="rpm/x86_64/splicefs-server-1.rpm"
     rm "$tmp/upgrade/$new_pkg"
     old_text="the index of the release before"
-    while read -r f; do echo "$old_text" > "$tmp/upgrade/$f"; done < "$tmp/index_files"
+    # Each old index gets the time stamp of the new one: a file can change in the second it was
+    # published in, and some old indexes are as long as the new ones (each stand-in holds its own
+    # path, and freebsd/FreeBSD:14:aarch64/meta is as long as the old text). The send must still
+    # see the change; without this the case passed or failed with the speed of the machine.
+    while read -r f; do
+        echo "$old_text" > "$tmp/upgrade/$f"
+        touch -r "$base/$f" "$tmp/upgrade/$f"
+    done < "$tmp/index_files"
     stale=rpm/x86_64/repodata/stale-primary.xml.gz
     echo stale > "$tmp/upgrade/$stale"
     send_logged "$base" "$tmp/upgrade"
