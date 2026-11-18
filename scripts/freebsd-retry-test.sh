@@ -90,5 +90,18 @@ run_retry 0 3 "two words" other
 call="$(cat "$work/calls")"
 same "the arguments reach the command unchanged" "two words|other|" "$call"
 
+# How the job uses the helper. Only the preparation of the machine is retried, and the first
+# line that runs the setup script comes after it, so the setup script starts only once the
+# preparation returned success, and it runs once.
+job="$root/tests/freebsd-job.sh"
+prepare_line="$(grep -n '^retry 3 .* prepare_pkg || {$' "$job" | cut -d: -f1)"
+setup_line="$(grep -n '^run_sh "[$]setup"' "$job" | head -n 1 | cut -d: -f1)"
+if [ -n "$prepare_line" ] && [ "$prepare_line" -lt "${setup_line:-0}" ]; then order=before; else order=after; fi
+same "the preparation, tried three times, comes before the first run of the setup script" before "$order"
+same "the preparation refreshes the catalogs" 1 "$(grep -c 'pkg update -f' "$job" || true)"
+same "the preparation upgrades pkg" 1 "$(grep -c 'pkg upgrade -y pkg' "$job" || true)"
+# The helper is called once, for the preparation: nothing else is retried.
+same "nothing but the preparation is retried" 1 "$(grep -c '^ *retry [0-9]' "$job" || true)"
+
 [ "$failed" -eq 0 ] || { echo "$failed check(s) failed" >&2; exit 1; }
 echo "freebsd-retry: the helper retries a failing command up to the tries given and stops at the first success"
