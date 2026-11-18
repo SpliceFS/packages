@@ -27,35 +27,27 @@ deletion, and the checks must pass before a merge.
 Every change is a pull request into `main` from its own branch. Name the branch
 `feature/<name>`, `bug/<name>`, or anything else that describes the change.
 
-### Change scope
+### Change log
 
-The description of a pull request must contain exactly one line that states the scope of the
-change:
+The description of a pull request must have a section `## Change log` with one line for each
+thing a user would notice:
 
 ```
-change_scope: revision
+## Change log
+
+- The setup script tells which repository file it wrote.
 ```
 
-| Value | Meaning | Version |
-| --- | --- | --- |
-| `revision` | a fix or a change that keeps every client and server working together | `X.Y.Z` becomes `X.Y.(Z+1)` |
-| `minor` | a new feature, or anything that changes how client and server talk | `X.Y.Z` becomes `X.(Y+1).0` |
-| `major` | never merged | a new major version is a new repository named `<name>_v<major>` |
-
-The pull request template has the line. A missing or invalid line fails the check, whatever the
-tests say.
-
-### The version
-
-The release bot reads the version of `main`, raises it by the scope, and adds one commit to your
-branch that writes it to the file `VERSION`. Do not edit `VERSION` by hand. The one exception is
-a pull request from a fork, where the bot cannot push: set `VERSION` to the value the failing
-check names.
+A change that nothing changes for users has one entry that starts with `Internal:`. The entries
+become the notes of the release that the merge gets, so the check fails without them. If you leave
+the section out in a branch of this repository, an entry is drafted from the change and written
+into the description, where you can change it. Nobody edits `CHANGELOG.md` for a change, and no
+file holds a version.
 
 ### Keeping the branch current
 
 A branch must sit on the tip of `main`. When `main` moves, the bot rebuilds every open pull
-request on the new tip and sets its version again, so expect force-pushes to your branch. Run
+request on the new tip, so expect force-pushes to your branch. Run
 `git pull --rebase` (or reset to the remote branch) before you add commits. If the rebuild hits
 a conflict, the bot leaves the branch as it is and says so in a comment. Merge `main` into
 the branch locally, resolve the conflict there, and push.
@@ -98,8 +90,9 @@ A pull request merges with one merge commit. Squash and fast-forward merges are 
 | Workflow | What it does |
 | --- | --- |
 | CI | builds the site and runs every check in `scripts/check.sh` |
-| Rules | on pull requests: checks the `change_scope` line and the `VERSION` file the bot sets |
-| Main | on every push to `main`: tags the new version and rebuilds the open pull requests |
+| Rules | on pull requests: checks the `## Change log` section of the description |
+| Main | on every push to `main`: rebuilds the open pull requests on the new tip |
+| Tag | on every push to `main`: puts the next version number on it as a tag and makes the release |
 | Security | ShellCheck on all shell files, CodeQL on the page's script, dependency review on pull requests |
 | SonarQube | quality and security rating on SonarQube Cloud |
 | Install tests | runs the setup script on every supported system, on x86-64 and arm64, weekly as well |
@@ -108,16 +101,15 @@ A pull request merges with one merge commit. Squash and fast-forward merges are 
 
 ## Versioning and releases
 
-Versions are `0.x.y` for now, with no suffixes. The promise about compatibility:
+A version is a whole number: 1, 2, 3. There is no major, minor or patch, and nothing is promised
+about compatibility between two numbers: every change is just a change. No file holds the number.
 
-- Below 1.0.0 nothing is promised, even between a client and a server of the same version.
-- From 1.0.0 on, with the same first number, a client works with every server whose second
-  number is equal or higher. The third number never matters, barring a bug; a bug that
-  affects it is fixed by raising the second number on both sides.
-
-Every merge into `main` is a release. The merge is tagged `v<VERSION>` automatically, which
-starts the Release workflow. Nobody creates tags or release branches by hand. One change, one
-version.
+Every merge into `main` is a version. Right after the merge, the Tag workflow puts the next number
+(the highest number tag plus one) on the merge commit as a tag, which starts the build, and makes
+a GitHub release for it. The notes of the release are the `## Change log` entries of the pull
+requests merged since the previous number. Nobody creates tags or release branches by hand: only
+the release bot can create a tag, and a tag never changes. A release of the server or the client
+also gets a number, with a note that names it.
 
 The Release workflow runs the checks, signs `setup.sh` with the signing subkey, publishes the
 site over rsync and creates the GitHub release with `setup.sh` and `setup.sh.asc`, and the SHA-256
