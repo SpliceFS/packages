@@ -2,7 +2,8 @@
 # Tests the upgrade of the program PROGRAM from the published package the build recorded (the
 # newest on the package site when it recorded none) to the one in dist/PROGRAM, but only when the
 # packaging changed: a version whose packages differ from the published ones only in the programs
-# (and the changelog) cannot break an upgrade, so there is nothing to test. When the packaging
+# and the content of the documents (both come from the source of the program) cannot break an
+# upgrade, so there is nothing to test. When the packaging
 # changed and the new packages are of the same program version as the published ones, they must be
 # a later revision of it (make packages REVISION=N), because a package of the same version and
 # revision is no upgrade: rpm refuses it, and deb and apk reinstall it without a word, which would
@@ -57,6 +58,10 @@ if [ -n "$from" ]; then
     # A version that package_release_of_debver refuses ends the script here, with its message.
     use_published_version "$from"
 fi
+
+# The documents are installed under their own names, whatever folder they have in the source.
+doc_names=""
+for doc in $docs; do doc_names="$doc_names $(basename "$doc")"; done
 
 log="$(mktemp)"
 old_list="$(mktemp)"
@@ -151,11 +156,11 @@ for format in deb rpm apk; do
         continue
     fi
 
-    # The programs and the changelog change in every version and are not compared. The names
-    # of the programs are separated by spaces on purpose.
+    # The programs and the content of the documents come from the source of the program and are
+    # not compared. The names are separated by spaces on purpose.
     set +e
     # shellcheck disable=SC2086
-    differences="$(sh scripts/upgrade-diff.sh "$old_list" "$new_list" $programs CHANGELOG.md)"
+    differences="$(sh scripts/upgrade-diff.sh "$old_list" "$new_list" $programs -- $doc_names)"
     compared=$?
     set -e
     if [ "$compared" -eq 0 ]; then
