@@ -235,7 +235,7 @@ service-test: built-packages
 
 # Proves that the client mounts from the boot mounts of the system, on every Alpine image of
 # packaging/test-systems (scripts/fstab-test.sh): installs the client package next to a real server
-# (SERVER_BIN, the folder with the splicefsd program for the CPU type of the container), writes an
+# (SERVER_BIN, the folder with the server programs for the CPU type of the container), writes an
 # fstab line, and checks that OpenRC's netmount service mounts it and unmounts it again.
 .PHONY: fstab-test
 SERVER_BIN ?=
