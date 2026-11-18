@@ -6,6 +6,10 @@ the setup script and the page at packages.splicefs.org.
 
 The change log of all parts of SpliceFS, side by side: https://splicefs.org/changelog/
 
+## [0.4.28] - 2026-11-18
+
+- Internal: the FreeBSD upgrade check upgrades to a well-formed next revision.
+
 ## [0.4.27] - 2026-11-18
 
 - Internal: the FreeBSD packages are built and checked on every pull request.
