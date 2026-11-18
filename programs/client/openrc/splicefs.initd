@@ -22,6 +22,29 @@ depend() {
     use fuse
 }
 
+# supervise-daemon returns as soon as it has started the client and cannot wait for a notification
+# as the Type=notify of the systemd unit does. The client answers on its control socket once it
+# has connected and mounted, and that answer is what the mount helper of an fstab line needs, so
+# the service is not started, and netmount does not run, before splicefsctl status gets it.
+# Each try is cut off after 2 seconds because a client that has the socket but is not serving
+# yet would otherwise keep the call waiting; 30 tries cover the 15 seconds a cluster that is
+# down at boot takes to give up. When none of them is answered, OpenRC marks the service stopped
+# but leaves the supervisor and the client running, so they are stopped here.
+start_post() {
+    ebegin "Waiting for $RC_SVCNAME to answer"
+    tries=0
+    until timeout 2 splicefsctl status >/dev/null 2>&1; do
+        tries=$((tries + 1))
+        if [ "$tries" -ge 30 ]; then
+            eend 1 "$RC_SVCNAME does not answer, see /var/log/splicefs.log"
+            supervise-daemon "$RC_SVCNAME" --stop >/dev/null 2>&1
+            return 1
+        fi
+        sleep 1
+    done
+    eend 0
+}
+
 reload() {
     # The client applies its configuration again on SIGHUP: added mounts are mounted,
     # removed ones are detached, and a configuration with an error is refused and logged.
