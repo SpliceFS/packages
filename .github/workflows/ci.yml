@@ -13,6 +13,12 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Which test groups the change needs (changes.yml). A job of a group the change cannot affect
+  # is skipped; the checks run for every change.
+  changes:
+    name: Changes
+    uses: ./.github/workflows/changes.yml
+
   check:
     name: Checks
     runs-on: ubuntu-latest
@@ -26,6 +32,8 @@ jobs:
   # enough for the run.
   version-order:
     name: Version order
+    needs: changes
+    if: contains(fromJSON(needs.changes.outputs.groups), 'packages')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -39,8 +47,11 @@ jobs:
   # because the lifecycle test needs only the packages, and must not wait for the tests of each
   # package. One call for each program, not a matrix: what a build says (the version, the
   # newest release) is the output of the job, and the output of a matrix is that of one leg.
+  # The jobs that need these builds are skipped with them.
   packages-server:
     name: Packages server
+    needs: changes
+    if: contains(fromJSON(needs.changes.outputs.groups), 'packages')
     uses: ./.github/workflows/build-packages.yml
     with:
       program: server
@@ -48,6 +59,8 @@ jobs:
 
   packages-client:
     name: Packages client
+    needs: changes
+    if: contains(fromJSON(needs.changes.outputs.groups), 'packages')
     uses: ./.github/workflows/build-packages.yml
     with:
       program: client
@@ -107,12 +120,13 @@ jobs:
       - name: Install, upgrade, remove and uninstall in a clean system of every release
         run: make lifecycle-test ONLY="$FORMAT"
 
-  # The one check a branch must pass. A job that did not run counts as failed: a job is skipped
-  # only when one it needs failed. A new job is added to the list when it is added above, and
+  # The one check a branch must pass. A skipped job passes: it is skipped when the change cannot
+  # affect its group, or when a job it needs did not succeed, which that job's own result fails.
+  # A failed or cancelled job fails. A new job is added to the list when it is added above, and
   # nowhere else. The other workflows of this repository are separate runs and are not in it.
   all-checks:
     name: All checks
-    needs: [check, version-order, packages-server, packages-client, released-server, released-client, lifecycle]
+    needs: [changes, check, version-order, packages-server, packages-client, released-server, released-client, lifecycle]
     if: ${{ always() }}
     runs-on: ubuntu-latest
     steps:
@@ -121,7 +135,7 @@ jobs:
           NEEDS: ${{ toJSON(needs) }}
         run: |
           printf '%s\n' "$NEEDS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
-          if printf '%s\n' "$NEEDS" | jq -e 'any(.[]; .result != "success")' >/dev/null; then
+          if printf '%s\n' "$NEEDS" | jq -e 'any(.[]; .result != "success" and .result != "skipped")' >/dev/null; then
             echo "::error::At least one job did not succeed."
             exit 1
           fi

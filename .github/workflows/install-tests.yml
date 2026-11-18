@@ -16,8 +16,16 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Which test groups the run needs (changes.yml): a pull request that cannot affect the install
+  # skips these tests; main and the schedule run them always.
+  changes:
+    name: Changes
+    uses: ./.github/workflows/changes.yml
+
   install:
     name: Install tests (${{ matrix.arch }})
+    needs: changes
+    if: contains(fromJSON(needs.changes.outputs.groups), 'install')
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
@@ -53,6 +61,8 @@ jobs:
   # and needs the hardware virtualization that ubuntu-latest offers; no job needs an arm64 runner.
   freebsd:
     name: FreeBSD (${{ matrix.release }}, amd64)
+    needs: changes
+    if: contains(fromJSON(needs.changes.outputs.groups), 'install')
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -68,7 +78,7 @@ jobs:
   # bots start. Pull requests are left out: their author sees the failed check there.
   alert:
     name: Report a failure
-    needs: [install, freebsd]
+    needs: [changes, install, freebsd]
     if: ${{ failure() && github.event_name != 'pull_request' }}
     permissions:
       issues: write

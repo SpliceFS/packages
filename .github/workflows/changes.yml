@@ -1,0 +1,41 @@
+name: Changes
+
+# Says which test groups a run needs, as a JSON array that the if of each job reads
+# (scripts/changed-groups.sh, .github/test-groups). A pull request needs the groups of the files
+# its merge commit changes against its first parent, the tip of the branch it merges into: what
+# the merge would change. Every other run (main, a tag, the schedule) tests everything, and so
+# does a commit that is no merge, because its first parent is not the base of the change.
+on:
+  workflow_call:
+    outputs:
+      groups:
+        description: The test groups the run needs, as a JSON array
+        value: ${{ jobs.changes.outputs.groups }}
+
+permissions:
+  contents: read
+
+jobs:
+  changes:
+    name: Changed files
+    runs-on: ubuntu-latest
+    outputs:
+      groups: ${{ steps.groups.outputs.groups }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2
+      - name: The test groups of the changed files
+        id: groups
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT" = pull_request ] && git rev-parse -q --verify HEAD^2 >/dev/null; then
+            git diff --name-only HEAD^1 HEAD > "$RUNNER_TEMP/changed"
+            cat "$RUNNER_TEMP/changed"
+            groups="$(scripts/changed-groups.sh < "$RUNNER_TEMP/changed")"
+          else
+            groups="$(scripts/changed-groups.sh all)"
+          fi
+          echo "groups: $groups"
+          echo "groups=$groups" >> "$GITHUB_OUTPUT"
