@@ -36,6 +36,18 @@ list_package() {
     done
 }
 
+# Installs or upgrades to a downloaded package the way a person does, with the system's package
+# manager, which also fetches what the package needs (the client needs fuse3). The keys of the
+# packages are not imported here: the old one is signed with the release key, the new one with a
+# test key, and the signatures are the repository tests' subject, not this one's.
+rpm_install() {
+    if command -v dnf >/dev/null 2>&1; then
+        dnf install -y -q --nogpgcheck "$1" >/dev/null
+    else
+        zypper --non-interactive --quiet install --allow-unsigned-rpm "$1" >/dev/null
+    fi
+}
+
 mode="${1:-}"
 case "$mode" in
     list)
@@ -44,15 +56,20 @@ case "$mode" in
     upgrade)
         old="${2:?usage: upgrade-test-rpm.sh upgrade OLD NEW}"
         new="${3:?usage: upgrade-test-rpm.sh upgrade OLD NEW}"
-        rpm -i "$old" >/dev/null 2>&1 || fail "rpm upgrade: installing the old package failed"
+        # rpm_install is one command, so its status is that command's, set -e or not.
+        # shellcheck disable=SC2310
+        rpm_install "$old" || fail "rpm upgrade: installing the old package failed"
         write_markers rpm
-        rpm -U "$new" >/dev/null 2>&1 || fail "rpm upgrade: upgrading to the new package failed"
+        # rpm_install is one command, so its status is that command's, set -e or not.
+        # shellcheck disable=SC2310
+        rpm_install "$new" || fail "rpm upgrade: upgrading to the new package failed"
         unit="/usr/lib/systemd/system/$program.service"
         # The files the new package lists must all be there after the upgrade.
         listing="$(mktemp)"
         list_package "$new" > "$listing"
         user="$(sed -n 's/^User=//p' "$unit")"
-        verify_upgrade rpm "$user" "$listing"
+        installed="$(rpm -q --qf '%{VERSION}-%{RELEASE}' "$name")"
+        verify_upgrade rpm "$user" "$listing" "$installed" "$rpmver-$rpmrel"
         ;;
     *)
         echo "usage: upgrade-test-rpm.sh list PACKAGE | upgrade OLD NEW" >&2

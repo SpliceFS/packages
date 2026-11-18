@@ -1,6 +1,6 @@
 #!/bin/sh
 # The job of the FreeBSD test (tests/freebsd.sh). FreeBSD runs it once, as root, at the end
-# of its first boot, started by the first-boot script packaging/freebsd/user-data.in.
+# of its first boot, started by the first-boot script of the machine image (/freebsd/user-data.in in the image).
 #
 # The contract:
 # - The input archive is the machine's fourth disk (/dev/vtbd3). The job unpacks it into

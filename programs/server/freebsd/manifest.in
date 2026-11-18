@@ -1,0 +1,68 @@
+name: "@NAME@"
+version: "@VERSION@"
+origin: "net/splicefs-server"
+comment: "Server of the SpliceFS read-only multi-source filesystem"
+desc: <<EOD
+The SpliceFS server. A SpliceFS client mounts the folders of a cluster of these
+servers as one folder and reads each file from several servers at once.
+A freshly installed server shares nothing, and it does not run until it is turned on.
+
+WWW: https://splicefs.org
+EOD
+maintainer: "anthony@splicefs.org"
+www: "https://splicefs.org"
+abi: "@ABI@"
+prefix: "/usr/local"
+licenselogic: "single"
+licenses: ["MIT"]
+categories: ["net"]
+scripts: {
+  pre-install: <<EOD
+# The server runs as its own user, which owns nothing but its data folder.
+if ! pw groupshow splicefs >/dev/null 2>&1; then
+    pw groupadd splicefs
+fi
+if ! pw usershow splicefs >/dev/null 2>&1; then
+    pw useradd splicefs -g splicefs -d /nonexistent -s /usr/sbin/nologin -c "SpliceFS server"
+fi
+EOD
+  pre-deinstall: <<EOD
+# Removing the package stops the service. An upgrade does not, because pkg ends every program
+# a script starts, so a package cannot start it again: a service that ran before the upgrade
+# keeps running until the administrator restarts it. pkg sets PKG_UPGRADE during an upgrade.
+# The setting in rc.conf is the administrator's and stays.
+if ! printenv PKG_UPGRADE >/dev/null; then
+    service @PROGRAM@ onestop >/dev/null 2>&1 || true
+fi
+EOD
+}
+messages: [
+  {
+    type: "install"
+    message: <<EOD
+The SpliceFS server is installed and does not run yet. To turn it on and start it:
+
+    sysrc @PROGRAM@_enable=YES && service @PROGRAM@ start
+
+pkg ends every program an install script starts, so the package cannot start it for you.
+EOD
+  },
+  {
+    type: "upgrade"
+    message: <<EOD
+A running @PROGRAM@ keeps running the old version until you restart it:
+
+    service @PROGRAM@ restart
+
+pkg ends every program a package script starts, so the package cannot restart it for you.
+EOD
+  },
+  {
+    type: "remove"
+    message: <<EOD
+The package stopped @PROGRAM@ and left /etc/rc.conf alone. To delete its setting:
+
+    sysrc -x @PROGRAM@_enable
+EOD
+  }
+]

@@ -1,0 +1,78 @@
+name: Publish programs
+
+# A number tag (1, 2, 3, ...) on main publishes the packages of the programs of this repository:
+# the release bot puts the tag on main right after a change is merged, and after a release of a
+# program (server or client), so every change and every release of a program is one tag. A person
+# can run it by hand too, started on a tag (not on a branch). The publish environment, which holds
+# the signing and upload keys, allows only tags.
+#
+# One run handles every program of programs/ (scripts/list-programs.sh). For each program, the
+# latest GitHub release of it is looked at by publish-one-program.yml:
+#   - it is not published at all: its packages are published as revision 0;
+#   - it is published, and the packaging differs from the newest published revision: the packages
+#     are published as the next revision (scripts/next-revision.sh);
+#   - it is published and nothing differs: nothing is published, and the summary of the run says so.
+# The site (the setup script, the keys, the install page) is published by release.yml, which the
+# same tag starts.
+on:
+  push:
+    tags: ["[0-9]*"]
+  workflow_dispatch:
+
+run-name: Publish ${{ github.ref_name }}
+
+permissions:
+  contents: read
+
+jobs:
+  # Nothing that holds a key runs for a tag that is not a number tag on main, and the programs to
+  # publish are listed once, so that every program is built from the same list. This job holds no
+  # key.
+  plan:
+    name: The tag is a release of main
+    runs-on: ubuntu-latest
+    outputs:
+      programs: ${{ steps.programs.outputs.programs }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: The tag is a number tag on main
+        run: scripts/release-tag-check.sh "$GITHUB_REF_TYPE" "$GITHUB_REF_NAME" "$GITHUB_SHA"
+      - name: List the programs
+        id: programs
+        run: echo "programs=$(scripts/list-programs.sh)" >> "$GITHUB_OUTPUT"
+
+  # One call for each program. A program that fails does not stop the others: each publishes its
+  # own folder of the package site.
+  program:
+    name: Publish ${{ matrix.program }}
+    needs: plan
+    strategy:
+      fail-fast: false
+      matrix:
+        program: ${{ fromJSON(needs.plan.outputs.programs) }}
+    # The permissions the jobs of the called workflow ask for; a called workflow cannot have more.
+    permissions:
+      contents: read
+      actions: read
+    uses: ./.github/workflows/publish-one-program.yml
+    with:
+      program: ${{ matrix.program }}
+    # The bot keys of the notify jobs. The keys of the publish environment are not passed: the jobs
+    # that use them name the environment themselves.
+    secrets: inherit
+
+  # A failed run of this workflow opens an issue assigned to the account in the repository
+  # variable ALERT_ASSIGNEE, so that someone gets an email; GitHub sends none for runs the
+  # bots start.
+  alert:
+    name: Report a failure
+    needs: [plan, program]
+    if: ${{ failure() }}
+    permissions:
+      issues: write
+    uses: SpliceFS/.github/.github/workflows/report-failure-v1.yml@main
+    with:
+      assignee: ${{ vars.ALERT_ASSIGNEE }}

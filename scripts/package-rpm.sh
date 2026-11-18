@@ -27,17 +27,19 @@ for arch in amd64 arm64; do
         *) fail "no rpm CPU type for $arch" ;;
     esac
     top="$(mktemp -d)"
+    package_script systemd "$defs/rpm/$name.spec" > "$top/$name.spec"
     rpmbuild -bb --quiet --target "$rpmarch" \
         --define "_topdir $top" \
         --define "pkg_name $name" \
         --define "pkg_version $rpmver" \
+        --define "pkg_release $rpmrel" \
         --define "stage $BIN/linux-$arch" \
         --define "unit $unit" \
         --define "link_root $link_root" \
         --define "link_list $link_list" \
         --define "license_file $SRC/LICENSE" \
         --define "docs $docs" \
-        "$defs/rpm/$name.spec"
-    cp "$top/RPMS/$rpmarch/$name-$rpmver-1.$rpmarch.rpm" "$out/"
-    echo "built $name-$rpmver-1.$rpmarch.rpm"
+        "$top/$name.spec"
+    cp "$top/RPMS/$rpmarch/$name-$rpmver-$rpmrel.$rpmarch.rpm" "$out/"
+    echo "built $name-$rpmver-$rpmrel.$rpmarch.rpm"
 done

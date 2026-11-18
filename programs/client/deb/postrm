@@ -4,9 +4,7 @@ set -e
 
 case "$1" in
     remove)
-        if [ -d /run/systemd/system ]; then
-            systemctl daemon-reload || true
-        fi
+        @service:after-removal@
         ;;
     purge)
         # Purge means the administrator wants the configuration gone as well. The files in

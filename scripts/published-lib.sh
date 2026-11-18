@@ -2,9 +2,9 @@
 # What the tests that start from the published release have in common (scripts/upgrade-test.sh,
 # scripts/lifecycle-repo.sh): which release is the newest, what its files are called and how they
 # are downloaded. Sourced after scripts/package-lib.sh, which says what the version is called
-# in each package format. The downloads insist on HTTPS, also after a redirect, so that a
-# redirect can never hand over a package from a plain address. name, deb_arch, rpm_arch,
-# apk_arch and PACKAGE_DATE are set by the files this one is sourced after.
+# in each package format (package_versions). The downloads insist on HTTPS, also after a
+# redirect, so that a redirect can never hand over a package from a plain address. name,
+# deb_arch, rpm_arch, apk_arch and PACKAGE_DATE are set by the files this one is sourced after.
 # shellcheck disable=SC2154
 
 # Prints the tag of the newest release of the repository $1 (release_repo of program.conf), or
@@ -19,21 +19,27 @@ latest_release_tag() {
     esac
 }
 
-# Prints the version of the tag $1 in the three package formats, "<deb> <rpm> <apk>", the way
-# package-lib.sh makes them. It runs in a shell of its own because package-lib.sh reads VERSION.
+# The packages attached to the release of a program are the revision 0 of that version: they
+# are made when the program is released. A later revision of the same version is a change to the
+# packaging alone and goes to the package repository, never to the release.
+released_revision=0
+
+# Prints the words package_versions makes of the tag $1 as it was released, "<deb> <rpm>
+# <rpm release> <apk> <apk release> <pkg>". A version it refuses ends the shell it runs in, with
+# its message.
 release_versions() {
-    VERSION="$1" PACKAGE_DATE="$PACKAGE_DATE" sh -c \
-        '. scripts/package-lib.sh; echo "$debver $rpmver $apkver"'
+    package_versions "$1" "$released_revision" "$PACKAGE_DATE"
 }
 
-# Prints the name of the published file of the format $1 for the versions $2 (deb), $3 (rpm) and
-# $4 (apk), for the CPU types deb_arch, rpm_arch and apk_arch of the caller. The release
-# holds the Alpine package under a name with the CPU type, which is not the name in dist.
+# Prints the name of the published file of the format $1 for the words of release_versions: $2
+# (deb), $3 and $4 (rpm, and its release), $5 and $6 (apk, and its release), for the CPU types
+# deb_arch, rpm_arch and apk_arch of the caller. The release holds the Alpine package under a
+# name with the CPU type, which is not the name in dist.
 release_file_name() {
     case "$1" in
         deb) echo "${name}_${2}_$deb_arch.deb" ;;
-        rpm) echo "$name-$3-1.$rpm_arch.rpm" ;;
-        *) echo "$name-$4-r0.$apk_arch.apk" ;;
+        rpm) echo "$name-$3-$4.$rpm_arch.rpm" ;;
+        *) echo "$name-$5-r$6.$apk_arch.apk" ;;
     esac
 }
 

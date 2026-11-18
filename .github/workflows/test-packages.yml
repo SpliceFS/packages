@@ -1,0 +1,152 @@
+name: Test packages
+
+# Tests the packages of a SpliceFS program on the server images of packaging/test-systems: the
+# package, the service under the real service manager, the repository with signature checks on,
+# the upgrade from the last published version and, for the client, the mount from fstab.
+# package-and-test.yml calls it for the packages it builds with throwaway keys, and
+# publish-one-program.yml for the packages a tag signs with the real keys, so both run the same
+# tests. Every job here is part of the result of the call, which both callers wait for before
+# they publish or report.
+#
+# The artifact holds the dist folder of the build: dist/<program> (the packages, their
+# repository and the version record) and dist/keys with the PUBLIC keys only. A private key must
+# never be in it. A job for each CPU type downloads it and tests on its own CPU.
+on:
+  workflow_call:
+    inputs:
+      program:
+        description: The program that was packaged, a folder of programs/ (server or client)
+        type: string
+        required: true
+      artifact:
+        description: Artifact that holds the dist folder; empty means packages-<program>-<arch>, one for each CPU type
+        type: string
+        default: ""
+      packages-ref:
+        description: Commit, branch or tag of SpliceFS/packages to use; keep it the ref of the uses line
+        type: string
+        default: main
+
+permissions:
+  contents: read
+
+jobs:
+  # One job for each package format and CPU type. A step that fails does not stop the next
+  # one: each test says what is broken, and one run should show all of it.
+  package-tests:
+    name: Package tests (${{ matrix.format }}, ${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        format: [deb, rpm, apk]
+        arch: [amd64, arm64]
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    env:
+      PROGRAM: ${{ inputs.program }}
+      FORMAT: ${{ matrix.format }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: SpliceFS/packages
+          ref: ${{ inputs.packages-ref }}
+          path: packages
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ${{ inputs.artifact || format('packages-{0}-{1}', inputs.program, matrix.arch) }}
+          path: packages/dist
+      - name: Install and remove the package in a clean system of every release
+        working-directory: packages
+        run: make package-test PROGRAM="$PROGRAM" ONLY="$FORMAT"
+      # The containers above have no service manager running. These do: process 1 is
+      # systemd or OpenRC, and the service must start by itself, come back after a reboot
+      # and stop when the package is removed.
+      - name: Start the service under the real service manager of every release
+        if: ${{ !cancelled() }}
+        working-directory: packages
+        run: make service-test PROGRAM="$PROGRAM" ONLY="$FORMAT"
+      - name: Install from the repository with signature checks on
+        if: ${{ !cancelled() }}
+        working-directory: packages
+        run: make repo-test PROGRAM="$PROGRAM" ONLY="$FORMAT"
+
+  upgrade-test:
+    name: Upgrade (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            arch: amd64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: SpliceFS/packages
+          ref: ${{ inputs.packages-ref }}
+          path: packages
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ${{ inputs.artifact || format('packages-{0}-{1}', inputs.program, matrix.arch) }}
+          path: packages/dist
+      - name: Upgrade from the last published version, when the packaging changed
+        working-directory: packages
+        env:
+          PROGRAM: ${{ inputs.program }}
+        run: make upgrade-test PROGRAM="$PROGRAM"
+
+  # The client mounts from the boot mounts of the system (OpenRC's netmount on Alpine). That
+  # needs a real server to mount from: the newest release of the server, proven by its
+  # signature and unpacked the way the packages are built from a release. Only the client has
+  # this test; the server has nothing to mount.
+  fstab-test:
+    name: Mount from fstab (${{ matrix.arch }})
+    if: ${{ inputs.program == 'client' }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            arch: amd64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: SpliceFS/packages
+          ref: ${{ inputs.packages-ref }}
+          path: packages
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ${{ inputs.artifact || format('packages-{0}-{1}', inputs.program, matrix.arch) }}
+          path: packages/dist
+      - name: Server of the newest server release, proven by its signature
+        working-directory: packages
+        env:
+          GH_TOKEN: ${{ github.token }}
+          # The program of the release that is unpacked, not the one under test.
+          PROGRAM: server
+          ARCH: ${{ matrix.arch }}
+        run: |
+          . scripts/program-conf.sh
+          tag="$(gh release view --repo "$release_repo" --json tagName --jq .tagName)"
+          echo "newest release of $PROGRAM: $tag of $release_repo"
+          gh release download "$tag" --repo "$release_repo" --dir "$RUNNER_TEMP/release" \
+            --pattern "*-linux-$ARCH.tar.gz" --pattern SHA256SUMS --pattern SHA256SUMS.asc
+          scripts/release-bin.sh "$tag" "$RUNNER_TEMP/release" "$RUNNER_TEMP/bin"
+      - name: Mount from fstab with the boot mounts of every Alpine release
+        working-directory: packages
+        env:
+          PROGRAM: ${{ inputs.program }}
+          ARCH: ${{ matrix.arch }}
+        run: make fstab-test PROGRAM="$PROGRAM" SERVER_BIN="$RUNNER_TEMP/bin/linux-$ARCH"

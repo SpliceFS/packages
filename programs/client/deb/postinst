@@ -1,6 +1,7 @@
 #!/bin/sh
-# Runs after the package's files are in place. $2 is the version that was installed
-# before, and is empty on a first install.
+# Runs after the package's files are in place. $2 is not used to tell a first install from an
+# upgrade: after a remove without purge dpkg still passes the old version to a fresh install.
+# The service steps need no such test.
 set -e
 
 case "$1" in
@@ -14,20 +15,7 @@ case "$1" in
                 ln -sf /usr/bin/splicefsctl /sbin/mount.splicefs
             fi
         fi
-        # A container or a chroot has no running systemd. The files are installed and
-        # there is nothing to start.
-        if [ -d /run/systemd/system ]; then
-            systemctl daemon-reload
-            if [ -z "$2" ]; then
-                systemctl enable splicefs.service
-                systemctl start splicefs.service ||
-                    echo "splicefs did not start; see: journalctl -u splicefs" >&2
-            else
-                # A broken configuration must not turn an upgrade into a failed install.
-                systemctl try-restart splicefs.service ||
-                    echo "splicefs did not restart; see: journalctl -u splicefs" >&2
-            fi
-        fi
+        @service:after-files@
         ;;
     *)
         # abort-upgrade, abort-remove and abort-deconfigure leave nothing to set up.

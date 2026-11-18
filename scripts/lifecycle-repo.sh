@@ -31,7 +31,7 @@ tag="$(latest_release_tag "$release_repo")" || fail "could not ask for the newes
 [ -n "$tag" ] || fail "$release_repo has no release; the lifecycle test starts from the published one"
 # shellcheck disable=SC2310
 names="$(release_versions "$tag")" || fail "could not work out the file names of $tag"
-read -r old_debver old_rpmver old_apkver <<LIST
+read -r old_debver old_rpmver old_rpmrel old_apkver old_apkrel _ <<LIST
 $names
 LIST
 
@@ -43,14 +43,14 @@ cp dist/"$PROGRAM"/*.deb dist/"$PROGRAM"/*.rpm "$out/"
 cp -R "dist/$PROGRAM/alpine/." "$out/alpine/"
 
 for format in deb rpm apk; do
-    file="$(release_file_name "$format" "$old_debver" "$old_rpmver" "$old_apkver")"
+    file="$(release_file_name "$format" "$old_debver" "$old_rpmver" "$old_rpmrel" "$old_apkver" "$old_apkrel")"
     # shellcheck disable=SC2310
     download_release_file "$release_repo" "$tag" "$file" "$published" ||
         fail "could not download https://github.com/$release_repo/releases/download/$tag/$file"
     case "$format" in
         apk)
             python3 -I scripts/apk-resign.py "$published/$file" dist/keys/splicefs.rsa splicefs.rsa.pub \
-                "$out/alpine/$apk_arch/$name-$old_apkver-r0.apk"
+                "$out/alpine/$apk_arch/$name-$old_apkver-r$old_apkrel.apk"
             ;;
         *) cp "$published/$file" "$out/" ;;
     esac

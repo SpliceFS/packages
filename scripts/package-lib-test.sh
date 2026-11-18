@@ -37,12 +37,15 @@ CONF
 printf 'gamma.d\n' > "$tree/programs/other/config-folders"
 # A program.conf that leaves a fact out.
 printf 'program=x\nprograms=x\ndocs=x\n' > "$tree/programs/empty/program.conf"
+# The library reads the facts through scripts/program-conf.sh, found from the root of the tree.
+mkdir "$tree/scripts"
+cp "$root/scripts/program-conf.sh" "$tree/scripts/"
 
 # $1 the folder the library is read from (the root of a repository), $2 PROGRAM, $3 the facts
 # wanted: name, program, programs, docs, confdir, confsubdirs (the folders joined by a comma) and
 # release_repo, the repository the program is released from, on one line.
 reads() {
-    got="$(cd "$1" && PROGRAM="$2" VERSION=v1.2.3 PACKAGE_DATE=20261112 sh -c \
+    got="$(cd "$1" && PROGRAM="$2" VERSION=v1.2.3 REVISION=0 PACKAGE_DATE=20261112 sh -c \
         '. "$1/scripts/package-lib.sh"; echo "$name|$program|$programs|$docs|$confdir|$(echo $confsubdirs | tr " " ,)|$release_repo"' \
         sh "$root" 2>&1)" || true
     if [ "$got" = "$3" ]; then
@@ -59,7 +62,7 @@ refuses_program() {
     shift
     # The inner shell expands $1, which is the root of the repository.
     # shellcheck disable=SC2016
-    if got="$(cd "$tree" && env "$@" VERSION=v1.2.3 PACKAGE_DATE=20261112 \
+    if got="$(cd "$tree" && env "$@" VERSION=v1.2.3 REVISION=0 PACKAGE_DATE=20261112 \
         sh -c '. "$1/scripts/package-lib.sh"' sh "$root" 2>&1)"; then
         printf 'FAIL %s was accepted\n' "$*"
         failed=$((failed + 1))
@@ -88,7 +91,7 @@ docs_of() {
     shift
     # The inner shell expands $1, which is the root of the repository.
     # shellcheck disable=SC2016
-    got="$(cd "$tree" && env "$@" PROGRAM=demo VERSION=v1.2.3 PACKAGE_DATE=20261112 sh -c \
+    got="$(cd "$tree" && env "$@" PROGRAM=demo VERSION=v1.2.3 REVISION=0 PACKAGE_DATE=20261112 sh -c \
         '. "$1/scripts/package-lib.sh"; package_docs' sh "$root" 2>&1)" || true
     if [ "$got" = "$want" ]; then
         printf 'ok   package_docs with %s: %s\n' "$*" "$want"
@@ -108,7 +111,7 @@ docs_of 'FAIL: SRC is not set: it is the source tree of the program at this vers
 links_of() {
     # The inner shell expands $1 and $2, which are the root of the repository and the link root.
     # shellcheck disable=SC2016
-    got="$(cd "$1" && PROGRAM="$2" VERSION=v1.2.3 PACKAGE_DATE=20261112 sh -c \
+    got="$(cd "$1" && PROGRAM="$2" VERSION=v1.2.3 REVISION=0 PACKAGE_DATE=20261112 sh -c \
         '. "$1/scripts/package-lib.sh"; package_links "$2"; cd "$2" && find . -type l | LC_ALL=C sort |
             while read -r l; do echo "${l#.} -> $(readlink "$l")"; done | tr "\n" ,' \
         sh "$root" "$linkroot" 2>&1)" || true
@@ -138,7 +141,7 @@ links_of "$root" client '/usr/sbin/mount.splicefs -> /usr/bin/splicefsctl,'
 link_list_of() {
     # The inner shell expands $1, which is the root of the repository.
     # shellcheck disable=SC2016
-    got="$(cd "$tree" && PROGRAM="$1" VERSION=v1.2.3 PACKAGE_DATE=20261112 sh -c \
+    got="$(cd "$tree" && PROGRAM="$1" VERSION=v1.2.3 REVISION=0 PACKAGE_DATE=20261112 sh -c \
         '. "$1/scripts/package-lib.sh"; package_link_list | tr "\n" ,' sh "$root" 2>&1)" || true
     if [ "$got" = "$2" ]; then
         printf 'ok   package_link_list of %-6s %s\n' "$1" "$2"
@@ -153,7 +156,7 @@ link_list_of other ''
 
 # The formats whose definition copies a tree in (rpm, Alpine) get the links as a folder of their
 # own, which is readable by everyone because it is copied over the root of the package.
-tree_of="$(cd "$tree" && PROGRAM=demo VERSION=v1.2.3 PACKAGE_DATE=20261112 sh -c \
+tree_of="$(cd "$tree" && PROGRAM=demo VERSION=v1.2.3 REVISION=0 PACKAGE_DATE=20261112 sh -c \
     '. "$1/scripts/package-lib.sh"; package_link_tree' sh "$root" 2>&1)" || true
 target_of="$(readlink "$tree_of/usr/sbin/mount.demo" 2>/dev/null)" || target_of=""
 mode_of="$(find "$tree_of" -maxdepth 0 -perm 755 2>/dev/null)" || mode_of=""
@@ -165,23 +168,80 @@ else
 fi
 rm -rf "$tree_of"
 
-# $1 VERSION, $2 deb and rpm version, $3 Alpine version, $4 FreeBSD version (PACKAGE_DATE is
-# 20261112).
-check() {
-    got="$(VERSION="$1" PACKAGE_DATE=20261112 sh -c \
-        '. scripts/package-lib.sh; echo "$debver $rpmver $apkver $pkgver"' 2>&1)" || true
-    want="$2 $2 $3 $4"
-    if [ "$got" = "$want" ]; then
-        printf 'ok   %-28s deb/rpm %-26s apk %-24s pkg %s\n' "$1" "$2" "$3" "$4"
+# The packing list of a FreeBSD package is made from program.conf and config-folders, byte for
+# byte, and is kept nowhere else. $1 the folder the library is read from, $2 the program, the
+# list wanted on standard input.
+plist_of() {
+    cat > "$tree/plist.want"
+    # The inner shell expands $1, which is the root of the repository.
+    # shellcheck disable=SC2016
+    (cd "$1" && PROGRAM="$2" VERSION=v1.2.3 REVISION=0 PACKAGE_DATE=20261112 sh -c \
+        '. "$1/scripts/package-lib.sh"; package_freebsd_plist' sh "$root") > "$tree/plist.got" 2>&1 || true
+    if cmp -s "$tree/plist.want" "$tree/plist.got"; then
+        printf 'ok   package_freebsd_plist of %s\n' "$2"
     else
-        printf 'FAIL %-28s want "%s" got "%s"\n' "$1" "$want" "$got"
+        printf 'FAIL package_freebsd_plist of %s: want\n' "$2"
+        cat "$tree/plist.want"
+        echo got
+        cat "$tree/plist.got"
+        failed=$((failed + 1))
+    fi
+}
+
+# The fixture differs from the real programs in every fact the list is made from.
+plist_of "$tree" demo <<'PLIST'
+bin/demod
+bin/democtl
+etc/rc.d/demod
+@dir etc/splicefs/demo/alpha.d
+@dir etc/splicefs/demo/beta.d
+@dir etc/splicefs/demo
+@dir etc/splicefs
+PLIST
+plist_of "$tree" other <<'PLIST'
+bin/otherd
+etc/rc.d/otherd
+@dir etc/splicefs/other/gamma.d
+@dir etc/splicefs/other
+@dir etc/splicefs
+PLIST
+plist_of "$root" server <<'PLIST'
+bin/splicefsd
+etc/rc.d/splicefsd
+@dir etc/splicefs/server/conf.d
+@dir etc/splicefs/server/shares.d
+@dir etc/splicefs/server
+@dir etc/splicefs
+PLIST
+plist_of "$root" client <<'PLIST'
+bin/splicefs
+bin/splicefsctl
+etc/rc.d/splicefs
+@dir etc/splicefs/client/conf.d
+@dir etc/splicefs/client/clusters.d
+@dir etc/splicefs/client/mounts.d
+@dir etc/splicefs/client
+@dir etc/splicefs
+PLIST
+
+# $1 VERSION, $2 REVISION, then the six strings of the formats: the deb version (the revision
+# is part of it), the rpm version and release, the Alpine version and release, and the FreeBSD
+# version (the revision is part of it). PACKAGE_DATE is 20261112.
+check() {
+    got="$(VERSION="$1" REVISION="$2" PACKAGE_DATE=20261112 sh -c \
+        '. scripts/package-lib.sh; echo "$debver $rpmver $rpmrel $apkver $apkrel $pkgver"' 2>&1)" || true
+    want="$3 $4 $5 $6 $7 $8"
+    if [ "$got" = "$want" ]; then
+        printf 'ok   %-18s rev %-2s deb %-22s rpm %-18s apk %-26s pkg %s\n' "$1" "$2" "$3" "$4-$5" "$6-r$7" "$8"
+    else
+        printf 'FAIL %-18s rev %s want "%s" got "%s"\n' "$1" "$2" "$want" "$got"
         failed=$((failed + 1))
     fi
 }
 
 # $1 VERSION that must be refused, $2 text the message must contain.
 refuse() {
-    if got="$(VERSION="$1" PACKAGE_DATE=20261112 sh -c '. scripts/package-lib.sh' 2>&1)"; then
+    if got="$(VERSION="$1" REVISION=0 PACKAGE_DATE=20261112 sh -c '. scripts/package-lib.sh' 2>&1)"; then
         printf 'FAIL %-28s was accepted\n' "$1"
         failed=$((failed + 1))
     elif printf '%s' "$got" | grep -q -- "$2"; then
@@ -192,12 +252,21 @@ refuse() {
     fi
 }
 
-check v1.2.3 1.2.3 1.2.3 1.2.3
-check v1.2.3-rc.1 1.2.3~rc.1 1.2.3_rc1 1.2.3.rc1
-check v1.2.3-beta.2 1.2.3~beta.2 1.2.3_beta2 1.2.3.beta2
-check v1.2.3-alpha 1.2.3~alpha 1.2.3_alpha 1.2.3.alpha
-check v1.2.3-dirty 1.2.3+dirty 1.2.3_git20261112 1.2.3.20261112
-check v1.2.3-rc.1-dirty 1.2.3~rc.1+dirty 1.2.3_rc1_git20261112 1.2.3.rc1.20261112
+# Revision 0 is the version as the program was released, and has always been named like this: the
+# packages that are published already are revision 0. A revision of 1 and more is the format's
+# own revision field, which sorts above revision 0 and below the next version of the program.
+check v1.2.3 0 1.2.3 1.2.3 1 1.2.3 0 1.2.3
+check v1.2.3 1 1.2.3-1 1.2.3 2 1.2.3 1 1.2.3_1
+check v1.2.3 2 1.2.3-2 1.2.3 3 1.2.3 2 1.2.3_2
+check v1.2.3 10 1.2.3-10 1.2.3 11 1.2.3 10 1.2.3_10
+check v1.2.3-rc.1 0 1.2.3~rc.1 1.2.3~rc.1 1 1.2.3_rc1 0 1.2.3.rc1
+check v1.2.3-rc.1 1 1.2.3~rc.1-1 1.2.3~rc.1 2 1.2.3_rc1 1 1.2.3.rc1_1
+check v1.2.3-beta.2 0 1.2.3~beta.2 1.2.3~beta.2 1 1.2.3_beta2 0 1.2.3.beta2
+check v1.2.3-alpha 0 1.2.3~alpha 1.2.3~alpha 1 1.2.3_alpha 0 1.2.3.alpha
+check v1.2.3-dirty 0 1.2.3+dirty 1.2.3+dirty 1 1.2.3_git20261112 0 1.2.3.20261112
+check v1.2.3-dirty 1 1.2.3+dirty-1 1.2.3+dirty 2 1.2.3_git20261112 1 1.2.3.20261112_1
+check v1.2.3-rc.1-dirty 0 1.2.3~rc.1+dirty 1.2.3~rc.1+dirty 1 1.2.3_rc1_git20261112 0 1.2.3.rc1.20261112
+check v1.2.3-rc.1-dirty 2 1.2.3~rc.1+dirty-2 1.2.3~rc.1+dirty 3 1.2.3_rc1_git20261112 2 1.2.3.rc1.20261112_2
 refuse v1.2.3-foo.1 v1.2.3-foo.1
 refuse v1.2 v1.2
 refuse v1.2.3-rc.1.2 v1.2.3-rc.1.2
@@ -209,9 +278,29 @@ refuse abc1234-dirty abc1234-dirty
 refuse dev dev
 refuse 1.2.3 1.2.3
 
+# $1 REVISION that must be refused. A revision is a whole number without leading zeros: the
+# formats compare it as a number, so "01" would be a second spelling of 1.
+refuse_revision() {
+    if got="$(VERSION=v1.2.3 REVISION="$1" PACKAGE_DATE=20261112 sh -c '. scripts/package-lib.sh' 2>&1)"; then
+        printf 'FAIL revision "%s" was accepted\n' "$1"
+        failed=$((failed + 1))
+    elif printf '%s' "$got" | grep -qF "REVISION"; then
+        printf 'ok   revision "%s" refused: %s\n' "$1" "$got"
+    else
+        printf 'FAIL revision "%s" refused with the wrong message: %s\n' "$1" "$got"
+        failed=$((failed + 1))
+    fi
+}
+
+refuse_revision -1
+refuse_revision 01
+refuse_revision 1.5
+refuse_revision one
+refuse_revision ""
+
 # The unit in the repository is written for a manual install under /usr/local; the unit a
 # package ships has the program in /usr/bin, and nothing else is lost.
-got="$(VERSION=v1.2.3 PACKAGE_DATE=20261112 sh -c '. scripts/package-lib.sh; package_unit /dev/stdout' 2>&1)" || true
+got="$(VERSION=v1.2.3 REVISION=0 PACKAGE_DATE=20261112 sh -c '. scripts/package-lib.sh; package_unit /dev/stdout' 2>&1)" || true
 got_lines="$(printf '%s\n' "$got" | wc -l)"
 repo_lines="$(wc -l < programs/server/systemd/splicefsd.service)"
 if printf '%s\n' "$got" | grep -qx 'ExecStart=/usr/bin/splicefsd' &&
@@ -225,7 +314,7 @@ fi
 # ONLY limits a run to one format or one image, for every script that walks packaging/test-systems.
 # $1 ONLY, $2 format, $3 image, $4 selected (yes or no).
 selects() {
-    if ONLY="$1" VERSION=v1.2.3 PACKAGE_DATE=20261112 sh -c \
+    if ONLY="$1" VERSION=v1.2.3 REVISION=0 PACKAGE_DATE=20261112 sh -c \
         '. scripts/package-lib.sh; system_selected "$1" "$2"' sh "$2" "$3"; then got=yes; else got=no; fi
     if [ "$got" = "$4" ]; then
         printf 'ok   ONLY="%s" %s %s: %s\n' "$1" "$2" "$3" "$got"
@@ -266,7 +355,7 @@ boots() {
     : > "$fake/log"
     # $1 is split on purpose: it holds several arguments.
     # shellcheck disable=SC2086
-    got="$(PATH="$fake:$PATH" FAKE_LOG="$fake/log" VERSION=v1.2.3 PACKAGE_DATE=20261112 sh -c \
+    got="$(PATH="$fake:$PATH" FAKE_LOG="$fake/log" VERSION=v1.2.3 REVISION=0 PACKAGE_DATE=20261112 sh -c \
         '. scripts/package-lib.sh; boot_system "$@"' sh $1 2>&1 && cat "$fake/log")" || true
     if [ "$got" = "$2" ]; then
         printf 'ok   boot_system %s\n' "$1"
@@ -282,7 +371,7 @@ waits() {
     : > "$fake/log"
     got=0
     PATH="$fake:$PATH" FAKE_LOG="$fake/log" FAKE_SYSTEMD="$2" FAKE_RUNLEVEL="$3" FAKE_RUNNING="$4" \
-        VERSION=v1.2.3 PACKAGE_DATE=20261112 sh -c '. scripts/package-lib.sh; wait_booted "$1" box' sh "$1" >/dev/null 2>&1 || got=$?
+        VERSION=v1.2.3 REVISION=0 PACKAGE_DATE=20261112 sh -c '. scripts/package-lib.sh; wait_booted "$1" box' sh "$1" >/dev/null 2>&1 || got=$?
     if [ "$got" -eq "$5" ]; then
         printf 'ok   wait_booted %-4s systemd=%-8s runlevel=%-8s running=%-5s status %s\n' "$1" "$2" "$3" "$4" "$got"
     else

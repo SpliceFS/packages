@@ -6,10 +6,59 @@ the setup script and the page at packages.splicefs.org.
 
 The change log of all parts of SpliceFS, side by side: https://splicefs.org/changelog/
 
-## [0.4.12] - 2026-11-17
+## [0.4.22] - 2026-11-18
+
+- Alpine: a SpliceFS folder can be mounted at boot from /etc/fstab (see "After the install").
+
+## [0.4.21] - 2026-11-18
+
+- Internal: package publishes run from a number tag of this repository.
+
+## [0.4.20] - 2026-11-17
+
+- FreeBSD: installing a SpliceFS package no longer turns its service on at boot; turn it on with
+  `sysrc <name>_enable=YES` and start it with `service <name> start`.
+
+## [0.4.19] - 2026-11-17
+
+- Internal: a packaging change merged here is published as a package revision of the current
+  release.
+
+## [0.4.18] - 2026-11-17
+
+- Installing a SpliceFS package no longer starts or turns on its service; start it with the system's
+  service manager (see "After the install"). An upgrade restarts only a running service, and
+  removing a package stops and turns off its service.
+
+## [0.4.17] - 2026-11-17
+
+- Internal: packages carry a package revision, so a packaging fix can be published for the current
+  program release.
+
+## [0.4.16] - 2026-11-17
+
+- Internal: the FreeBSD packages of a released program are built, signed, checked and published from
+  this repository.
+
+## [0.4.15] - 2026-11-17
+
+- Internal: this repository can publish a released program's packages, after building, signing and
+  testing them.
+
+## [0.4.14] - 2026-11-17
 
 - `sh setup.sh --remove` removes the SpliceFS repository and signing key that setup.sh added; remove
   the packages first with the commands it prints.
+
+## [0.4.13] - 2026-11-17
+
+- Internal: FreeBSD packages of both programs are built and checked here on prepared machine images;
+  the FreeBSD install test no longer downloads FreeBSD.
+
+## [0.4.12] - 2026-11-17
+
+- Internal: a reusable workflow packages and tests a program from its built programs; this
+  repository tests its packaging on the newest releases.
 
 ## [0.4.11] - 2026-11-17
 

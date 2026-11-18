@@ -4,11 +4,4 @@
 if [ ! -L /sbin ] && [ ! -e /sbin/mount.splicefs ]; then
     ln -s /usr/bin/splicefsctl /sbin/mount.splicefs
 fi
-# A container has no running OpenRC; the files are installed and there is nothing to start.
-if [ -e /run/openrc/softlevel ]; then
-    rc-update add splicefs default
-    # The client needs no configuration: installed means running, with no mounts until
-    # the administrator adds one.
-    rc-service splicefs start || echo "splicefs did not start; see /var/log/splicefs.log" >&2
-fi
 exit 0

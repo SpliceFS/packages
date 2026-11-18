@@ -3,30 +3,11 @@
 # shellcheck disable=SC2034
 # Sourced by the package scripts, from the root of the repository. Says what is being packaged
 # and what its version is called in each package format.
-: "${PROGRAM:?PROGRAM is not set}"
+# shellcheck source=program-conf.sh
+. scripts/program-conf.sh
 : "${VERSION:?VERSION is not set}"
 : "${PACKAGE_DATE:?PACKAGE_DATE is not set}"
-
-fail() {
-    echo "FAIL: $*" >&2
-    exit 1
-}
-
-# PROGRAM names a folder of programs/, so it is a name and never a path.
-case "$PROGRAM" in
-    *[!a-z0-9-]*) fail "PROGRAM=$PROGRAM is not a program name" ;;
-    *) ;;
-esac
-# The definitions of the program: what the packages hold, and program.conf, which says what the
-# program is (name, program, programs and docs). This is the one place that says it.
-defs="programs/$PROGRAM"
-[ -f "$defs/program.conf" ] || fail "$defs/program.conf is missing: $PROGRAM is not a program of this repository"
-# The folder is chosen by PROGRAM at run time, so there is no file for ShellCheck to follow.
-# shellcheck source=/dev/null
-. "$defs/program.conf"
-for fact in name program programs docs; do
-    eval "[ -n \"\${$fact:-}\" ]" || fail "$defs/program.conf does not set $fact"
-done
+: "${REVISION:?REVISION is not set}"
 
 # What program.conf sets is unknown to ShellCheck, which cannot follow it.
 # shellcheck disable=SC2154
@@ -74,11 +55,50 @@ package_docs() {
     echo "$list"
 }
 
+# Prints the packing list that pkg create reads for the FreeBSD package, paths relative to
+# /usr/local. Every line is made from a fact that program.conf and config-folders hold: the
+# programs, the rc script that is named after the service program, and the configuration folders.
+# A folder comes before the one that holds it, so that pkg removes the inner one first. The
+# folder of all SpliceFS programs is shared by the server and the client, and pkg removes it
+# only when it is empty.
+# What program.conf sets is unknown to ShellCheck, which cannot follow it.
+# shellcheck disable=SC2154
+package_freebsd_plist() {
+    for plist_program in $programs; do echo "bin/$plist_program"; done
+    echo "etc/rc.d/$program"
+    for plist_folder in $confsubdirs; do echo "@dir ${confdir#/}/$plist_folder"; done
+    echo "@dir ${confdir#/}"
+    echo "@dir $(dirname "${confdir#/}")"
+}
+
 # Writes the service unit as the packages ship it to the file $1. The unit in the repository
 # is written for a manual install under /usr/local; the packages put the program in /usr/bin.
 package_unit() {
     # shellcheck disable=SC2154
     sed 's|/usr/local/bin/|/usr/bin/|' "$defs/systemd/$program.service" > "$1"
+}
+
+# Prints the file $2 (an install script of the program, or its rpm spec) with the service steps
+# filled in. A line that holds only @service:STEP@ is replaced by the file
+# packaging/service/MANAGER/STEP, indented like the line, where $1 is the service manager
+# (systemd or openrc) and @SERVICE@ is the name of the service. The steps are the one place that
+# says what installing, upgrading and removing do to the service, for every program and every
+# package format; what only one program needs stays in its own file.
+# What program.conf sets is unknown to ShellCheck, which cannot follow it.
+# shellcheck disable=SC2154
+package_script() {
+    while IFS= read -r script_line; do
+        script_text="${script_line#"${script_line%%[![:space:]]*}"}"
+        case "$script_text" in
+            @service:*@)
+                script_step="packaging/service/$1/${script_text#@service:}"
+                script_step="${script_step%@}"
+                [ -f "$script_step" ] || fail "$script_step does not exist"
+                sed -e "s|@SERVICE@|$program|g" -e "s|^\(.\)|${script_line%"$script_text"}\1|" "$script_step"
+                ;;
+            *) printf '%s\n' "$script_line" ;;
+        esac
+    done < "$2"
 }
 
 # Fetches an image for one test system: up to 3 tries, 5 seconds apart, quiet on success.
@@ -93,6 +113,34 @@ pull_image() {
         if [ "$tries" -lt 3 ]; then sleep 5; fi
     done
     return 1
+}
+
+# Runs the command once a second until it succeeds or the given number of seconds is over.
+wait_for() {
+    limit="$1"
+    shift
+    waited=0
+    until "$@"; do
+        waited=$((waited + 1))
+        [ "$waited" -lt "$limit" ] || return 1
+        sleep 1
+    done
+}
+
+# Ends this system's run with the message when the command fails. The command runs through
+# "$@" because errexit is off in every check (see run_checks): each one is guarded
+# explicitly, and its status is the answer.
+must() {
+    message="$1"
+    shift
+    "$@" || fail "$message"
+}
+
+# The same for a command that has to fail: ends the run with the message when it succeeds.
+refuse() {
+    message="$1"
+    shift
+    if "$@"; then fail "$message"; fi
 }
 
 # Whether a line of packaging/test-systems is part of this run. ONLY names one format or one
@@ -155,43 +203,77 @@ wait_booted() {
     done
 }
 
-# VERSION is the version in the file VERSION as the Makefile makes it: v1.2.3 for a release,
+# Prints the version of a package in every format, from the version of the program ($1), the
+# revision of the package ($2) and the date of the build ($3), as one line of six words:
+#   deb version, rpm version, rpm release, Alpine version, Alpine release, FreeBSD version
+# It is the one place that says how a version is written in each format, and every package script
+# and every test reads the result from here.
+#
+# $1 is the version in the file VERSION as the Makefile makes it: v1.2.3 for a release,
 # v1.2.3-rc.1 for a pre-release, and a trailing -dirty when the tree has uncommitted changes.
-# Split it into core (1.2.3), pre (rc.1, may be empty) and extra (dirty, or empty), which is
+# It is split into core (1.2.3), pre (rc.1, may be empty) and extra (dirty, or empty), which is
 # what makes a build something other than the released version. Anything else is refused: a
 # version that is not in this form would be packaged under a number that sorts wrongly.
-release="${VERSION%-dirty}"
-extra=""
-if [ "$release" != "$VERSION" ]; then extra=dirty; fi
-printf '%s' "$release" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-.+)?$' ||
-    fail "version $VERSION is not vMAJOR.MINOR.PATCH[-pre-release]"
-core="${release#v}"
-core="${core%%-*}"
-pre=""
-if [ "$core" != "${release#v}" ]; then pre="${release#v"$core"-}"; fi
-# Alpine takes only these pre-release words, so nothing else can be published.
-if [ -n "$pre" ]; then
-    printf '%s' "$pre" | grep -Eq '^(alpha|beta|pre|rc)(\.?[0-9]+)?$' ||
-        fail "version $VERSION: pre-release $pre must be alpha, beta, pre or rc, then a number"
-fi
+#
+# The revision is how a change to the packaging alone (this repository, with the same release of
+# the program) reaches a user: a new package of the same program version, which every format
+# sorts above the one before it and below the next version of the program. Revision 0 is the
+# release itself and is written as the packages that were published before revisions existed:
+# no revision in the deb and FreeBSD versions, release 1 in rpm and r0 in Alpine. A revision of
+# 1 and more goes in the revision field of the format, which each format counts its own way:
+#   deb      1.2.3-N     the Debian revision (no revision, as in 1.2.3, is revision 0)
+#   rpm      release N+1 (a release starts at 1)
+#   Alpine   -rN         pkgrel
+#   FreeBSD  1.2.3_N     the port revision
+package_versions() {
+    pv_release="${1%-dirty}"
+    pv_extra=""
+    if [ "$pv_release" != "$1" ]; then pv_extra=dirty; fi
+    printf '%s' "$pv_release" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-.+)?$' ||
+        fail "version $1 is not vMAJOR.MINOR.PATCH[-pre-release]"
+    # The formats compare a revision as a number, so "01" would be a second spelling of 1.
+    printf '%s' "$2" | grep -Eq '^(0|[1-9][0-9]*)$' ||
+        fail "REVISION=$2 is not a whole number (0, 1, 2, ...) without leading zeros"
+    pv_core="${pv_release#v}"
+    pv_core="${pv_core%%-*}"
+    pv_pre=""
+    if [ "$pv_core" != "${pv_release#v}" ]; then pv_pre="${pv_release#v"$pv_core"-}"; fi
+    # Alpine takes only these pre-release words, so nothing else can be published.
+    if [ -n "$pv_pre" ]; then
+        printf '%s' "$pv_pre" | grep -Eq '^(alpha|beta|pre|rc)(\.?[0-9]+)?$' ||
+            fail "version $1: pre-release $pv_pre must be alpha, beta, pre or rc, then a number"
+    fi
 
-# Debian and rpm: a tilde sorts before everything, so 1.2.3~rc.1 is older than 1.2.3, and
-# a plus suffix sorts after, so 1.2.3+dirty is newer than the release it follows.
-debver="$core"
-if [ -n "$pre" ]; then debver="$debver~$pre"; fi
-if [ -n "$extra" ]; then debver="$debver+$extra"; fi
-rpmver="$debver"
+    # Debian and rpm: a tilde sorts before everything, so 1.2.3~rc.1 is older than 1.2.3, and
+    # a plus suffix sorts after, so 1.2.3+dirty is newer than the release it follows.
+    pv_deb="$pv_core"
+    if [ -n "$pv_pre" ]; then pv_deb="$pv_deb~$pv_pre"; fi
+    if [ -n "$pv_extra" ]; then pv_deb="$pv_deb+$pv_extra"; fi
+    pv_rpm="$pv_deb"
+    if [ "$2" -gt 0 ]; then pv_deb="$pv_deb-$2"; fi
 
-# An Alpine version allows digits and a fixed list of suffixes only, so the pre-release
-# becomes _rc1 and a build that is not exactly the release carries the date of its
-# commit: 1.2.3_rc1_git20261112.
-apkver="$core"
-if [ -n "$pre" ]; then apkver="${apkver}_$(printf '%s' "$pre" | tr -d .)"; fi
-if [ -n "$extra" ]; then apkver="${apkver}_git$PACKAGE_DATE"; fi
+    # An Alpine version allows digits and a fixed list of suffixes only, so the pre-release
+    # becomes _rc1 and a build that is not exactly the release carries the date of its
+    # commit: 1.2.3_rc1_git20261112.
+    pv_apk="$pv_core"
+    if [ -n "$pv_pre" ]; then pv_apk="${pv_apk}_$(printf '%s' "$pv_pre" | tr -d .)"; fi
+    if [ -n "$pv_extra" ]; then pv_apk="${pv_apk}_git$3"; fi
 
-# FreeBSD compares versions field by field and knows rc and friends as older than the release,
-# so the pre-release becomes one more field (1.2.3.rc1) and a build that is not exactly the
-# release carries the date of its commit as the last field: 1.2.3.20261112.
-pkgver="$core"
-if [ -n "$pre" ]; then pkgver="$pkgver.$(printf '%s' "$pre" | tr -d .)"; fi
-if [ -n "$extra" ]; then pkgver="$pkgver.$PACKAGE_DATE"; fi
+    # FreeBSD compares versions field by field and knows rc and friends as older than the
+    # release, so the pre-release becomes one more field (1.2.3.rc1) and a build that is not
+    # exactly the release carries the date of its commit as the last field: 1.2.3.20261112.
+    pv_pkg="$pv_core"
+    if [ -n "$pv_pre" ]; then pv_pkg="$pv_pkg.$(printf '%s' "$pv_pre" | tr -d .)"; fi
+    if [ -n "$pv_extra" ]; then pv_pkg="$pv_pkg.$3"; fi
+    if [ "$2" -gt 0 ]; then pv_pkg="${pv_pkg}_$2"; fi
+
+    printf '%s %s %s %s %s %s\n' "$pv_deb" "$pv_rpm" "$(($2 + 1))" "$pv_apk" "$2" "$pv_pkg"
+}
+
+# The words of package_versions for the program version, revision and date of this run. The call
+# is a command substitution, where fail would end only the substitution, so its status ends the
+# script here.
+versions="$(package_versions "$VERSION" "$REVISION" "$PACKAGE_DATE")" || exit 1
+read -r debver rpmver rpmrel apkver apkrel pkgver <<WORDS
+$versions
+WORDS

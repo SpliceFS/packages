@@ -33,6 +33,72 @@ sudo apt-get install splicefs-client    # the client
 The commands for dnf, zypper, apk and pkg (FreeBSD) are on the page. The script is safe to run
 again. Manual steps for each system are on the page as well.
 
+## After the install
+
+Installing a package installs the service and does not start it or turn it on. Start it, and
+have it start at boot, with the service manager of the system. The server's service is
+`splicefsd` and the client's is `splicefs`.
+
+systemd (Debian, Ubuntu, Rocky Linux, Amazon Linux, openSUSE):
+
+```
+sudo systemctl enable --now splicefsd    # the server
+sudo systemctl enable --now splicefs     # the client
+```
+
+OpenRC (Alpine), as root:
+
+```
+rc-update add splicefsd default && rc-service splicefsd start    # the server
+rc-update add splicefs default && rc-service splicefs start      # the client
+```
+
+FreeBSD (pkg), as root:
+
+```
+sysrc splicefsd_enable=YES && service splicefsd start    # the server
+sysrc splicefs_enable=YES && service splicefs start      # the client
+```
+
+On Linux an upgrade restarts a service that was running and leaves a stopped one stopped; it never
+turns a service on or off. Removing the package stops the service and turns it off; its data and
+the `splicefs` user stay. In a container without a running service manager the package only
+installs its files.
+
+On FreeBSD an upgrade leaves a service that was running running, still the old version, because
+pkg ends every program a package script starts and so a package cannot restart one. Restart it
+yourself with `service splicefsd restart` (the client: `service splicefs restart`). Removing the
+package stops the service and leaves `/etc/rc.conf` alone, as other FreeBSD packages do; delete
+the setting afterwards:
+
+```
+sysrc -x splicefsd_enable    # the server
+sysrc -x splicefs_enable     # the client
+```
+
+### Mount at boot from fstab (client, Linux)
+
+The client can also mount from the boot mounts of the system. The cluster must be defined in
+`/etc/splicefs/client/clusters.d`, and the client service must be running: the mount helper
+(`/usr/sbin/mount.splicefs`) only asks the running client. Add a line of type `splicefs` to
+`/etc/fstab`; the options are listed in the
+[client configuration](https://github.com/SpliceFS/client/blob/main/docs/configuration.md).
+
+systemd (Debian, Ubuntu, Rocky Linux, Amazon Linux, openSUSE), as root:
+
+```
+echo 'example:/ /mnt/files splicefs _netdev,nofail,x-systemd.requires=splicefs.service 0 0' >> /etc/fstab
+```
+
+OpenRC (Alpine), as root. `netmount` mounts the `_netdev` lines once the network is up, and the
+`fuse` service loads the FUSE kernel module at boot. The package turns neither on:
+
+```
+echo 'example:/ /mnt/files splicefs _netdev,nofail 0 0' >> /etc/fstab
+rc-update add fuse boot && rc-service fuse start
+rc-update add netmount default && rc-service netmount start
+```
+
 ## Remove the repository
 
 `sh setup.sh --remove` takes away what the setup added, and nothing else: the repository
@@ -63,7 +129,8 @@ curl --proto '=https' --tlsv1.2 -fsSL https://packages.splicefs.org/setup.sh -o 
 The packages delete neither the data nor the user when they are removed, so that installing them
 again picks up where you left off. To take SpliceFS off a system completely, run the commands for
 your system in this order: the packages, the packages that only they needed, the data and
-configuration folders, the `splicefs` user with its group, and last the repository. Read the list
+configuration folders, the `splicefs` user with its group, and last the repository. On FreeBSD
+the settings of the services in `/etc/rc.conf` are deleted right after the packages. Read the list
 of packages your package manager shows before you confirm it. The last command needs the setup
 script, downloaded as under "Remove the repository". On Alpine and FreeBSD, run them as root.
 These commands are on the install page too, and `make check` proves that both show the same.
@@ -136,6 +203,10 @@ FreeBSD:
 # Remove the packages:
 pkg delete splicefs-server splicefs-client
 
+# Delete the settings of the services from /etc/rc.conf, which removing a package leaves alone:
+sysrc -x splicefsd_enable
+sysrc -x splicefs_enable
+
 # Remove the packages they needed that nothing else needs now:
 pkg autoremove
 
@@ -202,7 +273,8 @@ make e2e      # runs the setup script in a container of every supported system
 make e2e-freebsd  # runs the setup script in a FreeBSD machine of every supported release (FREEBSD=15.1 for one)
 make packages PROGRAM=server BIN=<programs> SRC=<source> VERSION=v1.2.3   # builds deb, rpm and apk into dist/server (PROGRAM=client for the client)
 make package-test PROGRAM=server   # installs and removes each package on every server image (ONLY=deb or ONLY=<image> for one)
-make service-test PROGRAM=server   # proves the service starts, answers, restarts and stops, on every image
+make service-test PROGRAM=server   # proves the service installs idle, starts when told, answers, restarts, upgrades and stops, on every image
+make fstab-test PROGRAM=client SERVER_BIN=<splicefsd folder>   # proves an fstab line is mounted by OpenRC's netmount on every Alpine image
 make upgrade-test PROGRAM=server  # installs the newest published release, then upgrades to the packages in dist (only when the packaging changed)
 make repo PROGRAM=server           # builds the signed apt, rpm and Alpine repositories into dist/server/repo
 make repo-test PROGRAM=server      # installs from them with signature checks on
@@ -212,6 +284,31 @@ make package-order-test                           # checks that the package vers
 The tests need Docker and the packages that `make packages` left in `dist/<program>`. `make packages`
 records the version it built in `dist/<program>/version`, and the tests read it from there, so they
 are not given the version again. A `VERSION` given to a test that is not the recorded one is an error.
+
+### Package and test a program in CI
+
+The workflow `package-and-test.yml` does all of the above for one program, from the CI run of the
+repository that releases it: it builds the packages and the signed repositories on amd64 and
+arm64 runners, runs the package, service, repository and upgrade tests of every format, and ends
+in one job, `Result`, that fails unless all passed. The caller builds its programs, uploads its
+`dist/bin` as an artifact, and calls:
+
+```yaml
+  packages:
+    name: Packages
+    needs: build
+    uses: SpliceFS/packages/.github/workflows/package-and-test.yml@main
+    with:
+      program: server
+      bin-artifact: bin
+```
+
+The source tree and the version are the caller's own, at the commit under test. Without
+`bin-artifact` the workflow tests the newest release of the program instead (`scripts/release-bin.sh`
+proves its archives with the signature and `SHA256SUMS` and unpacks them into the `BIN` layout);
+the CI of this repository does that for both programs, so a packaging change is tested on its own.
+`packages-ref` (default `main`) is the ref of this repository the jobs use; keep it the same as the
+ref of the `uses` line.
 
 `make check` needs `python3`. It also uses `node`, `dash` and `bash` when they are installed.
 
@@ -225,7 +322,8 @@ are not given the version again. A `VERSION` given to a test that is not the rec
 - `scripts/`: `build-site.sh`, `sign-site.sh`, `publish.sh` and `check.sh`, `setup-remove-test.sh`
   (setup and removal in a fake root, for every family), and the scripts that
   build, test and publish packages (`package-*.sh`, `service-test*.sh`, `repo-*.sh`,
-  `signing-keys.sh`, `upgrade-test*.sh`, `upgrade-diff.sh`).
+  `signing-keys.sh`, `upgrade-test*.sh`, `upgrade-diff.sh`), and `release-bin.sh`, which proves and
+  unpacks the release archives of a program.
 - `programs/<program>/`: the package definitions of one program (deb, rpm, Alpine, systemd, OpenRC)
   and its `program.conf`, which says what the program is: package name, service program,
   programs, documents, and the repository its releases are published in (`release_repo`, which
@@ -236,6 +334,9 @@ are not given the version again. A `VERSION` given to a test that is not the rec
   a line, a package test hook in `programs/<program>/package-test-extra.sh`, and what a working
   service means in `programs/<program>/service-check.sh`.
 - `packaging/test-systems`: the server images the packages are tested on.
+- `packaging/service/<manager>/`: what installing, upgrading and removing do to the service under
+  systemd and OpenRC, once for every program and package format. The install scripts of a
+  program name a step on a line of its own (`@service:after-files@`) and the build fills it in.
 - `setup.sh.in`: the setup script template, with the keys and base URL filled in at build.
 - `dist/`: build output, not committed.
 

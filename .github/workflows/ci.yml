@@ -1,8 +1,8 @@
 name: CI
 
+# Only pull requests are tested. main gets nothing but branches that passed here, so a run on
+# main would test the same files a second time.
 on:
-  push:
-    branches: [main]
   pull_request:
 
 permissions:
@@ -20,3 +20,37 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Build the site and check the script, the manual steps and the page
         run: make check
+
+  # The packaging is tested on the newest release of each program: the release archives are
+  # proven by their signature, packaged with the definitions of this commit, and the packages
+  # are tested on the server images. A change to a definition, a script or a test system
+  # shows here before it reaches a release of a program.
+  released:
+    name: Released ${{ matrix.program }}
+    strategy:
+      fail-fast: false
+      matrix:
+        program: [server, client]
+    uses: ./.github/workflows/package-and-test.yml
+    with:
+      program: ${{ matrix.program }}
+      packages-ref: ${{ github.sha }}
+
+  # The one check a branch must pass. A job that did not run counts as failed: a job is skipped
+  # only when one it needs failed. A new job is added to the list when it is added above, and
+  # nowhere else. The other workflows of this repository are separate runs and are not in it.
+  all-checks:
+    name: All checks
+    needs: [check, released]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Every job succeeded
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          printf '%s\n' "$NEEDS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
+          if printf '%s\n' "$NEEDS" | jq -e 'any(.[]; .result != "success")' >/dev/null; then
+            echo "::error::At least one job did not succeed."
+            exit 1
+          fi

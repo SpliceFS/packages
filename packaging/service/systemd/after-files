@@ -1,0 +1,12 @@
+# A container or a chroot has no running systemd, and then there is nothing to reload or restart.
+if [ -d /run/systemd/system ]; then
+    systemctl daemon-reload || true
+    # Installing never enables or starts the service: the administrator does that, and until
+    # then nothing runs. try-restart acts only on a running service, so an upgrade restarts what
+    # ran before it, a stopped service stays stopped, and a first install does nothing. No test
+    # for a first install is needed, and one would be wrong on Debian: after a remove, dpkg
+    # still reports the old version to a fresh install.
+    # A broken configuration must not turn an upgrade into a failed install.
+    systemctl try-restart @SERVICE@.service ||
+        echo "@SERVICE@ did not restart; see: journalctl -u @SERVICE@" >&2
+fi

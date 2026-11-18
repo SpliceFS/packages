@@ -7,10 +7,12 @@
 # openssl. The steps, in one booted system:
 #   1. the file list and the checksums of /etc are written down (scripts/lifecycle-snapshot.sh);
 #   2. sh setup.sh, built for the local test site, registers the repository;
-#   3. the published release of the server and the client is installed from the repository and
-#      the services are checked (check_service_after_install is what an install does today);
-#   4. the new packages are installed over them with the package manager's upgrade; the services
-#      are checked, restarted and rebooted (the container restarts);
+#   3. the published release of the server and the client is installed from the repository: the
+#      package is installed and the service is neither enabled nor running, then the documented
+#      start command enables and starts it, and the service is checked;
+#   4. the new packages are installed over them with the package manager's upgrade: the running
+#      service keeps running, on the new version; the services are checked, restarted and
+#      rebooted (the container restarts);
 #   5. with both programs installed, one is removed and the other still works;
 #   6. the other is removed, and nothing of ours is installed or running;
 #   7. the new version is installed fresh over what the removals left, and checked;
@@ -41,6 +43,7 @@ PROGRAM=server
 use_recorded_version
 . scripts/package-lib.sh
 . scripts/service-check-lib.sh
+. scripts/published-lib.sh
 . scripts/site-server-lib.sh
 
 platform="${PLATFORM:-$(docker version --format '{{.Server.Os}}/{{.Server.Arch}}')}"
@@ -60,17 +63,19 @@ trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-# Runs the command in a shell of its own that knows the program $1 at the version $2: what
-# package-lib.sh says about them, what the program's service check says, and the functions of
-# the package format. The shell ends this system's run when the command fails, because every
-# check reports with fail. Usage: as_program PROGRAM VERSION COMMAND [ARGUMENT...].
+# Runs the command in a shell of its own that knows the program $1 at the version $2 and the
+# revision $3: what package-lib.sh says about them, what the program's service check says, and
+# the functions of the package format. The shell ends this system's run when the command fails,
+# because every check reports with fail. Usage: as_program PROGRAM VERSION REVISION COMMAND
+# [ARGUMENT...].
 as_program() {
     (
         PROGRAM="$1"
         VERSION="$2"
-        shift 2
+        REVISION="$3"
+        shift 3
         PACKAGE_DATE="$(sed -n 's/^PACKAGE_DATE=//p' "dist/$PROGRAM/version")"
-        export PROGRAM VERSION PACKAGE_DATE
+        export PROGRAM VERSION REVISION PACKAGE_DATE
         # shellcheck source=/dev/null
         . scripts/package-lib.sh
         # shellcheck source=/dev/null
@@ -83,19 +88,21 @@ as_program() {
     ) || exit 1
 }
 
-# The same for the program $1 as it was built (new, the version of the record that make packages
-# wrote) or as it was published (the tag that scripts/lifecycle-repo.sh wrote down), as v1.2.3.
+# The same for the program $1 as it was built (new, the version and revision of the record that
+# make packages wrote) or as it was published (the tag that scripts/lifecycle-repo.sh wrote down,
+# at the revision of a release), as v1.2.3.
 as_new() {
     version="$(sed -n 's/^VERSION=//p' "dist/$1/version")"
+    revision="$(sed -n 's/^REVISION=//p' "dist/$1/version")"
     program_name="$1"
     shift
-    as_program "$program_name" "$version" "$@"
+    as_program "$program_name" "$version" "$revision" "$@"
 }
 as_published() {
     version="$(sed -n 's/^TAG=//p' "dist/lifecycle/$1/published")"
     program_name="$1"
     shift
-    as_program "$program_name" "$version" "$@"
+    as_program "$program_name" "$version" "$released_revision" "$@"
 }
 
 # Runs the package checks of scripts/package-test-lib.sh, which look at the system they run in,
@@ -108,20 +115,20 @@ in_system() {
         '. scripts/package-lib.sh; . scripts/package-test-lib.sh; for check in "$@"; do "$check"; done' sh "$@"
 }
 
-# What a fresh install does to the service today: it is enabled, starts by itself, runs as its
-# own user and does its job. The owner decided that the packages will not start the service on
-# install; when that is built, this function is the one place to change, and the steps that
-# call it follow.
+# What a fresh install does to the service: the package is installed and the service is idle.
+# Starting it is the administrator's decision, so the documented command does it, and the
+# service then runs as its own user and does its job.
 check_service_after_install() {
-    check_starts_by_itself "$1"
+    must "the package is not installed after the install" package_installed "$1"
+    check_idle_after_install "$1"
+    check_documented_start "$1"
     check_user "$1"
     check_answers "$1"
 }
 
-# The service of a program that was upgraded is the one that was running: it is running again.
+# The service of a program that was upgraded runs as before the upgrade, which
+# check_upgrade_keeps_running has proved, and it restarts and comes back after a reboot.
 check_service_after_upgrade() {
-    must "the service is not active and answering 20 seconds after the upgrade" \
-        wait_for 20 active_and_answering "$1"
     check_user "$1"
     check_restart "$1"
     check_reboot "$1"
@@ -200,7 +207,7 @@ run_lifecycle() {
 
     echo "step 4: the upgrade to the new packages"
     for p in $packaged; do
-        as_new "$p" must "upgrading $p failed" repo_upgrade "$c"
+        as_new "$p" check_upgrade_keeps_running "$c" repo_upgrade
         as_new "$p" in_system "$c" check_versions
         as_new "$p" check_service_after_upgrade "$c"
     done

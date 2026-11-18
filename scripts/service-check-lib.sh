@@ -53,10 +53,19 @@ inactive() {
     ! service_active "$1"
 }
 
-check_starts_by_itself() {
-    service_enabled "$1" || fail "the service is not enabled after the install"
-    must "the service is not active 20 seconds after the install" wait_for 20 service_active "$1"
-    echo "ok: enabled and active after the install, nobody started it"
+# Installing is not a decision to run the service. It happens inside the install command, so
+# the state right after the install is the whole answer and nothing is waited for.
+check_idle_after_install() {
+    refuse "the service is enabled after the install" service_enabled "$1"
+    refuse "the service is running after the install" service_active "$1"
+    echo "ok: installed, not enabled and not running"
+}
+
+check_documented_start() {
+    service_start_enable "$1" || fail "the documented start command failed"
+    service_enabled "$1" || fail "the service is not enabled after the documented start command"
+    must "the service is not active 20 seconds after the documented start command" wait_for 20 service_active "$1"
+    echo "ok: the documented start command enables and starts it"
 }
 
 check_user() {
@@ -82,7 +91,21 @@ check_reboot() {
     docker restart "$1" >/dev/null || fail "docker restart failed"
     must "the service is not active and answering 60 seconds after a reboot" \
         wait_for 60 active_and_answering "$1"
-    echo "ok: active and answering after a reboot, nobody started it"
+    echo "ok: active and answering after a reboot, because it was enabled"
+}
+
+# An upgrade restarts a service that was running, so that it runs the new files. The process id
+# changes only when it was restarted, which is how a restart is told from a service that was
+# left alone. The second argument is the function that upgrades, called with the container.
+check_upgrade_keeps_running() {
+    before="$(service_pid "$1")" || fail "cannot find the main process before the upgrade"
+    "$2" "$1" || fail "upgrading the package failed"
+    must "the service is not active and answering 20 seconds after an upgrade" \
+        wait_for 20 active_and_answering "$1"
+    after="$(service_pid "$1")" || fail "cannot find the main process after the upgrade"
+    [ "$after" != "$before" ] || fail "the upgrade did not restart the running service"
+    service_enabled "$1" || fail "the upgrade turned the service off"
+    echo "ok: an upgrade restarted the running service"
 }
 
 check_removal() {
@@ -94,8 +117,9 @@ check_removal() {
 check_stopped_after_removal() {
     must "the service is still active after the package was removed" wait_for 10 inactive "$1"
     refuse "the service still answers after the package was removed" answers "$1"
+    refuse "the service is still enabled after the package was removed" service_enabled "$1"
     # wait_booted is one test whose status is the answer, so set -e being off inside it changes nothing.
     # shellcheck disable=SC2310
     wait_booted "$format" "$1" || fail "the service manager is not healthy after the package was removed"
-    echo "ok: stopped and silent after the removal, the service manager is healthy"
+    echo "ok: stopped, disabled and silent after the removal, the service manager is healthy"
 }

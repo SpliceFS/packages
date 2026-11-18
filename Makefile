@@ -20,7 +20,8 @@ lint: site
 		programs/*/deb/postinst programs/*/deb/prerm programs/*/deb/postrm \
 		programs/*/alpine/*.post-install programs/*/alpine/*.post-upgrade \
 		programs/*/alpine/*.pre-deinstall programs/*/alpine/*.pre-install programs/*/package-test-extra.sh \
-		programs/*/service-check.sh
+		programs/*/service-check.sh programs/*/freebsd/check-lib.sh programs/*/freebsd/*.rc \
+		packaging/service/*/*
 
 # Signs the built script with the key file named by SIGNING_KEY_FILE and proves the signature
 # with the public key in keys/ only. Needs gpg.
@@ -47,15 +48,13 @@ e2e:
 	sh tests/run.sh
 
 # Runs the setup script as root in a virtual machine of every FreeBSD release in
-# packaging/freebsd/images, which has no Linux container. The machine runs under QEMU inside
-# LINUX_IMAGE; this needs Docker, curl and xz, nothing else. FREEBSD=15.1 limits the run to
-# one release. Where the machine has to be emulated (any computer but Linux on amd64) a run
-# takes many minutes.
-LINUX_IMAGE ?= golang:1.27
-FREEBSD ?=
+# packaging/freebsd/releases, which has no Linux container. The machine runs under QEMU in the
+# prepared image of its release (FREEBSD_IMAGE); this needs Docker and KVM (Linux on amd64), and
+# a computer without /dev/kvm stops at once, because an emulated machine takes many times as
+# long. FREEBSD=15.1 limits the run to one release.
 .PHONY: e2e-freebsd
-e2e-freebsd:
-	LINUX_IMAGE=$(LINUX_IMAGE) FREEBSD=$(FREEBSD) tests/freebsd.sh
+e2e-freebsd: freebsd-kvm
+	LINUX_IMAGE=$(GO_IMAGE) FREEBSD_IMAGE=$(FREEBSD_IMAGE) FREEBSD=$(FREEBSD) tests/freebsd.sh
 
 # --- The packages of a program ------------------------------------------------------------------
 # The package definitions of each program are in programs/PROGRAM, with its program.conf. What is
@@ -67,6 +66,11 @@ e2e-freebsd:
 #   SRC       the source tree of the program at this version. Its LICENSE and the documents named
 #             in program.conf go into the packages; they change with every version.
 #   VERSION   the version of the program, as it was released: v1.2.3 or v1.2.3-rc.1.
+#   REVISION  the revision of the packages, 0 (the default) or more. A change to the packaging
+#             alone, with the same release of the program, is packaged as the next revision of
+#             that release: the way distributions number it (deb 1.2.3-1, rpm release 2, Alpine
+#             -r1, FreeBSD 1.2.3_1). Revision 0 is named as the packages published before
+#             revisions existed. scripts/package-lib.sh says how each format writes it.
 # The packages are written to dist/PROGRAM: deb, rpm, and Alpine packages in alpine/<cpu>. SIGNING_DIR
 # names a folder with the real signing keys (scripts/signing-keys.sh says which); without it throwaway
 # keys are generated, and a package signed with them must never be published.
@@ -76,31 +80,40 @@ e2e-freebsd:
 # belongs to the caller and not to root. Every package format is built by its own distribution's
 # tools in its own image, so a package built here is the package CI builds.
 GO_IMAGE ?= ghcr.io/splicefs/go:v1
+# The image of a FreeBSD release, which runs the FreeBSD machine of that release: a FreeBSD disk
+# that has been booted once and has pkg set up (amd64 only), with QEMU. @RELEASE@ is where the
+# release goes; the releases are listed in packaging/freebsd/releases.
+FREEBSD_IMAGE ?= ghcr.io/splicefs/freebsd-@RELEASE@:v2
+# Empty runs every release in the list; 15.1, for example, only that one.
+FREEBSD ?=
 RPM_IMAGE ?= ghcr.io/splicefs/rpm-build:v1
 APK_IMAGE ?= ghcr.io/splicefs/apk-build:v1
 PROGRAM ?=
 BIN ?=
 SRC ?=
 VERSION ?=
+REVISION ?= 0
 # Alpine versions cannot carry a commit, so a build with uncommitted changes carries the date of
 # its commit: here, of the commit of SRC.
 PACKAGE_DATE ?= $(shell git -C "$(SRC)" log -1 --format=%cd --date=format:%Y%m%d 2>/dev/null || date +%Y%m%d)
 PACKAGE_OUT = dist/$(PROGRAM)
 # What the package scripts read, with the folders where the image sees BIN and SRC.
-PACKAGE_VARS = PROGRAM=$(PROGRAM) VERSION=$(VERSION) PACKAGE_DATE=$(PACKAGE_DATE) BIN=/in/bin SRC=/in/src
+PACKAGE_VARS = PROGRAM=$(PROGRAM) VERSION=$(VERSION) PACKAGE_DATE=$(PACKAGE_DATE) REVISION=$(REVISION) BIN=/in/bin SRC=/in/src
+# What the version record is written from.
+RECORD_VARS = PROGRAM=$(PROGRAM) VERSION=$(VERSION) PACKAGE_DATE=$(PACKAGE_DATE) REVISION=$(REVISION)
 # The signing keys, read only, for the steps that sign or check with them.
 KEYS_MOUNT := -v "$(CURDIR)/dist/keys":/keys:ro
 RUN_OPTS :=
 DOCKER_RUN = docker run --rm --user "$(shell id -u):$(shell id -g)" $(RUN_OPTS) -v "$(CURDIR)":/repo -w /repo \
 	-v "$(abspath $(BIN))":/in/bin:ro -v "$(abspath $(SRC))":/in/src:ro
 
-.PHONY: packages package-deb package-rpm package-apk package-inputs keys
+.PHONY: packages package-deb package-rpm package-apk package-freebsd freebsd-kvm package-inputs keys
 
 # The packages of every format. Each format is a target of its own. When all of them are built, the
 # version they were built as is recorded in dist/PROGRAM/version, which is where the tests that
 # follow read it (scripts/package-record.sh).
 packages: package-deb package-rpm package-apk
-	PROGRAM=$(PROGRAM) VERSION=$(VERSION) PACKAGE_DATE=$(PACKAGE_DATE) sh -c '. scripts/package-record.sh && write_package_record'
+	$(RECORD_VARS) sh -c '. scripts/package-record.sh && write_package_record'
 
 # Stops at once, with the name of what is missing, before any image starts. Docker would make a
 # folder that does not exist as root. A build removes the record of the version first, so that a
@@ -124,6 +137,28 @@ package-apk: RUN_OPTS = $(KEYS_MOUNT)
 package-apk: package-inputs keys
 	scripts/part.sh package-apk $(DOCKER_RUN) $(APK_IMAGE) env $(PACKAGE_VARS) sh scripts/package-apk.sh /repo/$(PACKAGE_OUT)
 
+# FreeBSD cannot run in a container, so the FreeBSD packages are built, installed and checked in a
+# virtual machine of each release in packaging/freebsd/releases (scripts/package-freebsd.sh). The
+# machine is amd64: it builds the packages for amd64 and arm64, installs the amd64 one and proves
+# its service steps (installed idle, turned on and started with the documented commands, an
+# upgrade, a removal), and the arm64 package is checked from the file. It also signs the FreeBSD
+# repositories (dist/PROGRAM/repo/freebsd) with the keys of make keys. It needs Docker and KVM; a
+# computer without /dev/kvm stops at once. FREEBSD=15.1 limits the run to one release. It is not
+# part of make packages because of that need. Like the other formats it takes PROGRAM, BIN
+# (the freebsd-amd64 and freebsd-arm64 programs of it), SRC (only to date a build that is not a
+# release: FreeBSD packages hold no documents) and VERSION, and it records the version the way
+# make packages does.
+package-freebsd: freebsd-kvm package-inputs keys
+	scripts/part.sh package-freebsd env PROGRAM=$(PROGRAM) VERSION=$(VERSION) PACKAGE_DATE=$(PACKAGE_DATE) REVISION=$(REVISION) \
+		BIN="$(abspath $(BIN))" KEYS_DIR="$(CURDIR)/dist/keys" LINUX_IMAGE=$(GO_IMAGE) FREEBSD_IMAGE=$(FREEBSD_IMAGE) FREEBSD=$(FREEBSD) \
+		sh scripts/package-freebsd.sh $(PACKAGE_OUT)
+	$(RECORD_VARS) sh -c '. scripts/package-record.sh && write_package_record'
+
+# First in every target that starts a FreeBSD machine, so that a computer that cannot is found
+# before anything is built.
+freebsd-kvm:
+	scripts/freebsd-require-kvm.sh
+
 # Decides which keys everything is signed with and puts them in ./dist/keys.
 keys:
 	LINUX_IMAGE=$(GO_IMAGE) scripts/signing-keys.sh
@@ -141,13 +176,18 @@ ONLY ?=
 PLATFORM ?=
 TEST_VARS = PROGRAM=$(PROGRAM) VERSION=$(VERSION) PLATFORM=$(PLATFORM) ONLY=$(ONLY)
 
-.PHONY: built-packages package-order-test package-test
+.PHONY: built-apk-packages built-packages package-order-test package-test
 
-# Stops at once, with the name of what is missing, before any image starts.
-built-packages:
+# Stop at once, with the name of what is missing, before any image starts. A test that uses the
+# Alpine packages only (fstab-test) needs built-apk-packages; the others need every format.
+built-apk-packages:
 	@: $(if $(PROGRAM),,$(error PROGRAM is not set; see the comment above PROGRAM))
-	@ls "dist/$(PROGRAM)"/*.deb "dist/$(PROGRAM)"/*.rpm "dist/$(PROGRAM)"/alpine/*/*.apk >/dev/null 2>&1 || \
-		{ echo "FAIL: no packages in dist/$(PROGRAM): run make packages first"; exit 1; }
+	@ls "dist/$(PROGRAM)"/alpine/*/*.apk >/dev/null 2>&1 || \
+		{ echo "FAIL: no Alpine packages in dist/$(PROGRAM): run make packages first"; exit 1; }
+
+built-packages: built-apk-packages
+	@ls "dist/$(PROGRAM)"/*.deb "dist/$(PROGRAM)"/*.rpm >/dev/null 2>&1 || \
+		{ echo "FAIL: no deb and rpm packages in dist/$(PROGRAM): run make packages first"; exit 1; }
 
 # Checks in a Debian, a Rocky Linux and an Alpine system that the versions of the packages sort
 # the way a release needs (a pre-release before its release) and that apk accepts them. It is a
@@ -161,13 +201,24 @@ package-test: built-packages package-order-test
 	$(TEST_VARS) scripts/package-test.sh
 
 # Proves the service, not only the files: in a container per system that is booted as a server,
-# with that system's own service manager as process 1, installs the package and checks that the
-# service starts by itself, runs as its own user, does its job (what that means is in
-# programs/PROGRAM/service-check.sh), restarts, comes back after a reboot and stops when the
-# package is removed.
+# with that system's own service manager as process 1, installs the package and checks that it
+# is neither enabled nor running, then starts it with the documented commands and checks that it
+# runs as its own user, does its job (what that means is in programs/PROGRAM/service-check.sh),
+# restarts and comes back after a reboot. An upgrade restarts a running service and leaves a
+# stopped one stopped; removing the package stops and disables it; a new install after that is
+# idle again.
 .PHONY: service-test
 service-test: built-packages
 	$(TEST_VARS) scripts/service-test.sh
+
+# Proves that the client mounts from the boot mounts of the system, on every Alpine image of
+# packaging/test-systems (scripts/fstab-test.sh): installs the client package next to a real server
+# (SERVER_BIN, the folder with the splicefsd program for the CPU type of the container), writes an
+# fstab line, and checks that OpenRC's netmount service mounts it and unmounts it again.
+.PHONY: fstab-test
+SERVER_BIN ?=
+fstab-test: built-apk-packages
+	$(TEST_VARS) SERVER_BIN=$(SERVER_BIN) scripts/fstab-test.sh
 
 # The part of the upgrade test that decides whether the packaging changed, checked against small
 # hand-made package listings. It needs no Docker, so it is part of check.
@@ -181,8 +232,10 @@ upgrade-diff-test:
 # file, and installs the packages in dist/PROGRAM over it, the way a user upgrades. It checks that
 # both survived, the service user exists, the new version is installed and every file the new
 # package lists is there. It runs only for a format whose packaging changed since that release: a
-# version that differs only in the programs and the changelog cannot break an upgrade. It needs
-# Docker and the network.
+# version that differs only in the programs and the changelog cannot break an upgrade. When the
+# packaging changed and the version is the published one, the packages must be a later revision
+# (make packages REVISION=N): the test says so when they are not. scripts/next-revision.sh prints
+# the revision that follows the highest one published. It needs Docker and the network.
 upgrade-test: built-packages
 	$(TEST_VARS) scripts/upgrade-test.sh
 
@@ -227,6 +280,43 @@ repo: built-packages keys
 repo-test: built-packages
 	@[ -d "dist/$(PROGRAM)/repo" ] || { echo "FAIL: no repository in dist/$(PROGRAM)/repo: run make repo first"; exit 1; }
 	$(TEST_VARS) scripts/package-test.sh repo
+
+# --- Publishing the repositories of a program ---------------------------------------------------
+# The publish of a program (the publish-one-program workflow) publishes what make repo made in
+# dist/PROGRAM/repo to the folder of the program on the package site. UPLOAD_KEY_FILE and
+# UPLOAD_KNOWN_HOSTS_FILE (see scripts/publish-program.sh) come from the environment, so no secret
+# is ever in this file.
+.PHONY: program-fetch program-publish program-publish-check program-publish-test freebsd-pack freebsd-unpack
+
+# Downloads what is published into dist/PROGRAM/repo first, so the repositories built next keep
+# every older version.
+program-fetch:
+	scripts/publish-program.sh fetch
+
+# The release builds the FreeBSD packages and publishes in different jobs. freebsd-pack puts what
+# the FreeBSD job of one release (FREEBSD=15.1) merged into dist/PROGRAM/repo into one tar, and
+# freebsd-unpack puts the tars of every release into the repository the publish job fetched
+# (scripts/freebsd-parts.sh). VERSION is the version that make package-freebsd built; unpacking
+# needs no version.
+freebsd-pack:
+	$(RECORD_VARS) scripts/freebsd-parts.sh pack $(PACKAGE_OUT) $(FREEBSD)
+
+freebsd-unpack:
+	scripts/freebsd-parts.sh unpack $(PACKAGE_OUT)
+
+# Uploads dist/PROGRAM/repo, packages first, then the index files and their signatures. It
+# refuses an incomplete repository and any upload that would delete a published package.
+program-publish:
+	scripts/publish-program.sh send
+
+# Lists the remote folder of the program and changes nothing: proves that the key and host key work.
+program-publish-check:
+	scripts/publish-program.sh check
+
+# Proves publish-program.sh against local folders and a throwaway key, with no server. It is part
+# of check; this runs it alone.
+program-publish-test:
+	scripts/publish-program-test.sh
 
 clean:
 	rm -rf dist

@@ -1,0 +1,177 @@
+name: Package and test
+
+# Builds the deb, rpm and Alpine packages of a SpliceFS program, makes the signed repositories,
+# and tests both on the server images of packaging/test-systems. A repository that releases a
+# program calls this workflow from its own CI:
+#
+#   packages:
+#     name: Packages
+#     needs: build
+#     uses: SpliceFS/packages/.github/workflows/package-and-test.yml@main
+#     with:
+#       program: server
+#       bin-artifact: bin
+#
+# bin-artifact is an artifact of the calling run that holds the dist/bin of the program's
+# build, laid out <os>-<arch>/<program>. The source tree (the license and the documents that go
+# into the packages) and the version are the caller's, at the commit that is being tested.
+#
+# Without bin-artifact the workflow tests the newest release of the program instead: it
+# downloads the release archives, proves them, and builds from the source at the release tag.
+# This repository's own CI does that, so that a change to the packaging is tested on its own.
+# The packages are then of a version that is published already, so they are built as the next
+# revision of it, which is what a change to the packaging alone would be when published; the
+# revision comes from the published repository (scripts/next-revision.sh), never from a file.
+#
+# Every key is a throwaway key made in the run: no secret is given to this workflow, and
+# nothing it makes is published.
+on:
+  workflow_call:
+    inputs:
+      program:
+        description: The program to package, a folder of programs/ (server or client)
+        type: string
+        required: true
+      bin-artifact:
+        description: Artifact of the calling run that holds dist/bin; empty tests the newest release
+        type: string
+        default: ""
+      packages-ref:
+        description: Commit, branch or tag of SpliceFS/packages to use; keep it the ref of the uses line
+        type: string
+        default: main
+
+permissions:
+  contents: read
+
+jobs:
+  # Says where the source of what is packaged is. The newest release is named once here, so
+  # that every job of the run packages the same one, also when a release is made meanwhile.
+  source:
+    name: Source
+    runs-on: ubuntu-latest
+    outputs:
+      repository: ${{ steps.release.outputs.repository || github.repository }}
+      ref: ${{ steps.release.outputs.ref || github.sha }}
+    steps:
+      - name: Packages
+        if: ${{ inputs.bin-artifact == '' }}
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: SpliceFS/packages
+          ref: ${{ inputs.packages-ref }}
+          persist-credentials: false
+      - name: Newest release of the program
+        id: release
+        if: ${{ inputs.bin-artifact == '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PROGRAM: ${{ inputs.program }}
+        run: |
+          . scripts/program-conf.sh
+          tag="$(gh release view --repo "$release_repo" --json tagName --jq .tagName)"
+          echo "newest release of $PROGRAM: $tag of $release_repo"
+          echo "repository=$release_repo" >> "$GITHUB_OUTPUT"
+          echo "ref=$tag" >> "$GITHUB_OUTPUT"
+
+  # Once for each CPU type the runners offer. The repositories are made here too, because they
+  # need the packages of all three formats. The jobs below test what this job leaves in dist.
+  packages:
+    name: Packages (${{ matrix.arch }})
+    needs: source
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            arch: amd64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+    steps:
+      - name: Packages
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: SpliceFS/packages
+          ref: ${{ inputs.packages-ref }}
+          path: packages
+          persist-credentials: false
+      - name: Source of the program
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ needs.source.outputs.repository }}
+          ref: ${{ needs.source.outputs.ref }}
+          path: src
+          persist-credentials: false
+      - name: Programs of the calling build
+        if: ${{ inputs.bin-artifact != '' }}
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ${{ inputs.bin-artifact }}
+          path: bin
+      - name: Programs of the release, proven by its signature
+        if: ${{ inputs.bin-artifact == '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PROGRAM: ${{ inputs.program }}
+          REPOSITORY: ${{ needs.source.outputs.repository }}
+          TAG: ${{ needs.source.outputs.ref }}
+        run: |
+          gh release download "$TAG" --repo "$REPOSITORY" --dir release \
+            --pattern '*-linux-*.tar.gz' --pattern SHA256SUMS --pattern SHA256SUMS.asc
+          packages/scripts/release-bin.sh "$TAG" "$PWD/release" "$PWD/bin"
+      - name: Build the deb, rpm and apk packages
+        working-directory: packages
+        env:
+          PROGRAM: ${{ inputs.program }}
+          NEWEST_RELEASE: ${{ inputs.bin-artifact == '' }}
+        run: |
+          version="v$(cat "$GITHUB_WORKSPACE/src/VERSION")"
+          revision=0
+          if [ "$NEWEST_RELEASE" = true ]; then
+            revision="$(scripts/next-revision.sh "$PROGRAM" "$version")"
+          fi
+          echo "packaging $PROGRAM $version as revision $revision"
+          make packages PROGRAM="$PROGRAM" BIN="$GITHUB_WORKSPACE/bin" SRC="$GITHUB_WORKSPACE/src" \
+            VERSION="$version" REVISION="$revision"
+      - name: Build the signed package repositories
+        working-directory: packages
+        env:
+          PROGRAM: ${{ inputs.program }}
+        run: make repo PROGRAM="$PROGRAM"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: packages-${{ inputs.program }}-${{ matrix.arch }}
+          path: |
+            packages/dist/${{ inputs.program }}/
+            packages/dist/keys/
+          if-no-files-found: error
+
+  # Installs, starts, upgrades and installs from the repository, on every system of
+  # packaging/test-systems. The jobs are in a workflow of their own, which the release of a
+  # program calls too, so that a release runs the same tests on the packages it publishes.
+  tests:
+    name: Tests
+    needs: packages
+    uses: ./.github/workflows/test-packages.yml
+    with:
+      program: ${{ inputs.program }}
+      packages-ref: ${{ inputs.packages-ref }}
+
+  # The one result a caller needs. A job that did not run counts as failed: a job is skipped
+  # only when one it needs failed. A new job is added to the list when it is added above.
+  result:
+    name: Result
+    needs: [source, packages, tests]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Every job succeeded
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          printf '%s\n' "$NEEDS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
+          if printf '%s\n' "$NEEDS" | jq -e 'any(.[]; .result != "success")' >/dev/null; then
+            echo "::error::At least one job did not succeed."
+            exit 1
+          fi

@@ -76,7 +76,7 @@ while read -r format image; do
     # one before it worked; the conditions are tests whose status is the answer.
     # shellcheck disable=SC2086,SC2310
     if boot_system --name "$container" --platform "$platform" \
-        -e PROGRAM -e VERSION -e PACKAGE_DATE -v "$root":/src:ro $mounts -w /src "$image" >"$log" 2>&1 &&
+        -e PROGRAM -e VERSION -e PACKAGE_DATE -e REVISION -v "$root":/src:ro $mounts -w /src "$image" >"$log" 2>&1 &&
         wait_booted "$format" "$container" >>"$log" 2>&1 &&
         docker exec "$container" sh "scripts/$kind-test-$format.sh" /out >>"$log" 2>&1; then
         echo "ok   $format $image"
