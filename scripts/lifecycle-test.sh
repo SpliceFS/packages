@@ -1,7 +1,7 @@
 #!/bin/sh
 # Tests the whole life of the packages on every system in packaging/test-systems, in ONE boot of
 # the server image per system, the way a person would use them: set up our repository, install
-# the published release of both programs, upgrade to the new packages, remove them, install the
+# the newest published packages of both programs, upgrade to the new packages, remove them, install the
 # new ones fresh, uninstall as the documentation says, and find the system as it was.
 # Runs on the host after make packages (make lifecycle-test); it needs Docker, curl and python3.
 # The steps, in one booted system:
@@ -128,7 +128,7 @@ check_service_after_install() {
     check_answers "$1"
 }
 
-# The published release is whatever was released: a release made before the packages stopped
+# The published package is whatever was published: a package made before the packages stopped
 # starting the service on install starts it, a later one leaves it idle. Which it is is not
 # this test's to judge, so only the state the next steps need is made and checked: installed, and
 # enabled and running by the documented command, which changes nothing when it is so already.
@@ -215,7 +215,7 @@ run_lifecycle() {
     must "setup.sh failed" docker exec "$c" sh /site/setup.sh
     as_new server must "refreshing the package index failed" repo_refresh "$c"
 
-    echo "step 3: the published release is installed from the repository"
+    echo "step 3: the published package is installed from the repository"
     for p in $packaged; do
         as_published "$p" must "installing the published $p failed" repo_install "$c"
         as_published "$p" in_system "$c" check_versions
