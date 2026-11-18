@@ -42,6 +42,10 @@ check_documented_start() {
 }
 
 check_user() {
+    # Right after a start the main process can still be the service manager's fresh child, which is
+    # root until it has become the program. A service that answers has become the program, so the
+    # owner is read only after it answers: the order comes from that signal, not from time.
+    must "the service does not do its job: expected that it $answers_text" wait_for 10 answers "$1"
     user="$(service_user "$1")" || fail "cannot find the main process of the service"
     [ "$user" = "$expected_user" ] ||
         fail "the service runs as '$user', not as '$expected_user'"
