@@ -1,8 +1,8 @@
 #!/bin/sh
 # Collects the packages of the test repository of the program PROGRAM in dist/lifecycle/PROGRAM:
 # the new packages of dist/PROGRAM and the newest package of the program on the package site at the
-# time of the build (UPGRADE_FROM of the version record; the newest on the site when the record has
-# none), so that the repository is what a publish would make (scripts/repo-*.sh keep the older
+# time of the build (UPGRADE_FROM of the version record; the newest on the site when it is empty),
+# so that the repository is what a publish would make (scripts/repo-*.sh keep the older
 # version next to the new one). The published packages are downloaded from the site the way the
 # upgrade test does (scripts/published-lib.sh) for this machine's CPU type. They were made with the
 # release key, which the test repository does not have: the Alpine ones, the new ones too, are

@@ -361,7 +361,7 @@ make package-test PROGRAM=server   # installs and removes each package on every 
 make service-test PROGRAM=server   # proves the service installs idle, starts when told, answers, restarts, upgrades and stops, on every image
 make fstab-test PROGRAM=client SERVER_BIN=<splicefsd folder>   # proves an fstab line is mounted by OpenRC's netmount on every Alpine image
 make user-mode-test PROGRAM=client SERVER_BIN=<splicefsd folder>   # proves an ordinary user can run the client and mount, on the first image of each format
-make upgrade-test PROGRAM=server  # installs the newest package published on the site when the packages were built (UPGRADE_FROM of make packages; the newest on the site when none), then upgrades to the packages in dist (only when the packaging changed)
+make upgrade-test PROGRAM=server  # installs the newest package published on the site when the packages were built (UPGRADE_FROM of make packages; the newest on the site when it is empty), then upgrades to the packages in dist (only when the packaging changed)
 make repo PROGRAM=server           # builds the signed apt, rpm and Alpine repositories into dist/server/repo
 make repo-test PROGRAM=server      # installs from them with signature checks on
 make package-order-test                           # checks that the package versions sort right in dpkg, rpm and apk
@@ -404,9 +404,9 @@ which prints a version such as `0.5.34-1`) and gives it to `make packages` as `U
 version record in `dist/<program>/version` keeps it, and the upgrade and lifecycle tests download that
 package from the site and start from it, so a package published while the run is going never turns
 the upgrade into a downgrade. A release on GitHub carries no packages: what people have installed is
-what the site serves. Without `UPGRADE_FROM` (a build by hand) the tests ask the site when they run,
-and a program with no package on the site yet has nothing to upgrade from, so the upgrade test says so
-and skips.
+what the site serves. A program with no package on the site yet gets `none`, which the record keeps:
+there is nothing to upgrade from, so the upgrade test says so and skips, and no job asks the site again.
+Without `UPGRADE_FROM` (a build by hand) the tests ask the site when they run.
 
 `make check` needs `python3`. It also uses `node`, `dash` and `bash` when they are installed.
 

@@ -1,6 +1,6 @@
 #!/bin/sh
 # Tests the upgrade of the program PROGRAM from the published package the build recorded (the
-# newest on the package site when it recorded none) to the one in dist/PROGRAM, but only when the
+# newest on the package site when it recorded nothing) to the one in dist/PROGRAM, but only when the
 # packaging changed: a version whose packages differ from the published ones only in the programs
 # and the content of the documents (both come from the source of the program) cannot break an
 # upgrade, so there is nothing to test. When the packaging
@@ -46,7 +46,7 @@ case "$platform" in
 esac
 
 # The published version to start from, the one the build recorded; the newest on the site when the
-# record has none, and then empty when there is none. The functions of published-lib.sh are tests
+# record is empty. Empty when nothing is published. The functions of published-lib.sh are tests
 # whose status is the answer, so set -e being off inside them changes nothing.
 # shellcheck disable=SC2310
 from="$(upgrade_from_version)" ||
