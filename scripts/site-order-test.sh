@@ -9,8 +9,9 @@
 #   - exactly one job reads the site (make program-fetch) and exactly one writes it (make
 #     program-publish, make publish); no other job talks to it (rsync or the scripts behind it);
 #   - neither of them is a matrix or inside a matrix call, whose copies run at the same time;
-#   - every other job of the run is ordered with both, one needs the other, directly or not,
-#     and the writing job comes after the reading one.
+#   - the writing job comes after the reading one, and every other job of the run is ordered
+#     with it: one needs the other, directly or not. Jobs that never talk to the site may run
+#     alongside the reading one.
 # The check reads the subset of YAML the workflows use: a job is a key two spaces in, its keys
 # four spaces in, and `needs` is written on one line.
 # It runs on the host, no Docker (part of make check). Usage: site-order-test.sh [WORKFLOW_DIR];
@@ -134,8 +135,6 @@ cat >"$order_awk" <<'AWK'
         if (bad) exit 1
         for (a = 1; a <= count; a++) {
             job = names[a]
-            if (job != r[1] && !after[job, r[1]] && !after[r[1], job])
-                broken(job " and " r[1] " can run at once: neither needs the other")
             if (job != w[1] && !after[job, w[1]] && !after[w[1], job])
                 broken(job " and " w[1] " can run at once: neither needs the other")
         }
@@ -253,7 +252,8 @@ case_with "run:program/test and run:send can run at once" \
 # A job inside the call waits for what the calling job needs, so it comes after the reading job.
 case_with "" \
     's|needs: \[plan, fetch, program\]|needs: program|'
-case_with "run:program/build and run:fetch can run at once" \
+# A job that does not talk to the site may run alongside the reading job.
+case_with "" \
     's|needs: \[plan, fetch\]|needs: plan|; s|needs: \[plan, fetch, program\]|needs: [fetch, program]|'
 case_with "run:send writes the site and does not come after run:fetch" \
     's|needs: plan|needs: [plan, send]|; s|needs: \[plan, fetch, program\]|needs: [plan, program]|; s|needs: \[plan, fetch\]|needs: plan|'
