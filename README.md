@@ -279,6 +279,7 @@ make upgrade-test PROGRAM=server  # installs the newest published release, then 
 make repo PROGRAM=server           # builds the signed apt, rpm and Alpine repositories into dist/server/repo
 make repo-test PROGRAM=server      # installs from them with signature checks on
 make package-order-test                           # checks that the package versions sort right in dpkg, rpm and apk
+make apk-resign-test PROGRAM=server               # checks that Alpine packages signed again are trusted with the new key only
 ```
 
 The tests need Docker and the packages that `make packages` left in `dist/<program>`. `make packages`
