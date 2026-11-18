@@ -8,15 +8,9 @@ name: Rules
 # is no bot and no key, so the author writes the section.
 # The reader of the description is the shared one of https://github.com/SpliceFS/.github. The
 # shared process pull-request-rules-v1 is not called: it also sets a version in the branch.
-#
-# The merge queue runs this workflow too, because the check is required. A merge group has no
-# description, and the one of the pull request was checked when it entered the queue (a pull
-# request cannot be queued while this check fails), so on a merge group the check passes.
 on:
   pull_request:
     types: [opened, edited, reopened, synchronize]
-  merge_group:
-    types: [checks_requested]
 
 permissions:
   contents: read
@@ -26,11 +20,7 @@ jobs:
     name: Change log
     runs-on: ubuntu-latest
     steps:
-      - name: Merge group
-        if: github.event_name == 'merge_group'
-        run: echo "A merge group has no description. The one of the pull request was checked when it entered the queue."
       - name: Rules
-        if: github.event_name == 'pull_request'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: SpliceFS/.github
@@ -39,7 +29,6 @@ jobs:
       # The change as it will be merged: the merge commit of the pull request, and its first
       # parent is the target branch.
       - name: Repository
-        if: github.event_name == 'pull_request'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           path: work
@@ -47,7 +36,6 @@ jobs:
           persist-credentials: false
       - name: Read the change log entry from the description
         id: entry
-        if: github.event_name == 'pull_request'
         working-directory: work
         env:
           # Passed through the environment, never pasted into the script: the description is
