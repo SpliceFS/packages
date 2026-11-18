@@ -7,15 +7,17 @@
 # openssl. The steps, in one booted system:
 #   1. the file list and the checksums of /etc are written down (scripts/lifecycle-snapshot.sh);
 #   2. sh setup.sh, built for the local test site, registers the repository;
-#   3. the published release of the server and the client is installed from the repository: the
-#      package is installed and the service is neither enabled nor running, then the documented
-#      start command enables and starts it, and the service is checked;
+#   3. the published release of the server and the client is installed from the repository, the
+#      documented start command enables and starts the services (a release may already have done
+#      so), and they are checked;
 #   4. the new packages are installed over them with the package manager's upgrade: the running
 #      service keeps running, on the new version; the services are checked, restarted and
 #      rebooted (the container restarts);
 #   5. with both programs installed, one is removed and the other still works;
 #   6. the other is removed, and nothing of ours is installed or running;
-#   7. the new version is installed fresh over what the removals left, and checked;
+#   7. the new version is installed fresh over what the removals left: the package is installed
+#      and the service is neither enabled nor running, then the documented start command
+#      enables and starts it, and the service is checked;
 #   8. the documented uninstall (steps/uninstall-<family>.sh, the files the install page and the
 #      README show): the packages, the data, the configuration, the user and the group, and
 #      sh setup.sh --remove, run as they are written; nothing of ours is installed or running;
@@ -111,7 +113,7 @@ as_published() {
 in_system() {
     container_name="$1"
     shift
-    docker exec -e PROGRAM -e VERSION -e PACKAGE_DATE -w /src "$container_name" sh -c \
+    docker exec -e PROGRAM -e VERSION -e REVISION -e PACKAGE_DATE -w /src "$container_name" sh -c \
         '. scripts/package-lib.sh; . scripts/package-test-lib.sh; for check in "$@"; do "$check"; done' sh "$@"
 }
 
@@ -121,6 +123,17 @@ in_system() {
 check_service_after_install() {
     must "the package is not installed after the install" package_installed "$1"
     check_idle_after_install "$1"
+    check_documented_start "$1"
+    check_user "$1"
+    check_answers "$1"
+}
+
+# The published release is whatever was released: a release made before the packages stopped
+# starting the service on install starts it, a later one leaves it idle. Which it is is not
+# this test's to judge, so only the state the next steps need is made and checked: installed, and
+# enabled and running by the documented command, which changes nothing when it is so already.
+check_service_after_published_install() {
+    must "the package is not installed after the install" package_installed "$1"
     check_documented_start "$1"
     check_user "$1"
     check_answers "$1"
@@ -202,7 +215,7 @@ run_lifecycle() {
     for p in $packaged; do
         as_published "$p" must "installing the published $p failed" repo_install "$c"
         as_published "$p" in_system "$c" check_versions
-        as_published "$p" check_service_after_install "$c"
+        as_published "$p" check_service_after_published_install "$c"
     done
 
     echo "step 4: the upgrade to the new packages"
