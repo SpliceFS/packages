@@ -6,9 +6,9 @@
 # stopping netmount unmounts it. systemd systems are not covered: their mounts are made by
 # systemd, which this test does not run. Runs on the host (make fstab-test); it needs Docker.
 # Environment: the version comes from dist/client/version (scripts/package-record.sh);
-# SERVER_BIN is the folder that holds the splicefsd program built for the CPU type of the
-# container (the dist/bin/linux-<arch> folder of the server); PLATFORM and ONLY as for
-# scripts/service-test.sh.
+# SERVER_BIN is the folder that holds the programs of the server (splicefsd and splicefsdctl)
+# built for the CPU type of the container (the dist/bin/linux-<arch> folder of the server);
+# PLATFORM and ONLY as for scripts/service-test.sh.
 #
 # The client opens its control socket late in this test (CLIENT_DELAY seconds, a wrapper that
 # only the test installs), as it does at boot while it connects to its clusters. netmount starts

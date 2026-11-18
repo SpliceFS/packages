@@ -218,7 +218,7 @@ run_lifecycle() {
     echo "step 3: the published package is installed from the repository"
     for p in $packaged; do
         as_published "$p" must "installing the published $p failed" repo_install "$c"
-        as_published "$p" in_system "$c" check_versions
+        as_published "$p" in_system "$c" check_service_version
         as_published "$p" check_service_after_published_install "$c"
     done
 
