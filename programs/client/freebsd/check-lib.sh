@@ -73,11 +73,11 @@ check_late_line() {
 
 # --- the client run by an ordinary user ---------------------------------------------------------
 
-# "Run as yourself" on the install page: the steps the administrator takes once, as root, and
-# then the client started by the user. The commands below are the ones the page shows, for the
-# user the page names; scripts/freebsd-service-test.sh compares them with the page, the README and
-# steps/user-mode-start.sh. The machine has no cluster, and the cluster of the page is only
-# defined: a client with no mounts does not contact it, so the page's address stays as it is.
+# "Run as yourself" in the install instructions: the steps the administrator takes once, as root,
+# and then the client started by the user. The commands below are the ones the instructions show,
+# for the user they name; scripts/freebsd-service-test.sh compares them with the README and
+# steps/user-mode-start.sh. The machine has no cluster, and the cluster of the instructions is only
+# defined: a client with no mounts does not contact it, so the address stays as it is.
 user_mode_user=alice
 
 # One command to a line, run one at a time by user_mode_root_steps.
@@ -85,7 +85,7 @@ user_mode_root_text() {
     cat <<'ROOT_STEPS'
 sysctl vfs.usermount=1
 echo 'vfs.usermount=1' >> /etc/sysctl.conf
-sysrc kld_list+=fusefs && kldload fusefs
+sysrc kld_list+=fusefs && kldload -n fusefs
 pw groupmod operator -m alice
 printf '[fuse_users=10]\nadd path fuse mode 0660 group operator\n' >> /etc/devfs.rules
 sysrc devfs_system_ruleset=fuse_users && service devfs restart
@@ -113,7 +113,7 @@ START_STEPS
 }
 
 # Runs the command line $1 as the user, in a login: the group the root steps gave is only there
-# after a new login, as the page says.
+# after a new login, as the instructions say.
 as_user() {
     su -l "$user_mode_user" -c "$1"
 }
@@ -123,23 +123,14 @@ user_client_answers() {
     as_user 'splicefsctl status'
 }
 
-# The service of this machine has loaded fusefs already, so the page's kldload says that and
-# fails; on a machine where the service is off it succeeds. What the line is for, a loaded module
-# that is loaded at every boot, is proved after the steps. Any other step must succeed.
-user_mode_step_failed() {
-    case "$1" in
-        *'kldload fusefs') ;;
-        *) fail "the documented step failed: $1" ;;
-    esac
-}
-
-# The root steps of the page, and what they are for: the user, the mount permission, the module,
-# the group and the device.
+# The root steps as documented, and what they are for: the user, the mount permission, the
+# module, the group and the device. Every step must succeed: kldload -n does nothing when the
+# service of this machine has loaded fusefs already.
 user_mode_prepare() {
     pw useradd "$user_mode_user" -m -s /bin/sh || fail "pw could not add $user_mode_user"
     user_mode_root_text > "$check_work/root-steps"
     while IFS= read -r step; do
-        sh -c "$step" < /dev/null || user_mode_step_failed "$step"
+        sh -c "$step" < /dev/null || fail "the documented step failed: $step"
     done < "$check_work/root-steps"
     usermount="$(sysctl -n vfs.usermount)"
     [ "$usermount" = 1 ] || fail "vfs.usermount is not 1 after the root steps"
@@ -152,8 +143,8 @@ user_mode_prepare() {
         fail "/dev/fuse is not mode 0660 of group operator after the devfs rule"
 }
 
-# Starts the block of the page as the user, in the background: the client stays in the
-# foreground of the block. The password is typed on standard input, as the page says. The
+# Starts the documented block as the user, in the background: the client stays in the
+# foreground of the block. The password is typed on standard input, as the block says. The
 # folder of the work is made enterable, so that the user can read the block.
 user_mode_start() {
     start_block="$check_work/user-start.sh"
@@ -164,7 +155,7 @@ user_mode_start() {
     user_client_job=$!
 }
 
-# What the client put where the page says it does: the user's own folders, and a socket folder
+# What the client put where the instructions say it does: the user's own folders, and a socket folder
 # that only the user may enter.
 user_mode_prove_folders() {
     # The user's shell expands HOME, as it does for the user in a terminal.
@@ -186,7 +177,7 @@ user_mode_prove_device() {
     as_user 'exec 3<>/dev/fuse' || fail "$user_mode_user cannot open /dev/fuse"
 }
 
-# Ends the client with the signal the page's Ctrl-C sends, and waits for the block to end, which
+# Ends the client with the signal the Ctrl-C of the instructions sends, and waits for the block to end, which
 # is the signal that the client has stopped.
 user_mode_stop() {
     pid="$(pgrep -u "$user_mode_user" -x splicefs)" || fail "no splicefs process of $user_mode_user"

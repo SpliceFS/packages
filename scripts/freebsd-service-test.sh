@@ -328,7 +328,7 @@ RUN
 }
 
 user_mode_machine
-same "the machine accepts a user who runs the client as the page shows" 0 "$user_mode_status"
+same "the machine accepts a user who runs the client as the README shows" 0 "$user_mode_status"
 holds "the machine says that the user mode works" "user mode:" "$user_mode_said"
 calls="$(cat "$box/calls")"
 holds "the machine removed the user it made" "pw userdel" "$calls"
@@ -345,9 +345,9 @@ holds "the machine refuses a root step that fails" \
     "FAIL: the documented step failed: sysctl vfs.usermount=1" "$user_mode_said"
 um_fail=kldload
 user_mode_machine
-same "the machine accepts a kldload that fails because the service loaded the module already" \
-    0 "$user_mode_status"
-um_fail='kldload kldstat'
+holds "the machine refuses a root step that fails, whichever it is" \
+    "FAIL: the documented step failed: sysrc kld_list+=fusefs && kldload -n fusefs" "$user_mode_said"
+um_fail=kldstat
 user_mode_machine
 holds "the machine refuses a machine where fusefs is not loaded" "FAIL: fusefs is not loaded" "$user_mode_said"
 um_fuse_stat='crw------- root'
@@ -372,8 +372,8 @@ um_fuse=dir
 user_mode_machine
 holds "the machine refuses a /dev/fuse that the user cannot open" "cannot open" "$user_mode_said"
 
-# The steps in check-lib.sh are the ones the documents show: every root step is on the page and
-# in the README, and the start block is the file that make check ties to both.
+# The steps in check-lib.sh are the ones this repository documents: every root step is in the
+# README, and the start block is the file steps/user-mode-start.sh.
 check_lib=programs/client/freebsd/check-lib.sh
 # Prints the lines of check-lib.sh inside the here-document that ends in the word $1.
 check_lib_text() {
@@ -383,11 +383,9 @@ check_lib_text() {
 root_steps="$(check_lib_text ROOT_STEPS)"
 start_steps="$(check_lib_text START_STEPS)"
 step_count="$(printf '%s\n' "$root_steps" | awk 'END { print NR }')"
-same "check-lib.sh holds the six root steps of the page" 6 "$step_count"
-user_page="$(sed -e 's/&amp;/\&/g' -e 's/&gt;/>/g' site/index.html)"
+same "check-lib.sh holds the six root steps" 6 "$step_count"
 user_readme="$(cat README.md)"
 while IFS= read -r step; do
-    holds "the install page shows the root step: $step" "$step" "$user_page"
     holds "README.md shows the root step: $step" "$step" "$user_readme"
 done <<STEPS
 $root_steps

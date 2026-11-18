@@ -125,13 +125,13 @@ once, as root: `modprobe fuse`.
 
 FreeBSD (pkg), once, as root. The package sets none of this. `vfs.usermount` lets a user mount,
 the `operator` group may open `/dev/fuse` after the devfs rule, and the `fusefs` module must be
-loaded because the service that loads it is off. Log in again after the group change. The folder
-you mount on must be yours.
+loaded because the service that loads it is off (`kldload -n` does nothing when it is loaded
+already). Log in again after the group change. The folder you mount on must be yours.
 
 ```
 sysctl vfs.usermount=1
 echo 'vfs.usermount=1' >> /etc/sysctl.conf
-sysrc kld_list+=fusefs && kldload fusefs
+sysrc kld_list+=fusefs && kldload -n fusefs
 pw groupmod operator -m alice
 printf '[fuse_users=10]\nadd path fuse mode 0660 group operator\n' >> /etc/devfs.rules
 sysrc devfs_system_ruleset=fuse_users && service devfs restart
