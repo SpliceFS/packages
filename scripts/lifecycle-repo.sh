@@ -4,7 +4,7 @@
 # what a release would publish (scripts/repo-*.sh keep the older version next to the new one).
 # The published packages are downloaded the way the upgrade test does (scripts/published-lib.sh)
 # for this machine's CPU type. They were made with the release key, which the test repository
-# does not have: the Alpine ones are signed again with the key of dist/keys
+# does not have: the Alpine ones, the new ones too, are signed again with the key of dist/keys
 # (scripts/apk-resign.py); the others are signed by the repository step. The tag of the
 # published release is written to dist/lifecycle/PROGRAM/published for the test. Runs on the host
 # (make lifecycle-test). Needs python3, openssl and curl. Environment: PROGRAM; PLATFORM.
@@ -40,7 +40,14 @@ published="dist/$PROGRAM/published"
 rm -rf "$out"
 mkdir -p "$out/alpine/$apk_arch"
 cp dist/"$PROGRAM"/*.deb dist/"$PROGRAM"/*.rpm "$out/"
-cp -R "dist/$PROGRAM/alpine/." "$out/alpine/"
+# The new Alpine packages were signed with the key of the build that made them. The server and
+# the client are built in runs of their own, with keys of their own, so they are signed again with
+# the key of this repository, as the published ones are below.
+for apk in dist/"$PROGRAM"/alpine/*/*.apk; do
+    arch="$(basename "$(dirname "$apk")")"
+    mkdir -p "$out/alpine/$arch"
+    python3 -I scripts/apk-resign.py "$apk" dist/keys/splicefs.rsa splicefs.rsa.pub "$out/alpine/$arch/$(basename "$apk")"
+done
 
 for format in deb rpm apk; do
     file="$(release_file_name "$format" "$old_debver" "$old_rpmver" "$old_rpmrel" "$old_apkver" "$old_apkrel")"
