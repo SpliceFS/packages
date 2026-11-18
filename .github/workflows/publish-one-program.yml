@@ -80,9 +80,7 @@ jobs:
       # needs no edit of this file.
       - name: List the FreeBSD releases as JSON
         id: freebsd
-        run: |
-          lines="$(awk '!/^#/ && NF { print $1 }' packaging/freebsd/releases)"
-          printf 'releases=%s\n' "$(printf '%s\n' "$lines" | jq -R -n -c '[inputs | select(length > 0)]')" >> "$GITHUB_OUTPUT"
+        run: echo "releases=$(scripts/freebsd-releases.sh)" >> "$GITHUB_OUTPUT"
 
   # Two publishes must not overlap. Each one builds the repositories on top of what is published,
   # so one that starts while an earlier one is still running would publish without the earlier
