@@ -87,8 +87,9 @@ e2e-freebsd: freebsd-kvm ## Runs the setup script in a FreeBSD machine of every 
 #   UPGRADE_FROM  the version of the newest package of the program on the package site, as the apt
 #             index writes it (0.5.34-1; scripts/published-newest.sh prints it), which the upgrade
 #             tests start from. A run reads it once and gives it here, so that every job of the run
-#             upgrades from it, also when a newer package is published meanwhile. Empty (the
-#             default) leaves the tests to ask the site when they run.
+#             upgrades from it, also when a newer package is published meanwhile. The word none says
+#             the site lists no package of the program, so the tests have nothing to start from and
+#             do not ask again. Empty (the default) leaves the tests to ask the site when they run.
 # The packages are written to dist/PROGRAM: deb, rpm, and Alpine packages in alpine/<cpu>. SIGNING_DIR
 # names a folder with the real signing keys (scripts/signing-keys.sh says which); without it throwaway
 # keys are generated, and a package signed with them must never be published.
@@ -262,7 +263,7 @@ upgrade-diff-test: ## Checks, without Docker, how the upgrade test decides that 
 	scripts/upgrade-diff-test.sh
 
 # Installs the newest package of the program that was published when the packages were built
-# (UPGRADE_FROM of make packages; the newest on the package site when the build recorded none),
+# (UPGRADE_FROM of make packages; the newest on the package site when it is empty),
 # downloaded from the site, in a clean, booted server of the first system of each format in
 # packaging/test-systems, writes a configuration line and a data file, and installs the packages in
 # dist/PROGRAM over it, the way a user upgrades. It checks that both survived, the service user
