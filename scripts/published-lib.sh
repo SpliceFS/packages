@@ -2,7 +2,7 @@
 # What the scripts that read the package site have in common (scripts/published-newest.sh,
 # scripts/next-revision.sh, scripts/upgrade-test.sh, scripts/lifecycle-repo.sh,
 # scripts/revision-listings.sh): where the site is, what the published files are called and where
-# they are, and how they are downloaded. What people have installed is what the site serves, so
+# they are, and how they are downloaded and proven. What people have installed is what the site serves, so
 # nothing here asks GitHub. Sourced after scripts/package-lib.sh (or scripts/program-conf.sh for the
 # scripts that only read the index), which says what the program and its versions are called. The
 # downloads insist on HTTPS, also after a redirect, so that a redirect can never hand over a package
@@ -24,6 +24,11 @@ fetch_site_file() {
         return 1
     fi
 }
+
+# What scripts/published-newest.sh prints, and the version record keeps (UPGRADE_FROM), when the
+# site was read and lists no package of the program. A record that is empty says the site was not
+# read: the tests then ask it themselves. This word says it was, so no later job asks again.
+nothing_published=none
 
 # Writes the apt index of the program, which lists every version ever published, into the file
 # $1. INDEX_FILE is a test hook that names a local index file and replaces the download. A failed
@@ -95,14 +100,15 @@ newest_debver() {
 # (UPGRADE_FROM, which use_recorded_version sets), so that a package published after the build,
 # which is newer than the packages, never turns the upgrade into a downgrade. A build that
 # recorded none (a build by hand) starts from the newest package on the site, as
-# scripts/published-newest.sh reads it, or has nothing to start from. A package of the program
-# that is being published is never it: only what the site serves counts.
+# scripts/published-newest.sh reads it. Prints nothing when nothing is published, whether the
+# build or this call read that. A package of the program that is being published is never it: only
+# what the site serves counts. Status 1 when the site could not be read.
 upgrade_from_version() {
-    if [ -n "${UPGRADE_FROM:-}" ]; then
-        printf '%s\n' "$UPGRADE_FROM"
-    else
-        sh scripts/published-newest.sh "$PROGRAM"
+    uf_version="${UPGRADE_FROM:-}"
+    if [ -z "$uf_version" ]; then
+        uf_version="$(sh scripts/published-newest.sh "$PROGRAM")" || return 1
     fi
+    [ "$uf_version" = "$nothing_published" ] || printf '%s\n' "$uf_version"
 }
 
 # Sets old_tag and old_revision (the program version and the revision of the published package
@@ -133,9 +139,15 @@ published_path() {
 }
 
 # Downloads the file at the path $1 of the site (published_path) into the folder $2 unless it is
-# there. Status 1 when the download failed.
+# there, and proves it (scripts/published-verify.sh), also when it was there: a file that does not
+# prove is removed. Status 1 when the download failed or the file does not prove, with the reason
+# on the standard error.
 download_published_file() {
-    [ ! -f "$2/$(basename "$1")" ] || return 0
     mkdir -p "$2"
-    fetch_site_file "$site_url/$1" "$2/$(basename "$1")"
+    dl_file="$2/$(basename "$1")"
+    [ -f "$dl_file" ] || fetch_site_file "$site_url/$1" "$dl_file" || return 1
+    PROGRAM="$PROGRAM" sh scripts/published-verify.sh "$1" "$dl_file" || {
+        rm -f "$dl_file"
+        return 1
+    }
 }

@@ -1,17 +1,19 @@
 #!/bin/sh
 # Decides whether the packaging of two versions differs, which is what makes an upgrade test
 # worth running. It compares two package listings (see scripts/upgrade-lib.sh for the format)
-# and ignores the files named after the listings: the program and the changelog change in
-# every version, so they say nothing about the packaging. Everything else in a listing counts:
-# every file with its mode, owner and content, the install and remove scripts, and the
-# declared dependencies and configuration files.
-# Usage: upgrade-diff.sh OLD_LISTING NEW_LISTING [NAME...]
+# and ignores what the program's own source gives the package, which its version changes and
+# which says nothing about the packaging: the programs named after the listings are left out
+# altogether, and the documents named after "--" are compared without their content (that they
+# are in the package, with their mode and owner, still counts: it is the packaging that installs
+# them). Everything else in a listing counts: every file with its mode, owner and content, the
+# install and remove scripts, and the declared dependencies and configuration files.
+# Usage: upgrade-diff.sh OLD_LISTING NEW_LISTING [PROGRAM...] [-- DOCUMENT...]
 # Exit status: 0 nothing differs, 1 something differs (the differences are printed, "-" for
 # the old line and "+" for the new one), 2 wrong usage. Runs on the host, no Docker.
 set -eu
 
 if [ "$#" -lt 2 ]; then
-    echo "usage: upgrade-diff.sh OLD_LISTING NEW_LISTING [NAME...]" >&2
+    echo "usage: upgrade-diff.sh OLD_LISTING NEW_LISTING [PROGRAM...] [-- DOCUMENT...]" >&2
     exit 2
 fi
 for listing in "$1" "$2"; do
@@ -20,16 +22,30 @@ done
 old="$1"
 new="$2"
 shift 2
-# The names to leave out, each with a space on both sides so only whole names match.
-skip=" $* "
+# The names to leave out and the names of the documents, each with a space on both sides so only
+# whole names match.
+skip=" "
+docs=" "
+in_docs=no
+for name in "$@"; do
+    if [ "$name" = "--" ]; then
+        in_docs=yes
+    elif [ "$in_docs" = yes ]; then
+        docs="$docs$name "
+    else
+        skip="$skip$name "
+    fi
+done
 
-# A path line ends in the path, so the name to leave out is the last part of that path. Only
-# path lines are looked at: a dependency or a script line is never left out.
+# A path line ends in the path, so the name of a program or document is the last part of that path.
+# Only path lines are looked at: a dependency or a script line is never left out. The content sum
+# is the fourth field of a file line.
 keep() {
-    LC_ALL=C awk -v skip="$skip" '
+    LC_ALL=C awk -v skip="$skip" -v docs="$docs" '
         ($1 == "file" || $1 == "dir" || $1 == "link") {
             n = split($NF, part, "/")
             if (part[n] != "" && index(skip, " " part[n] " ") > 0) next
+            if ($1 == "file" && part[n] != "" && index(docs, " " part[n] " ") > 0) $4 = "-"
         }
         { print }
     ' "$1" | LC_ALL=C sort
