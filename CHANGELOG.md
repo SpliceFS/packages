@@ -6,6 +6,10 @@ the setup script and the page at packages.splicefs.org.
 
 The change log of all parts of SpliceFS, side by side: https://splicefs.org/changelog/
 
+## [0.4.21] - 2026-11-18
+
+- Alpine: a SpliceFS folder can be mounted at boot from /etc/fstab (see "After the install").
+
 ## [0.4.20] - 2026-11-17
 
 - FreeBSD: installing a SpliceFS package no longer turns its service on at boot; turn it on with
