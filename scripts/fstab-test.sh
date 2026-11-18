@@ -10,6 +10,11 @@
 # container (the dist/bin/linux-<arch> folder of the server); PLATFORM and ONLY as for
 # scripts/service-test.sh.
 #
+# The client opens its control socket late in this test (CLIENT_DELAY seconds, a wrapper that
+# only the test installs), as it does at boot while it connects to its clusters. netmount starts
+# the moment the start command of the client returns, so the mount works only when that command
+# returns once the client answers, which the OpenRC service waits for (start_post).
+#
 # What a container cannot show: OpenRC skips netmount at boot in a container, so the order of
 # the client service before netmount is only declared (programs/client/openrc/splicefs.initd),
 # not run. A virtual machine is needed for that.
@@ -55,6 +60,21 @@ chmod 600 /etc/splicefs/client/secret
 echo "test:/ /mnt/files splicefs _netdev,nofail 0 0" >>/etc/fstab
 '
 
+# The delay is the fault injected into the client, not a wait for anything: it makes a start
+# command that returns before the client answers show itself every time.
+CLIENT_DELAY=3
+# The service starts /usr/bin/splicefs and its init script fixes that path, so the wrapper takes
+# the place of the program and runs the real one, which keeps its own name, after the delay.
+# The script runs in the container, so its variables stay unexpanded here.
+# shellcheck disable=SC2016
+SLOW_CLIENT='
+set -eu
+mkdir -p /usr/local/real
+mv /usr/bin/splicefs /usr/local/real/splicefs
+printf "#!/bin/sh\nsleep %s\nexec /usr/local/real/splicefs \"\$@\"\n" "$1" >/usr/bin/splicefs
+chmod 755 /usr/bin/splicefs
+'
+
 server_answers() {
     docker exec "$1" wget -qO /dev/null http://127.0.0.1:18490/api/v1/health
 }
@@ -78,8 +98,10 @@ run_checks() {
     docker exec "$c" test -x /sbin/mount.splicefs || fail "/sbin/mount.splicefs is missing"
     docker exec "$c" sh -c "$SERVER_SETUP" || fail "setting up the server and the fstab line failed"
     must "the server does not answer after 20 seconds" wait_for 20 server_answers "$c"
+    docker exec "$c" sh -c "$SLOW_CLIENT" sh "$CLIENT_DELAY" || fail "installing the slow client failed"
     must "the documented start command failed" service_start_enable "$c"
-    must "the client does not answer after 20 seconds" wait_for 20 client_answers "$c"
+    # No wait: netmount asks the client as soon as the start command is over.
+    must "the start command returned before the client answered" client_answers "$c"
     # The commands of the install page, after the fstab line.
     docker exec "$c" sh -c 'rc-update add fuse boot && rc-service fuse start' >/dev/null ||
         fail "the documented fuse commands failed"
