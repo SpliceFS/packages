@@ -6,6 +6,14 @@ the setup script and the page at packages.splicefs.org.
 
 The change log of all parts of SpliceFS, side by side: https://splicefs.org/changelog/
 
+## [0.4.28] - 2026-11-18
+
+- Internal: the fstab test works with server releases before and after splicefsdctl.
+
+## [0.4.27] - 2026-11-18
+
+- Internal: the FreeBSD packages are built and checked on every pull request.
+
 ## [0.4.26] - 2026-11-18
 
 - Internal: the lifecycle test no longer counts files of the systems' own services.

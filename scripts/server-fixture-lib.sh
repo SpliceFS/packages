@@ -12,7 +12,12 @@ SERVER_FIXTURE='
 set -eu
 mkdir -p /srv/data /srv/etc/conf.d /srv/etc/shares.d /srv/state/shared/users
 echo hello >/srv/data/hello.txt
-hash="$(printf "secret\n" | /srvbin/splicefsd hash-password)"
+# The server utilities are in splicefsdctl; releases before it had hash-password in splicefsd.
+if [ -x /srvbin/splicefsdctl ]; then
+    hash="$(printf "secret\n" | /srvbin/splicefsdctl hash-password)"
+else
+    hash="$(printf "secret\n" | /srvbin/splicefsd hash-password)"
+fi
 printf "password_hash: \"%s\"\nshares: [media]\n" "$hash" >/srv/state/shared/users/alice.yaml
 printf "listen:\n  - address: 127.0.0.1\n    port: 18490\n    plain: true\ncluster:\n  node: n1\n  url: \"http://127.0.0.1:18490/api\"\n" \
     >/srv/etc/conf.d/10-server.yaml

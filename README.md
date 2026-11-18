@@ -379,7 +379,9 @@ are not given the version again. A `VERSION` given to a test that is not the rec
 
 The workflow `package-and-test.yml` does all of the above for one program, from the CI run of the
 repository that releases it: it builds the packages and the signed repositories on amd64 and
-arm64 runners, runs the package, service, repository and upgrade tests of every format, and ends
+arm64 runners, runs the package, service, repository and upgrade tests of every format, builds
+the FreeBSD packages in a FreeBSD machine of each release in `packaging/freebsd/releases`
+(`make package-freebsd`, which needs the hardware virtualization of an amd64 runner), and ends
 in one job, `Result`, that fails unless all passed. The caller builds its programs, uploads its
 `dist/bin` as an artifact, and calls:
 
