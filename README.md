@@ -56,6 +56,8 @@ make apk-resign-test PROGRAM=server               # checks that Alpine packages 
 The tests need Docker and the packages that `make packages` left in `dist/<program>`. `make packages`
 records the version it built in `dist/<program>/version`, and the tests read it from there, so they
 are not given the version again. A `VERSION` given to a test that is not the recorded one is an error.
+`make package-test` does not run `package-order-test` and `apk-resign-test`: CI runs the first once
+for a change and the second in the Alpine jobs.
 
 ### Package and test a program in CI
 
@@ -81,6 +83,8 @@ The source tree and the version are the caller's own, at the commit under test. 
 `bin-artifact` the workflow tests the newest release of the program instead (`scripts/release-bin.sh`
 proves its archives with the signature and `SHA256SUMS` and unpacks them into the `BIN` layout);
 the CI of this repository does that for both programs, so a packaging change is tested on its own.
+It calls the two halves of the workflow itself, `build-packages.yml` and then `check-packages.yml`, so
+that the lifecycle test starts when both programs are built and does not wait for their tests.
 `packages-ref` (default `main`) is the ref of this repository the jobs use; keep it the same as the
 ref of the `uses` line.
 

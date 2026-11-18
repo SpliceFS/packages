@@ -21,30 +21,66 @@ jobs:
       - name: Build the site and check the script and the redirect page
         run: make check
 
+  # The versions the packages are given sort right in dpkg, rpm and Alpine's apk. The answer
+  # depends on this repository only, not on a program, a package or a CPU type, so one job is
+  # enough for the run.
+  version-order:
+    name: Version order
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Check the order of the package versions in each package manager
+        run: make package-order-test
+
   # The packaging is tested on the newest release of each program: the release archives are
   # proven by their signature, packaged with the definitions of this commit, and the packages
   # are tested on the server images. A change to a definition, a script or a test system
-  # shows here before it reaches a release of a program.
-  released:
-    name: Released ${{ matrix.program }}
-    strategy:
-      fail-fast: false
-      matrix:
-        program: [server, client]
-    uses: ./.github/workflows/package-and-test.yml
+  # shows here before it reaches a release of a program. The build and the tests are two calls
+  # because the lifecycle test needs only the packages, and must not wait for the tests of each
+  # package. One call for each program, not a matrix: what a build says (the version, the
+  # newest release) is the output of the job, and the output of a matrix is that of one leg.
+  packages-server:
+    name: Packages server
+    uses: ./.github/workflows/build-packages.yml
     with:
-      program: ${{ matrix.program }}
+      program: server
       packages-ref: ${{ github.sha }}
+
+  packages-client:
+    name: Packages client
+    uses: ./.github/workflows/build-packages.yml
+    with:
+      program: client
+      packages-ref: ${{ github.sha }}
+
+  released-server:
+    name: Released server
+    needs: packages-server
+    uses: ./.github/workflows/check-packages.yml
+    with:
+      program: server
+      packages-ref: ${{ github.sha }}
+      source: ${{ toJSON(needs.packages-server.outputs) }}
+
+  released-client:
+    name: Released client
+    needs: packages-client
+    uses: ./.github/workflows/check-packages.yml
+    with:
+      program: client
+      packages-ref: ${{ github.sha }}
+      source: ${{ toJSON(needs.packages-client.outputs) }}
 
   # The whole life of the packages: set up the repository, install the published release of both
   # programs, upgrade to the new packages, remove, install, uninstall as the documentation says,
   # and find the system as it was. It needs the packages of the server and of the client in one
   # run, and a call of package-and-test.yml or test-packages.yml holds one program, so the job is
-  # here, where both calls are known. The packages are the ones of the jobs above; their build
-  # keys differ, which the test repository takes care of by signing again.
+  # here, where both calls are known. It starts when both builds are done, not when their tests
+  # are. The packages are the ones of the jobs above; their build keys differ, which the test
+  # repository takes care of by signing again.
   lifecycle:
     name: Lifecycle (${{ matrix.format }}, ${{ matrix.arch }})
-    needs: released
+    needs: [packages-server, packages-client]
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
@@ -76,7 +112,7 @@ jobs:
   # nowhere else. The other workflows of this repository are separate runs and are not in it.
   all-checks:
     name: All checks
-    needs: [check, released, lifecycle]
+    needs: [check, version-order, packages-server, packages-client, released-server, released-client, lifecycle]
     if: ${{ always() }}
     runs-on: ubuntu-latest
     steps:

@@ -204,19 +204,21 @@ built-packages: built-apk-packages
 		{ echo "FAIL: no deb and rpm packages in dist/$(PROGRAM): run make packages first"; exit 1; }
 
 # Checks in a Debian, a Rocky Linux and an Alpine system that the versions of the packages sort
-# the way a release needs (a pre-release before its release) and that apk accepts them. It is a
-# prerequisite of package-test, not of check, because it needs Docker.
+# the way a release needs (a pre-release before its release) and that apk accepts them. It reads
+# no package, so CI runs it once for a change (ci.yml), not with the tests of each package. It is
+# not part of check, because it needs Docker.
 package-order-test:
 	scripts/package-order-test.sh
 
 # Signs the Alpine packages of dist/PROGRAM again with a new key (scripts/apk-resign.sh, which the
 # lifecycle test uses) and checks that apk accepts them with that key and refuses them without it.
+# CI runs it in the Alpine jobs of test-packages.yml, where the Alpine packages are.
 apk-resign-test: built-apk-packages
 	PROGRAM=$(PROGRAM) APK_IMAGE=$(APK_IMAGE) scripts/apk-resign-test.sh
 
 # Installs and removes the package in a clean, booted server of every system listed in
 # packaging/test-systems and reports each system's result.
-package-test: built-packages package-order-test apk-resign-test
+package-test: built-packages
 	$(TEST_VARS) scripts/package-test.sh
 
 # Proves the service, not only the files: in a container per system that is booted as a server,
