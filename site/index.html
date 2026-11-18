@@ -70,7 +70,14 @@ h1 { font-size: 32px; line-height: 1.2; margin: 0 0 16px; letter-spacing: -0.02e
 h2 { font-size: 22px; line-height: 1.3; margin: 0 0 16px; }
 h3.panel-title { font-size: 20px; line-height: 1.3; margin: 0 0 16px; }
 section.one { margin-top: 40px; }
-section.manual { border-top: 1px solid var(--border); margin-top: 48px; padding-top: 32px; }
+section.more { border-top: 1px solid var(--border); margin-top: 48px; padding-top: 32px; }
+details { border-top: 1px solid var(--border); padding: 12px 0; }
+section.more details:last-child { border-bottom: 1px solid var(--border); }
+summary { cursor: pointer; font-weight: 600; }
+details[open] > summary { margin-bottom: 12px; }
+details p { margin: 0 0 12px; }
+main ul { margin: 0 0 12px; padding-left: 20px; }
+main li { margin: 4px 0; }
 .chooser { display: none; flex-wrap: wrap; gap: 8px 24px; margin: 0 0 16px; }
 html.js .chooser { display: flex; }
 .seg-group { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -122,10 +129,6 @@ pre code { font: inherit; }
 .t-op { color: var(--c-op); }
 .t-here { color: var(--c-here); }
 .t-cmt { color: var(--c-cmt); }
-section.after { border-top: 1px solid var(--border); margin-top: 48px; padding-top: 32px; }
-section.after p { margin: 0 0 8px; }
-section.after ul { margin: 0; padding-left: 20px; }
-section.after li { margin: 4px 0; }
 code.inline { font: 14px ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; background: var(--code-bg); border: 1px solid var(--border); border-radius: 4px; padding: 1px 5px; overflow-wrap: anywhere; }
 footer { border-top: 1px solid var(--border); margin-top: 48px; }
 footer .wrap { padding-top: 24px; padding-bottom: 40px; font-size: 14px; color: var(--muted); }
@@ -152,12 +155,11 @@ footer a:first-of-type { margin-left: 4px; }
 </header>
 <main class="wrap">
   <h1>Install SpliceFS</h1>
-  <p class="lead">Set up the package repository with one command, then install with your package manager.</p>
-  <p class="lead">Every command is safe to run again. A second run repairs what is broken and changes nothing that works.</p>
-  <p class="small">Packages are built for x86-64 and arm64.</p>
+  <p class="lead">For Debian, Ubuntu, RHEL, Rocky Linux, AlmaLinux, Amazon Linux, openSUSE, Alpine and FreeBSD, on x86-64 and arm64.</p>
 
   <section class="one" id="one">
     <h2>Step 1: Set up the repository</h2>
+    <p>This adds the SpliceFS package repository and its signing key. It installs no package and is safe to run again.</p>
     <div class="chooser">
       <div class="seg-group" role="group" aria-label="Download tool">
         <button type="button" class="seg" data-tool="curl" aria-pressed="true">curl</button>
@@ -174,25 +176,26 @@ footer a:first-of-type { margin-left: 4px; }
     <div class="block nojs"><div class="bar"><span class="label">fetch (FreeBSD, as root)</span></div><pre><code>fetch -o ~/splicefs-setup.sh https://packages.splicefs.org/setup.sh &amp;&amp;
   sh ~/splicefs-setup.sh
 </code></pre></div>
-    <p class="small">Already root? Leave out sudo. FreeBSD has no sudo by default: run fetch as root.</p>
-    <p>The script registers the SpliceFS package repository and its signing key on your system. It installs no package. Its only argument is <code class="inline">--remove</code>, which is described under Remove the repository. It is safe to run again.</p>
-    <p>The script checks itself before it changes anything: it downloads the published setup.sh and compares it with its own file. If they differ, the copy is incomplete, was changed, or is not the latest, and the script stops and tells you how to get the latest one.</p>
-    <p>To check the signature yourself before you run it, use the signed copy of the script. It is one file, setup.sh.asc, with the script and its signature together. Download it and the public key, and compare the fingerprint that gpg prints with the one in the <a href="https://github.com/SpliceFS/packages#verify-the-setup-script">packages repository on GitHub</a>:</p>
-    <div class="block"><div class="bar"><span class="label">Shell</span></div><pre><code>curl -fsSLo ~/splicefs-setup.sh.asc https://packages.splicefs.org/setup.sh.asc
+    <p class="small">Already root? Leave out sudo. On FreeBSD, run fetch as root. To add the repository without the script, see <a href="#manual">Set up the repository by hand</a>.</p>
+    <details>
+      <summary>Verify the signatures</summary>
+      <p>The repository is signed, and your package manager checks every download against the key the script adds. The script also stops if it differs from the published setup.sh.</p>
+      <p>To check the script before you run it, download setup.sh.asc (the script and its signature in one file) and the public key. The fingerprint gpg prints must match the one in the <a href="https://github.com/SpliceFS/packages#verify-the-setup-script">packages repository on GitHub</a>.</p>
+      <div class="block"><div class="bar"><span class="label">Shell</span></div><pre><code>curl -fsSLo ~/splicefs-setup.sh.asc https://packages.splicefs.org/setup.sh.asc
 curl -fsSLo ~/splicefs.asc https://packages.splicefs.org/keys/splicefs.asc
 gpg --show-keys --fingerprint ~/splicefs.asc
 gpg --import ~/splicefs.asc
 </code></pre></div>
-    <p>Then verify the file and write the script it holds. The second command runs only when the signature is good. Run the script it wrote as in the commands above.</p>
-    <div class="block"><div class="bar"><span class="label">Shell</span></div><pre><code>gpg --verify ~/splicefs-setup.sh.asc &amp;&amp;
+      <p>Then verify the file and write out the script. The second command runs only if the signature is good. Run the script as above.</p>
+      <div class="block"><div class="bar"><span class="label">Shell</span></div><pre><code>gpg --verify ~/splicefs-setup.sh.asc &amp;&amp;
   gpg --output ~/splicefs-setup.sh --decrypt ~/splicefs-setup.sh.asc
 </code></pre></div>
-    <p class="small">Works on Debian, Ubuntu, RHEL, Rocky Linux, AlmaLinux, Amazon Linux, openSUSE, Alpine and FreeBSD, on x86-64 and arm64.</p>
+    </details>
   </section>
 
   <section class="one" id="two">
     <h2>Step 2: Install</h2>
-    <p>When the script is done, it prints the commands for your system. They refresh the package index, then install the server and the client, one line each. Run the line you need, or both.</p>
+    <p>Pick your system, then install the server, the client, or both.</p>
     <div class="chooser">
       <div class="seg-group" role="group" aria-label="System">
         <button type="button" class="seg" data-family="apt" aria-pressed="true">Debian, Ubuntu</button>
@@ -203,32 +206,58 @@ gpg --import ~/splicefs.asc
       </div>
     </div>
     <div id="twohost"></div>
-    <p class="nojs">The commands are the last three lines of your system's block under Manual setup below.</p>
+    <p class="nojs">The commands are the last three lines of your system's block under Set up the repository by hand, below.</p>
     <p class="small">On Alpine and FreeBSD, run them as root.</p>
   </section>
 
-  <section class="one" id="remove">
-    <h2>Remove the repository</h2>
-    <p>To take the repository away, download the script again and run it with <code class="inline">--remove</code>. It removes exactly what step 1 added: the package source file and the signing key. It removes no package, and it leaves alone any file it did not write. It is safe to run again.</p>
-    <div class="block" id="removeblock"><div class="bar"><span class="label">curl</span></div><pre><code>curl --proto '=https' --tlsv1.2 -fsSL https://packages.splicefs.org/setup.sh -o ~/splicefs-setup.sh &amp;&amp;
-  sudo sh ~/splicefs-setup.sh --remove
-</code></pre></div>
-    <div class="block nojs"><div class="bar"><span class="label">wget</span></div><pre><code>wget -qO ~/splicefs-setup.sh https://packages.splicefs.org/setup.sh &amp;&amp;
-  sudo sh ~/splicefs-setup.sh --remove
-</code></pre></div>
-    <div class="block nojs"><div class="bar"><span class="label">fetch (FreeBSD, as root)</span></div><pre><code>fetch -o ~/splicefs-setup.sh https://packages.splicefs.org/setup.sh &amp;&amp;
-  sh ~/splicefs-setup.sh --remove
-</code></pre></div>
-    <p>To remove the packages as well, remove them first with your package manager, then the repository. When the script is done it prints the commands for your system. Packages that stay installed keep working, but they get no updates. To remove SpliceFS completely, with its data, see Uninstall.</p>
-    <p>A file that someone changed after step 1 is not removed. The script leaves it in place and prints a warning with its path. A folder that the setup made is removed when it is empty. A folder that holds any other file stays.</p>
+  <section class="one" id="start">
+    <h2>Step 3: Start the service</h2>
+    <p>Installing does not start the service. Start it and turn it on at boot:</p>
+    <ul>
+      <li>systemd (Debian, Ubuntu, RHEL, Rocky Linux, AlmaLinux, Amazon Linux, openSUSE): <code class="inline">sudo systemctl enable --now splicefsd</code> for the server, <code class="inline">sudo systemctl enable --now splicefs</code> for the client</li>
+      <li>OpenRC (Alpine), as root: <code class="inline">rc-update add splicefsd default &amp;&amp; rc-service splicefsd start</code> for the server, <code class="inline">rc-update add splicefs default &amp;&amp; rc-service splicefs start</code> for the client</li>
+      <li>FreeBSD, as root: <code class="inline">sysrc splicefsd_enable=YES &amp;&amp; service splicefsd start</code> for the server, <code class="inline">sysrc splicefs_enable=YES &amp;&amp; service splicefs start</code> for the client</li>
+    </ul>
+    <p>A server starts with no shares and a client with no mounts. Add them as files, then reload the service:</p>
+    <ul>
+      <li>Server: one file per share in <code class="inline">/etc/splicefs/server/shares.d</code> (<a href="https://github.com/SpliceFS/server/blob/main/docs/configuration.md">server configuration</a>)</li>
+      <li>Client: one file per cluster in <code class="inline">/etc/splicefs/client/clusters.d</code> and one per mount in <code class="inline">/etc/splicefs/client/mounts.d</code> (<a href="https://github.com/SpliceFS/client/blob/main/docs/configuration.md">client configuration</a>)</li>
+    </ul>
   </section>
 
-  <section class="one" id="uninstall">
-    <h2>Uninstall</h2>
-    <p>To take SpliceFS off a system completely, run the commands for your system in this order. The packages delete neither the data nor the user when they are removed, so that installing them again picks up where you left off. The commands delete both, so run them only when you want to start from nothing.</p>
-    <p>They remove the packages, the packages that only they needed, the data and configuration folders, the <code class="inline">splicefs</code> user and its group, and last the repository. On FreeBSD the settings of the services in <code class="inline">/etc/rc.conf</code> are deleted right after the packages. Read the list of packages your package manager shows before you confirm it. The last command is the one under Remove the repository, so it needs the setup script that you downloaded there.</p>
-    <h3 class="panel-title">Debian and Ubuntu</h3>
-    <div class="block"><div class="bar"><span class="label">Shell</span></div><pre><code># Remove the packages and their configuration files:
+  <section class="more">
+    <h2>Other tasks</h2>
+    <details>
+      <summary>Mount at boot</summary>
+      <p>The client can mount from <code class="inline">/etc/fstab</code> once its cluster is defined and its service is running. As root, add a line of type <code class="inline">splicefs</code>:</p>
+      <ul>
+        <li>systemd: <code class="inline">echo 'example:/ /mnt/files splicefs _netdev,nofail,x-systemd.requires=splicefs.service 0 0' &gt;&gt; /etc/fstab</code></li>
+        <li>OpenRC (Alpine): <code class="inline">echo 'example:/ /mnt/files splicefs _netdev,nofail 0 0' &gt;&gt; /etc/fstab</code>, then turn on FUSE and network mounts, which the package leaves off: <code class="inline">rc-update add fuse boot &amp;&amp; rc-service fuse start</code> and <code class="inline">rc-update add netmount default &amp;&amp; rc-service netmount start</code></li>
+        <li>FreeBSD: <code class="inline">echo 'example:/ /mnt/files splicefs ro,late,failok,mountprog=/usr/local/sbin/mount.splicefs 0 0' &gt;&gt; /etc/fstab</code>. <code class="inline">mountprog=</code> names the mount helper, <code class="inline">late</code> mounts after the network and the services, and <code class="inline">failok</code> keeps a failed mount from stopping the boot. Test the line once with <code class="inline">mount /mnt/files</code>.</li>
+      </ul>
+    </details>
+    <details>
+      <summary>Upgrade</summary>
+      <p>On Linux an upgrade restarts a running service. On FreeBSD the old version keeps running until you restart it: <code class="inline">service splicefsd restart</code> for the server, <code class="inline">service splicefs restart</code> for the client.</p>
+    </details>
+    <details id="remove">
+      <summary>Remove the repository</summary>
+      <p>This removes the package source and the signing key that step 1 added. It removes no package; installed packages keep working but get no updates. A file changed since step 1 stays, with a warning.</p>
+      <div class="block" id="removeblock"><div class="bar"><span class="label">curl</span></div><pre><code>curl --proto '=https' --tlsv1.2 -fsSL https://packages.splicefs.org/setup.sh -o ~/splicefs-setup.sh &amp;&amp;
+  sudo sh ~/splicefs-setup.sh --remove
+</code></pre></div>
+      <div class="block nojs"><div class="bar"><span class="label">wget</span></div><pre><code>wget -qO ~/splicefs-setup.sh https://packages.splicefs.org/setup.sh &amp;&amp;
+  sudo sh ~/splicefs-setup.sh --remove
+</code></pre></div>
+      <div class="block nojs"><div class="bar"><span class="label">fetch (FreeBSD, as root)</span></div><pre><code>fetch -o ~/splicefs-setup.sh https://packages.splicefs.org/setup.sh &amp;&amp;
+  sh ~/splicefs-setup.sh --remove
+</code></pre></div>
+    </details>
+    <details id="uninstall">
+      <summary>Uninstall completely</summary>
+      <p>Removing the packages keeps the data and the <code class="inline">splicefs</code> user, so a reinstall picks up where it left off. These commands also delete the data, the configuration, the user and last the repository. Check the package list before you confirm. On Alpine and FreeBSD, run them as root.</p>
+      <h3 class="panel-title">Debian and Ubuntu</h3>
+      <div class="block"><div class="bar"><span class="label">Shell</span></div><pre><code># Remove the packages and their configuration files:
 sudo apt-get purge splicefs-server splicefs-client
 
 # Remove the packages they needed that nothing else needs now:
@@ -241,8 +270,8 @@ sudo userdel splicefs
 # Remove the repository and the signing key, with the setup script from step 1:
 sudo sh ~/splicefs-setup.sh --remove
 </code></pre></div>
-    <h3 class="panel-title">RHEL, Rocky Linux, AlmaLinux and Amazon Linux</h3>
-    <div class="block"><div class="bar"><span class="label">Shell</span></div><pre><code># Remove the packages:
+      <h3 class="panel-title">RHEL, Rocky Linux, AlmaLinux and Amazon Linux</h3>
+      <div class="block"><div class="bar"><span class="label">Shell</span></div><pre><code># Remove the packages:
 sudo dnf remove splicefs-server splicefs-client
 
 # Remove the packages they needed that nothing else needs now:
@@ -255,8 +284,8 @@ sudo userdel splicefs
 # Remove the repository and the signing key, with the setup script from step 1:
 sudo sh ~/splicefs-setup.sh --remove
 </code></pre></div>
-    <h3 class="panel-title">openSUSE Leap</h3>
-    <div class="block"><div class="bar"><span class="label">Shell</span></div><pre><code># Remove the packages, and the packages they needed that nothing else needs now:
+      <h3 class="panel-title">openSUSE Leap</h3>
+      <div class="block"><div class="bar"><span class="label">Shell</span></div><pre><code># Remove the packages, and the packages they needed that nothing else needs now:
 sudo zypper remove --clean-deps splicefs-server splicefs-client
 
 # Delete the data and the configuration folder, then the user and its group:
@@ -266,8 +295,8 @@ sudo userdel splicefs
 # Remove the repository and the signing key, with the setup script from step 1:
 sudo sh ~/splicefs-setup.sh --remove
 </code></pre></div>
-    <h3 class="panel-title">Alpine</h3>
-    <div class="block"><div class="bar"><span class="label">Shell</span></div><pre><code># Remove the packages, and the packages they needed that nothing else needs now:
+      <h3 class="panel-title">Alpine</h3>
+      <div class="block"><div class="bar"><span class="label">Shell</span></div><pre><code># Remove the packages, and the packages they needed that nothing else needs now:
 apk del splicefs-server splicefs-client
 
 # Delete the data, the logs and the configuration folder, then the user and its group:
@@ -277,8 +306,8 @@ deluser splicefs
 # Remove the repository and the signing key, with the setup script from step 1:
 sh ~/splicefs-setup.sh --remove
 </code></pre></div>
-    <h3 class="panel-title">FreeBSD</h3>
-    <div class="block"><div class="bar"><span class="label">Shell</span></div><pre><code># Remove the packages:
+      <h3 class="panel-title">FreeBSD</h3>
+      <div class="block"><div class="bar"><span class="label">Shell</span></div><pre><code># Remove the packages:
 pkg delete splicefs-server splicefs-client
 
 # Delete the settings of the services from /etc/rc.conf, which removing a package leaves alone:
@@ -295,30 +324,28 @@ pw userdel splicefs
 # Remove the repository and the signing key, with the setup script from step 1:
 sh ~/splicefs-setup.sh --remove
 </code></pre></div>
-    <p class="small">On Alpine and FreeBSD, run the commands as root. The user and group of the server are removed together.</p>
-  </section>
+    </details>
+    <details id="manual">
+      <summary>Set up the repository by hand</summary>
+      <p>Instead of step 1, pick your system. Each block adds the repository and ends with the commands of step 2.</p>
+      <ul class="picker" id="picker">
+        <li><a class="card" href="#debian" data-panel="panel-apt"><span class="name">Debian</span><span class="versions">12, 13</span></a></li>
+        <li><a class="card" href="#ubuntu" data-panel="panel-apt"><span class="name">Ubuntu</span><span class="versions">22.04, 24.04, 26.04</span></a></li>
+        <li><a class="card" href="#rhel" data-panel="panel-dnf"><span class="name">RHEL</span><span class="versions">8, 9, 10</span></a></li>
+        <li><a class="card" href="#rocky" data-panel="panel-dnf"><span class="name">Rocky Linux</span><span class="versions">8, 9, 10</span></a></li>
+        <li><a class="card" href="#almalinux" data-panel="panel-dnf"><span class="name">AlmaLinux</span><span class="versions">8, 9, 10</span></a></li>
+        <li><a class="card" href="#amazon" data-panel="panel-dnf"><span class="name">Amazon Linux</span><span class="versions">2023</span></a></li>
+        <li><a class="card" href="#opensuse" data-panel="panel-zypper"><span class="name">openSUSE Leap</span><span class="versions">16.0</span></a></li>
+        <li><a class="card" href="#alpine" data-panel="panel-apk"><span class="name">Alpine</span><span class="versions">3.22, 3.23, 3.24</span></a></li>
+        <li><a class="card" href="#freebsd" data-panel="panel-pkg"><span class="name">FreeBSD</span><span class="versions">14, 15</span></a></li>
+      </ul>
 
-  <section class="manual">
-  <h2>Manual setup</h2>
-  <p class="lead">Instead of step 1, add the repository yourself. Each block sets it up and ends with the commands of step 2.</p>
-  <ul class="picker" id="picker">
-    <li><a class="card" href="#debian" data-panel="panel-apt"><span class="name">Debian</span><span class="versions">12, 13</span></a></li>
-    <li><a class="card" href="#ubuntu" data-panel="panel-apt"><span class="name">Ubuntu</span><span class="versions">22.04, 24.04, 26.04</span></a></li>
-    <li><a class="card" href="#rhel" data-panel="panel-dnf"><span class="name">RHEL</span><span class="versions">8, 9, 10</span></a></li>
-    <li><a class="card" href="#rocky" data-panel="panel-dnf"><span class="name">Rocky Linux</span><span class="versions">8, 9, 10</span></a></li>
-    <li><a class="card" href="#almalinux" data-panel="panel-dnf"><span class="name">AlmaLinux</span><span class="versions">8, 9, 10</span></a></li>
-    <li><a class="card" href="#amazon" data-panel="panel-dnf"><span class="name">Amazon Linux</span><span class="versions">2023</span></a></li>
-    <li><a class="card" href="#opensuse" data-panel="panel-zypper"><span class="name">openSUSE Leap</span><span class="versions">16.0</span></a></li>
-    <li><a class="card" href="#alpine" data-panel="panel-apk"><span class="name">Alpine</span><span class="versions">3.22, 3.23, 3.24</span></a></li>
-    <li><a class="card" href="#freebsd" data-panel="panel-pkg"><span class="name">FreeBSD</span><span class="versions">14, 15</span></a></li>
-  </ul>
+      <p class="hint" id="hint" hidden>Pick a system above.</p>
 
-  <p class="hint" id="hint" hidden>Pick a system above.</p>
-
-  <section class="panel" id="panel-apt">
-    <a id="debian"></a><a id="ubuntu"></a>
-    <h3 class="panel-title">Debian and Ubuntu</h3>
-    <div class="block"><div class="bar"><span class="label">Shell</span></div><pre><code># Add the SpliceFS signing key:
+      <section class="panel" id="panel-apt">
+        <a id="debian"></a><a id="ubuntu"></a>
+        <h3 class="panel-title">Debian and Ubuntu</h3>
+        <div class="block"><div class="bar"><span class="label">Shell</span></div><pre><code># Add the SpliceFS signing key:
 sudo apt-get update
 sudo apt-get install -y ca-certificates curl
 sudo install -m 0755 -d /etc/apt/keyrings
@@ -339,12 +366,12 @@ sudo apt-get update
 sudo apt-get install splicefs-server    # the server
 sudo apt-get install splicefs-client    # the client
 </code></pre></div>
-  </section>
+      </section>
 
-  <section class="panel" id="panel-dnf">
-    <a id="rhel"></a><a id="rocky"></a><a id="almalinux"></a><a id="amazon"></a>
-    <h3 class="panel-title">RHEL, Rocky Linux, AlmaLinux and Amazon Linux</h3>
-    <div class="block"><div class="bar"><span class="label">Shell</span></div><pre><code># Add the SpliceFS signing key:
+      <section class="panel" id="panel-dnf">
+        <a id="rhel"></a><a id="rocky"></a><a id="almalinux"></a><a id="amazon"></a>
+        <h3 class="panel-title">RHEL, Rocky Linux, AlmaLinux and Amazon Linux</h3>
+        <div class="block"><div class="bar"><span class="label">Shell</span></div><pre><code># Add the SpliceFS signing key:
 sudo install -m 0755 -d /etc/pki/rpm-gpg
 sudo curl --proto '=https' --tlsv1.2 -fsSL https://packages.splicefs.org/keys/splicefs.asc -o /etc/pki/rpm-gpg/RPM-GPG-KEY-splicefs
 sudo chmod a+r /etc/pki/rpm-gpg/RPM-GPG-KEY-splicefs
@@ -374,12 +401,12 @@ sudo dnf makecache
 sudo dnf install splicefs-server    # the server
 sudo dnf install splicefs-client    # the client
 </code></pre></div>
-  </section>
+      </section>
 
-  <section class="panel" id="panel-zypper">
-    <a id="opensuse"></a>
-    <h3 class="panel-title">openSUSE Leap</h3>
-    <div class="block"><div class="bar"><span class="label">Shell</span></div><pre><code># Add the SpliceFS signing key:
+      <section class="panel" id="panel-zypper">
+        <a id="opensuse"></a>
+        <h3 class="panel-title">openSUSE Leap</h3>
+        <div class="block"><div class="bar"><span class="label">Shell</span></div><pre><code># Add the SpliceFS signing key:
 sudo install -m 0755 -d /etc/pki/rpm-gpg
 sudo curl --proto '=https' --tlsv1.2 -fsSL https://packages.splicefs.org/keys/splicefs.asc -o /etc/pki/rpm-gpg/RPM-GPG-KEY-splicefs
 sudo chmod a+r /etc/pki/rpm-gpg/RPM-GPG-KEY-splicefs
@@ -413,13 +440,13 @@ sudo zypper refresh
 sudo zypper install splicefs-server    # the server
 sudo zypper install splicefs-client    # the client
 </code></pre></div>
-  </section>
+      </section>
 
-  <section class="panel" id="panel-apk">
-    <a id="alpine"></a>
-    <h3 class="panel-title">Alpine</h3>
-    <p class="small">Run these as root.</p>
-    <div class="block"><div class="bar"><span class="label">Shell</span></div><pre><code># Add the SpliceFS signing key:
+      <section class="panel" id="panel-apk">
+        <a id="alpine"></a>
+        <h3 class="panel-title">Alpine</h3>
+        <p class="small">Run these as root.</p>
+        <div class="block"><div class="bar"><span class="label">Shell</span></div><pre><code># Add the SpliceFS signing key:
 apk add curl
 curl --proto '=https' --tlsv1.2 -fsSL https://packages.splicefs.org/keys/splicefs.rsa.pub \
   -o /etc/apk/keys/splicefs.rsa.pub
@@ -434,13 +461,13 @@ apk update
 apk add splicefs-server    # the server
 apk add splicefs-client    # the client
 </code></pre></div>
-  </section>
+      </section>
 
-  <section class="panel" id="panel-pkg">
-    <a id="freebsd"></a>
-    <h3 class="panel-title">FreeBSD</h3>
-    <p class="small">Run these as root.</p>
-    <div class="block"><div class="bar"><span class="label">Shell</span></div><pre><code># Add the SpliceFS signing key:
+      <section class="panel" id="panel-pkg">
+        <a id="freebsd"></a>
+        <h3 class="panel-title">FreeBSD</h3>
+        <p class="small">Run these as root.</p>
+        <div class="block"><div class="bar"><span class="label">Shell</span></div><pre><code># Add the SpliceFS signing key:
 mkdir -p /usr/local/etc/pkg/keys
 fetch -o /usr/local/etc/pkg/keys/splicefs.rsa.pub https://packages.splicefs.org/keys/splicefs.rsa.pub
 
@@ -468,30 +495,8 @@ pkg update
 pkg install splicefs-server    # the server
 pkg install splicefs-client    # the client
 </code></pre></div>
-  </section>
-  </section>
-
-  <section class="after">
-    <h2>After the install</h2>
-    <p>Installing a package installs the service and does not start it or turn it on. Start it, and have it start at boot, with the service manager of your system. The server's service is <code class="inline">splicefsd</code> and the client's is <code class="inline">splicefs</code>.</p>
-    <ul>
-      <li>systemd (Debian, Ubuntu, Rocky Linux, Amazon Linux, openSUSE): <code class="inline">sudo systemctl enable --now splicefsd</code> for the server, <code class="inline">sudo systemctl enable --now splicefs</code> for the client</li>
-      <li>OpenRC (Alpine), as root: <code class="inline">rc-update add splicefsd default &amp;&amp; rc-service splicefsd start</code> for the server, <code class="inline">rc-update add splicefs default &amp;&amp; rc-service splicefs start</code> for the client</li>
-      <li>FreeBSD, as root: <code class="inline">sysrc splicefsd_enable=YES &amp;&amp; service splicefsd start</code> for the server, <code class="inline">sysrc splicefs_enable=YES &amp;&amp; service splicefs start</code> for the client</li>
-    </ul>
-    <p>On Linux an upgrade restarts a service that was running and leaves a stopped one stopped. Removing the package stops the service and turns it off.</p>
-    <p>On FreeBSD an upgrade leaves a service that was running running, still the old version, because pkg ends every program a package script starts and so a package cannot restart one. Restart it yourself with <code class="inline">service splicefsd restart</code> for the server or <code class="inline">service splicefs restart</code> for the client. Removing the package stops the service and leaves <code class="inline">/etc/rc.conf</code> alone; delete the setting afterwards with <code class="inline">sysrc -x splicefsd_enable</code> for the server or <code class="inline">sysrc -x splicefs_enable</code> for the client.</p>
-    <p>The client can also mount from the boot mounts of the system. The cluster must be defined and the client service must be running, because the mount helper only asks the running client. Add a line of type <code class="inline">splicefs</code> to <code class="inline">/etc/fstab</code>, as root:</p>
-    <ul>
-      <li>systemd: <code class="inline">echo 'example:/ /mnt/files splicefs _netdev,nofail,x-systemd.requires=splicefs.service 0 0' &gt;&gt; /etc/fstab</code></li>
-      <li>OpenRC (Alpine): <code class="inline">echo 'example:/ /mnt/files splicefs _netdev,nofail 0 0' &gt;&gt; /etc/fstab</code>, then <code class="inline">rc-update add fuse boot &amp;&amp; rc-service fuse start</code> to load the FUSE kernel module at boot, and <code class="inline">rc-update add netmount default &amp;&amp; rc-service netmount start</code> to mount the <code class="inline">_netdev</code> lines once the network is up. The package turns neither on.</li>
-      <li>FreeBSD: <code class="inline">echo 'example:/ /mnt/files splicefs ro,late,failok,mountprog=/usr/local/sbin/mount.splicefs 0 0' &gt;&gt; /etc/fstab</code>. FreeBSD runs a helper only for the file system types it knows, unless the line names one with <code class="inline">mountprog=</code>. <code class="inline">late</code> mounts the line in the last stage of the boot, after the network and the daemons; the client service starts before that and loads the <code class="inline">fusefs</code> kernel module itself. <code class="inline">failok</code> keeps a line that fails to mount (for example while the cluster cannot be reached) from stopping the boot; without it FreeBSD drops into single user mode. Run <code class="inline">mount /mnt/files</code> once by hand to see that the line works.</li>
-    </ul>
-    <p>Nothing has to be configured first: a server runs with no shares and a client with no mounts. Add yours as files, then reload the service:</p>
-    <ul>
-      <li>Server: one file per share in <code class="inline">/etc/splicefs/server/shares.d</code> <a href="https://github.com/SpliceFS/server/blob/main/docs/configuration.md">Server configuration</a></li>
-      <li>Client: one file per cluster in <code class="inline">/etc/splicefs/client/clusters.d</code> and one per mount in <code class="inline">/etc/splicefs/client/mounts.d</code> <a href="https://github.com/SpliceFS/client/blob/main/docs/configuration.md">Client configuration</a></li>
-    </ul>
+      </section>
+    </details>
   </section>
 
   <section class="after">
@@ -798,6 +803,10 @@ if (typeof module !== 'undefined' && module.exports) module.exports = { tokenize
       }
     });
     hint.hidden = !!chosen;
+    /* A link into a collapsed part, from this page or another, must show what it points to. */
+    var target = id ? document.getElementById(id) : null;
+    var part = target ? target.closest('details') : null;
+    if (part) part.open = true;
   }
 
   cards.forEach(function (card) {
