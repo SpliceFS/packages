@@ -279,6 +279,26 @@ package_versions() {
     printf '%s %s %s %s %s %s\n' "$pv_deb" "$pv_rpm" "$(($2 + 1))" "$pv_apk" "$2" "$pv_pkg"
 }
 
+# Prints the program version and the revision of the deb version $1 as the package site writes it,
+# "v1.2.3 2" for 1.2.3-2 and "v1.2.3-rc.1 0" for 1.2.3~rc.1: package_versions read backwards for
+# the deb format, so that what a published package is called is said here and nowhere else.
+package_release_of_debver() {
+    pr_core="$1"
+    pr_revision=0
+    case "$pr_core" in
+        *-[0-9]*)
+            pr_revision="${pr_core##*-}"
+            pr_core="${pr_core%-*}"
+            ;;
+        *) ;;
+    esac
+    printf '%s' "$pr_revision" | grep -Eq '^(0|[1-9][0-9]*)$' ||
+        fail "$1 is not a package version: its revision is not a whole number"
+    printf '%s' "$pr_core" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(~(alpha|beta|pre|rc)(\.?[0-9]+)?)?$' ||
+        fail "$1 is not a package version this repository publishes"
+    printf 'v%s %s\n' "$(printf '%s' "$pr_core" | tr '~' '-')" "$pr_revision"
+}
+
 # The words of package_versions for the program version, revision and date of this run. The call
 # is a command substitution, where fail would end only the substitution, so its status ends the
 # script here.
