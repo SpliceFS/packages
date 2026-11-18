@@ -49,7 +49,7 @@ entry "the dependency bot with a section keeps its own entry" 'dependabot[bot]' 
 entry "a look-alike of the bot gets no default" 'dependabot-fan' "Bumps a thing." 1 ""
 
 status=0
-CHANGE_LOG_SCRIPT= sh scripts/change-log-entry.sh alice </dev/null >/dev/null 2>&1 || status=$?
+CHANGE_LOG_SCRIPT='' sh scripts/change-log-entry.sh alice </dev/null >/dev/null 2>&1 || status=$?
 if [ "$status" -ne 0 ]; then echo "ok   a missing reader is an error"; else
     echo "FAIL a missing reader is an error"
     failed=$((failed + 1))

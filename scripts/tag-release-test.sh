@@ -58,7 +58,6 @@ tip="$($git rev-parse HEAD)"
 # $1 name; $2 commit; then VARIABLE=value pairs for the environment. Leaves the status in
 # "status", what it printed in "$work/out" and what gh was asked in "$work/answers/calls".
 run() {
-    name="$1"
     commit="$2"
     shift 2
     : > "$work/answers/calls"
@@ -72,18 +71,20 @@ run() {
 # $1 case name, $2 the status wanted, $3 the calls wanted (one per line).
 expect() {
     calls="$(cat "$work/answers/calls")"
+    out="$(cat "$work/out")"
     if [ "$status" -eq "$2" ] && [ "$calls" = "$3" ]; then
         printf 'ok   %s\n' "$1"
     else
-        printf 'FAIL %s: want %s "%s" got %s "%s" (%s)\n' "$1" "$2" "$3" "$status" "$calls" "$(cat "$work/out")"
+        printf 'FAIL %s: want %s "%s" got %s "%s" (%s)\n' "$1" "$2" "$3" "$status" "$calls" "$out"
         failed=$((failed + 1))
     fi
 }
 
 # $1 case name, $2 the release, $3 the notes wanted.
 notes_are() {
-    if [ "$(cat "$work/answers/notes-$2" 2>/dev/null)" = "$3" ]; then printf 'ok   %s\n' "$1"; else
-        printf 'FAIL %s: "%s"\n' "$1" "$(cat "$work/answers/notes-$2" 2>/dev/null)"
+    got="$(cat "$work/answers/notes-$2" 2>/dev/null)" || got=""
+    if [ "$got" = "$3" ]; then printf 'ok   %s\n' "$1"; else
+        printf 'FAIL %s: "%s"\n' "$1" "$got"
         failed=$((failed + 1))
     fi
 }

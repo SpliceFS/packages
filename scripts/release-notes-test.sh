@@ -91,14 +91,16 @@ notes "without a previous tag every pull request counts" "" 2 0 "- Entry four.
 notes "nothing merged since the previous tag, no notes" 2 2 0 ""
 : > "$work/answers/asked"
 notes "the pull request that has no change log section stops the notes" 2 main 1 ""
-if grep -q '#7' "$work/err"; then echo "ok   the failure names the pull request"; else
-    echo "FAIL the failure names the pull request: $(cat "$work/err")"
+err="$(cat "$work/err")"
+if printf '%s\n' "$err" | grep -q '#7'; then echo "ok   the failure names the pull request"; else
+    echo "FAIL the failure names the pull request: $err"
     failed=$((failed + 1))
 fi
-if [ "$(cat "$work/answers/asked")" = "repos/owner/repo/pulls/7" ]; then
+asked="$(cat "$work/answers/asked")"
+if [ "$asked" = "repos/owner/repo/pulls/7" ]; then
     echo "ok   only the pull requests of the range are asked for"
 else
-    echo "FAIL only the pull requests of the range are asked for: $(cat "$work/answers/asked")"
+    echo "FAIL only the pull requests of the range are asked for: $asked"
     failed=$((failed + 1))
 fi
 
