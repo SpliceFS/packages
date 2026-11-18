@@ -1,4 +1,5 @@
 name: Build packages
+# Every job has a time limit: 3 times its longest run, so a hang fails in minutes.
 
 # Builds the deb, rpm and Alpine packages of a SpliceFS program and the signed repositories, on
 # amd64 and arm64, and says what was packaged. package-and-test.yml calls it and then tests what
@@ -17,10 +18,6 @@ on:
         description: Artifact of the calling run that holds dist/bin; empty tests the newest release
         type: string
         default: ""
-      packages-ref:
-        description: Commit, branch or tag of SpliceFS/packages to use; keep it the ref of the uses line
-        type: string
-        default: main
     outputs:
       repository:
         description: Where the source of the program is
@@ -56,6 +53,7 @@ jobs:
   source:
     name: Source
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     outputs:
       repository: ${{ steps.release.outputs.repository || github.repository }}
       ref: ${{ steps.release.outputs.ref || github.sha }}
@@ -67,8 +65,8 @@ jobs:
       - name: Packages
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          repository: SpliceFS/packages
-          ref: ${{ inputs.packages-ref }}
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
           persist-credentials: false
       - name: Newest release of the program
         id: release
@@ -121,6 +119,7 @@ jobs:
     name: Packages (${{ matrix.arch }})
     needs: source
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
@@ -133,8 +132,8 @@ jobs:
       - name: Packages
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          repository: SpliceFS/packages
-          ref: ${{ inputs.packages-ref }}
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
           path: packages
           persist-credentials: false
       - name: Source of the program

@@ -1,4 +1,5 @@
 name: Upload check
+# Every job has a time limit: 3 times its longest run, so a hang fails in minutes.
 
 # Proves from GitHub that the upload path works (key, pinned host key, forced rsync), without
 # publishing anything: it only lists the remote root. Run it by hand.
@@ -12,6 +13,7 @@ jobs:
   check:
     name: List the remote root
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     environment: publish
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
