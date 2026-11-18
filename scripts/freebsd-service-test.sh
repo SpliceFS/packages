@@ -68,6 +68,146 @@ done <<PROGRAMS
 $programs
 PROGRAMS
 
+# --- the client starts before the late mounts, and only once it answers ---------------------
+
+client_rc=programs/client/freebsd/splicefs.rc
+
+# $1 what is tested, $2 the whole line the script must hold.
+holds_line() {
+    if grep -qx -e "$2" "$client_rc"; then
+        printf 'ok   %s\n' "$1"
+    else
+        printf 'FAIL %s: the line "%s" is missing\n' "$1" "$2"
+        failed=$((failed + 1))
+    fi
+}
+
+# rcorder reads these lines. mountlate runs "mount -a -L", which asks the client for the fstab
+# lines marked late, so the client must be started before it; mountlate itself needs DAEMON, which
+# the client needs too, so the order is DAEMON, client, mountlate.
+holds_line "splicefs: rcorder starts it before mountlate" "# BEFORE: mountlate"
+holds_line "splicefs: rcorder starts it after the network, the daemons and the filesystems" \
+    "# REQUIRE: NETWORKING DAEMON FILESYSTEMS"
+holds_line "splicefs: rc.subr loads the FUSE module before the start" "required_modules=fusefs"
+holds_line "splicefs: the start waits for the client to answer" "start_postcmd=splicefs_wait"
+
+# A stand-in for /etc/rc.subr that runs the function named by $entry, with stand-ins for what the
+# function calls: timeout runs its command without the time limit, sleep and kill only record
+# that they were called, so that no test waits for time to pass. The fake control tool answers
+# from its ANSWER_AT-th call on, which is the delay: calls before it fail, as a client does that
+# has not connected to its cluster yet.
+cat > "$tree/rc-wait.subr" <<'SUBR'
+load_rc_config() { :; }
+timeout() { shift; "$@"; }
+sleep() { echo sleep >> "$box/calls"; }
+kill() { echo "kill $*" >> "$box/calls"; }
+run_rc_command() { "$entry"; }
+SUBR
+cat > "$tree/splicefsctl" <<'CTL'
+#!/bin/sh
+echo ask >> "$box/calls"
+[ "$(grep -c ask "$box/calls")" -ge "$ANSWER_AT" ]
+CTL
+chmod 755 "$tree/splicefsctl"
+
+# Counts the lines of the record that start with $1; grep -c fails when there are none.
+recorded() {
+    grep -c "^$1" "$box/calls" || true
+}
+
+# $1 the number of the call that is answered. Sets wait_result to the exit status of the wait,
+# then what was called: the number of asks and of sleeps, and the kills as they were given.
+wait_for_client() {
+    box="$tree/wait"
+    rm -rf "$box"
+    mkdir -p "$box"
+    : > "$box/calls"
+    echo 4242 > "$box/daemon.pid"
+    sed -e "s|/etc/rc.subr|$tree/rc-wait.subr|" -e "s|/usr/local/bin/splicefsctl|$tree/splicefsctl|" \
+        -e "s|/var/run/splicefs/daemon.pid|$box/daemon.pid|" "$client_rc" > "$tree/rc.script"
+    status=0
+    box="$box" entry=splicefs_wait ANSWER_AT="$1" sh "$tree/rc.script" start > "$box/out" 2>&1 || status=$?
+    asked="$(recorded ask)"
+    slept="$(recorded sleep)"
+    killed="$(grep '^kill' "$box/calls" | tr '\n' ';')" || killed=""
+    wait_result="$status asks=$asked sleeps=$slept $killed"
+}
+
+# Before the first answer the start does not return: it asks again each second.
+wait_for_client 1
+same "splicefs: the start returns at the first answer, without waiting" "0 asks=1 sleeps=0 " "$wait_result"
+wait_for_client 3
+same "splicefs: the start returns only after the answer that comes late" "0 asks=3 sleeps=2 " "$wait_result"
+wait_for_client 31
+same "splicefs: a client that never answers fails the start after 30 tries and ends the supervisor" \
+    "1 asks=30 sleeps=29 kill 4242;" "$wait_result"
+said="$(cat "$box/out")"
+holds "splicefs: a start that fails says why" "does not answer" "$said"
+
+# --- the checks that the machine runs for the client ----------------------------------------
+
+# check-lib.sh runs in the machine with the real rcorder and mount. Here stand-ins show that its
+# checks tell a good boot order and a late line that reaches the helper from a bad one. $1 the
+# order rcorder prints (names of scripts, one to a line), $2 what the stand-in mount does for a
+# late line ("helper" prints the helper's refusal and, as mount(8) does, fails unless the line
+# says failok; "nofailok" fails even then; "mounted" succeeds without the helper) and for a plain
+# mount -a ("skipped" prints nothing, "ran" runs the late line). Sets
+# machine_status to the status of the checks and machine_said to what they said.
+machine_checks() {
+    box="$tree/machine"
+    rm -rf "$box"
+    mkdir -p "$box/bin"
+    printf '/usr/local/sbin/mount.splicefs /usr/local/bin/splicefsctl\n' > "$box/links"
+    printf '%s\n' "$1" > "$box/rcorder.out"
+    printf '#!/bin/sh\ncat "%s/rcorder.out"\n' "$box" > "$box/bin/rcorder"
+    cat > "$box/bin/mount" <<'MOUNT'
+#!/bin/sh
+case " $* " in
+    *" -L "*) [ "$MOUNT_LATE" = mounted ] && exit 0
+              echo "mount.splicefs: cluster nocluster is not defined" >&2
+              fstab="$(printf '%s\n' "$@" | awk 'f { print; exit } $0 == "-F" { f = 1 }')"
+              [ "$MOUNT_LATE" = helper ] && grep -q ',failok,' "$fstab" && exit 0
+              exit 1 ;;
+    "  ") exit 0 ;;
+    *) [ "$MOUNT_PLAIN" = ran ] && echo "mount.splicefs: cluster nocluster is not defined" >&2
+       exit 0 ;;
+esac
+MOUNT
+    chmod 755 "$box/bin/rcorder" "$box/bin/mount"
+    cat > "$box/run.sh" <<'RUN'
+fail() { echo "FAIL: $1"; exit 1; }
+. "$1"
+extra_checks
+RUN
+    status=0
+    machine_said="$(in="$box" PATH="$box/bin:$PATH" MOUNT_LATE="$2" MOUNT_PLAIN="$3" \
+        sh "$box/run.sh" "$root/programs/client/freebsd/check-lib.sh" 2>&1)" || status=$?
+    machine_status="$status"
+}
+
+good_order='/etc/rc.d/DAEMON
+/usr/local/etc/rc.d/splicefs
+/etc/rc.d/mountlate'
+machine_checks "$good_order" helper skipped
+same "the machine accepts splicefs before mountlate, and a late line that reaches the helper" \
+    "0" "$machine_status"
+holds "the machine says that the order is right" "rcorder: splicefs starts before mountlate" "$machine_said"
+holds "the machine says that the late line reached the helper" "the late line ran the helper" "$machine_said"
+machine_checks '/etc/rc.d/mountlate
+/usr/local/etc/rc.d/splicefs' helper skipped
+holds "the machine refuses mountlate before splicefs" "FAIL: rcorder starts mountlate" "$machine_said"
+machine_checks '/etc/rc.d/mountlate' helper skipped
+holds "the machine refuses an rcorder list without splicefs" "FAIL: rcorder does not list" "$machine_said"
+machine_checks "$good_order" nofailok skipped
+holds "the machine refuses a late line whose failure would stop the boot" \
+    "FAIL: mount -a -L failed for a failok line" "$machine_said"
+machine_checks "$good_order" mounted skipped
+holds "the machine refuses a late line that did not reach the helper" \
+    "FAIL: mount -a -L did not run the helper" "$machine_said"
+machine_checks "$good_order" helper ran
+holds "the machine refuses a plain mount -a that runs a late line" "FAIL: mount -a ran the late line" \
+    "$machine_said"
+
 # --- the install scripts of the manifests ---------------------------------------------------
 
 # Prints the script named $3 of the manifest $1 as the build writes it, with the service name $2
@@ -180,5 +320,14 @@ while read -r program service; do
 done <<PROGRAMS
 $programs
 PROGRAMS
+
+# The fstab line of the client. The helper it names is the link that the package installs, so the
+# path is read from the links file, moved to /usr/local as the FreeBSD package does.
+helper="$(awk '!/^#/ && NF { print $1; exit }' programs/client/links | sed 's|^/usr/|/usr/local/|')"
+fstab_line="example:/ /mnt/files splicefs ro,late,failok,mountprog=$helper 0 0"
+for document in "README.md:$readme" "the install page:$page"; do
+    holds "${document%%:*} shows the FreeBSD fstab line, with the helper the package installs" \
+        "$fstab_line" "${document#*:}"
+done
 
 [ "$failed" -eq 0 ]

@@ -73,16 +73,19 @@ check_packages() {
 build_and_test() {
     release="$1"
     job="$out/freebsd-job/$release"
-    freebsd_job_folder "$release" "$job" scripts/freebsd-job.sh "$name" "$program" "$pkgver" "$VERSION"
+    upgrade_pkgver="$(package_freebsd_upgrade_version)"
+    freebsd_job_folder "$release" "$job" scripts/freebsd-job.sh "$name" "$program" "$pkgver" "$VERSION" "$upgrade_pkgver"
     for arch in amd64 arm64; do
         for each in $programs; do
             cp "$bin/freebsd-$arch/$each" "$job/$each-$arch"
         done
     done
     # The definitions of the program: its rc script is named after the service program. The
-    # packing list is made from program.conf and config-folders, so the job reads the same facts.
+    # packing list is made from program.conf, links and config-folders, so the job reads the
+    # same facts.
     cp "$defs/freebsd/$program.rc" "$defs/freebsd/manifest.in" "$defs/freebsd/check-lib.sh" "$job/"
     package_freebsd_plist > "$job/plist"
+    package_freebsd_link_list > "$job/links"
     echo "FreeBSD $release: building $name $pkgver for amd64 and arm64, installing the amd64 package"
     major="${release%%.*}"
     archive="$out/freebsd-input/$release.tar"

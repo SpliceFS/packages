@@ -219,8 +219,83 @@ gpg --import ~/splicefs.asc
     <div class="block nojs"><div class="bar"><span class="label">fetch (FreeBSD, as root)</span></div><pre><code>fetch -o ~/splicefs-setup.sh https://packages.splicefs.org/setup.sh &amp;&amp;
   sh ~/splicefs-setup.sh --remove
 </code></pre></div>
-    <p>To remove the packages as well, remove them first with your package manager, then the repository. When the script is done it prints the commands for your system. Packages that stay installed keep working, but they get no updates.</p>
-    <p>A file that someone changed after step 1 is not removed. The script leaves it in place and prints a warning with its path. The folders are left in place too.</p>
+    <p>To remove the packages as well, remove them first with your package manager, then the repository. When the script is done it prints the commands for your system. Packages that stay installed keep working, but they get no updates. To remove SpliceFS completely, with its data, see Uninstall.</p>
+    <p>A file that someone changed after step 1 is not removed. The script leaves it in place and prints a warning with its path. A folder that the setup made is removed when it is empty. A folder that holds any other file stays.</p>
+  </section>
+
+  <section class="one" id="uninstall">
+    <h2>Uninstall</h2>
+    <p>To take SpliceFS off a system completely, run the commands for your system in this order. The packages delete neither the data nor the user when they are removed, so that installing them again picks up where you left off. The commands delete both, so run them only when you want to start from nothing.</p>
+    <p>They remove the packages, the packages that only they needed, the data and configuration folders, the <code class="inline">splicefs</code> user and its group, and last the repository. On FreeBSD the settings of the services in <code class="inline">/etc/rc.conf</code> are deleted right after the packages. Read the list of packages your package manager shows before you confirm it. The last command is the one under Remove the repository, so it needs the setup script that you downloaded there.</p>
+    <h3 class="panel-title">Debian and Ubuntu</h3>
+    <div class="block"><div class="bar"><span class="label">Shell</span></div><pre><code># Remove the packages and their configuration files:
+sudo apt-get purge splicefs-server splicefs-client
+
+# Remove the packages they needed that nothing else needs now:
+sudo apt-get autoremove --purge
+
+# Delete the data and the configuration folder, then the user and its group:
+sudo rm -rf /var/lib/splicefs /etc/splicefs
+sudo userdel splicefs
+
+# Remove the repository and the signing key, with the setup script from step 1:
+sudo sh ~/splicefs-setup.sh --remove
+</code></pre></div>
+    <h3 class="panel-title">RHEL, Rocky Linux, AlmaLinux and Amazon Linux</h3>
+    <div class="block"><div class="bar"><span class="label">Shell</span></div><pre><code># Remove the packages:
+sudo dnf remove splicefs-server splicefs-client
+
+# Remove the packages they needed that nothing else needs now:
+sudo dnf autoremove
+
+# Delete the data and the configuration folder, then the user and its group:
+sudo rm -rf /var/lib/splicefs /etc/splicefs
+sudo userdel splicefs
+
+# Remove the repository and the signing key, with the setup script from step 1:
+sudo sh ~/splicefs-setup.sh --remove
+</code></pre></div>
+    <h3 class="panel-title">openSUSE Leap</h3>
+    <div class="block"><div class="bar"><span class="label">Shell</span></div><pre><code># Remove the packages, and the packages they needed that nothing else needs now:
+sudo zypper remove --clean-deps splicefs-server splicefs-client
+
+# Delete the data and the configuration folder, then the user and its group:
+sudo rm -rf /var/lib/splicefs /etc/splicefs
+sudo userdel splicefs
+
+# Remove the repository and the signing key, with the setup script from step 1:
+sudo sh ~/splicefs-setup.sh --remove
+</code></pre></div>
+    <h3 class="panel-title">Alpine</h3>
+    <div class="block"><div class="bar"><span class="label">Shell</span></div><pre><code># Remove the packages, and the packages they needed that nothing else needs now:
+apk del splicefs-server splicefs-client
+
+# Delete the data, the logs and the configuration folder, then the user and its group:
+rm -rf /var/lib/splicefs /etc/splicefs /var/log/splicefsd.log /var/log/splicefs.log
+deluser splicefs
+
+# Remove the repository and the signing key, with the setup script from step 1:
+sh ~/splicefs-setup.sh --remove
+</code></pre></div>
+    <h3 class="panel-title">FreeBSD</h3>
+    <div class="block"><div class="bar"><span class="label">Shell</span></div><pre><code># Remove the packages:
+pkg delete splicefs-server splicefs-client
+
+# Delete the settings of the services from /etc/rc.conf, which removing a package leaves alone:
+sysrc -x splicefsd_enable
+sysrc -x splicefs_enable
+
+# Remove the packages they needed that nothing else needs now:
+pkg autoremove
+
+# Delete the data and the configuration folder, then the user and its group:
+rm -rf /var/db/splicefs /usr/local/etc/splicefs
+pw userdel splicefs
+
+# Remove the repository and the signing key, with the setup script from step 1:
+sh ~/splicefs-setup.sh --remove
+</code></pre></div>
+    <p class="small">On Alpine and FreeBSD, run the commands as root. The user and group of the server are removed together.</p>
   </section>
 
   <section class="manual">
@@ -406,6 +481,12 @@ pkg install splicefs-client    # the client
     </ul>
     <p>On Linux an upgrade restarts a service that was running and leaves a stopped one stopped. Removing the package stops the service and turns it off.</p>
     <p>On FreeBSD an upgrade leaves a service that was running running, still the old version, because pkg ends every program a package script starts and so a package cannot restart one. Restart it yourself with <code class="inline">service splicefsd restart</code> for the server or <code class="inline">service splicefs restart</code> for the client. Removing the package stops the service and leaves <code class="inline">/etc/rc.conf</code> alone; delete the setting afterwards with <code class="inline">sysrc -x splicefsd_enable</code> for the server or <code class="inline">sysrc -x splicefs_enable</code> for the client.</p>
+    <p>The client can also mount from the boot mounts of the system. The cluster must be defined and the client service must be running, because the mount helper only asks the running client. Add a line of type <code class="inline">splicefs</code> to <code class="inline">/etc/fstab</code>, as root:</p>
+    <ul>
+      <li>systemd: <code class="inline">echo 'example:/ /mnt/files splicefs _netdev,nofail,x-systemd.requires=splicefs.service 0 0' &gt;&gt; /etc/fstab</code></li>
+      <li>OpenRC (Alpine): <code class="inline">echo 'example:/ /mnt/files splicefs _netdev,nofail 0 0' &gt;&gt; /etc/fstab</code>, then <code class="inline">rc-update add fuse boot &amp;&amp; rc-service fuse start</code> to load the FUSE kernel module at boot, and <code class="inline">rc-update add netmount default &amp;&amp; rc-service netmount start</code> to mount the <code class="inline">_netdev</code> lines once the network is up. The package turns neither on.</li>
+      <li>FreeBSD: <code class="inline">echo 'example:/ /mnt/files splicefs ro,late,failok,mountprog=/usr/local/sbin/mount.splicefs 0 0' &gt;&gt; /etc/fstab</code>. FreeBSD runs a helper only for the file system types it knows, unless the line names one with <code class="inline">mountprog=</code>. <code class="inline">late</code> mounts the line in the last stage of the boot, after the network and the daemons; the client service starts before that and loads the <code class="inline">fusefs</code> kernel module itself. <code class="inline">failok</code> keeps a line that fails to mount (for example while the cluster cannot be reached) from stopping the boot; without it FreeBSD drops into single user mode. Run <code class="inline">mount /mnt/files</code> once by hand to see that the line works.</li>
+    </ul>
     <p>Nothing has to be configured first: a server runs with no shares and a client with no mounts. Add yours as files, then reload the service:</p>
     <ul>
       <li>Server: one file per share in <code class="inline">/etc/splicefs/server/shares.d</code> <a href="https://github.com/SpliceFS/server/blob/main/docs/configuration.md">Server configuration</a></li>

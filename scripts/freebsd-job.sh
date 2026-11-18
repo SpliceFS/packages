@@ -6,7 +6,7 @@
 # one running, and removing the package stops it and leaves rc.conf alone. The arm64 package is
 # built for its ABI and not installed. What "the service works" means for this program comes
 # from check-lib.sh in the input folder (programs/<program>/freebsd/check-lib.sh): expected_user
-# and answers.
+# and answers, and extra_checks when the program has checks of its own.
 #
 # It also builds the signed package repository. The input archive on the fourth disk holds
 # keys/splicefs.rsa(.pub) and the packages published before (repo/FreeBSD:<major>:<cpu>/All/).
@@ -15,6 +15,7 @@
 # check on, and a repository signed with another key must be refused.
 #
 #   freebsd-job.sh <input folder> <output folder> <package name> <program> <package version> <program version>
+#                  <upgrade package version>
 
 # expected_user and answers are set by check-lib.sh of the program, which ShellCheck cannot follow.
 # shellcheck disable=SC2154
@@ -25,6 +26,7 @@ name="$3"
 program="$4"
 version="$5"
 program_version="$6"
+upgrade_version="$7"
 mkdir -p "$out"
 
 # Prints how long the phase that just ended took. timing.sh is not used: this script runs
@@ -57,6 +59,9 @@ major="$(freebsd-version -u | cut -d. -f1)"
 # there and lists nothing itself.
 programs="$(sed -n 's|^bin/||p' "$in/plist")"
 
+# links is "<link> <target>" a line, the links of the package as the host made them from the
+# links file of the program (package_freebsd_link_list in scripts/package-lib.sh).
+
 # One package per CPU type. goarch is how the build names the binary, abiarch how pkg names
 # the CPU type in an ABI string, and the package of version $3 is written into the folder $4.
 build() {
@@ -74,6 +79,10 @@ build() {
         install -m 0755 "$in/$each-$goarch" "$stage/usr/local/bin/$each"
     done
     install -m 0755 "$in/$program.rc" "$stage/usr/local/etc/rc.d/$program"
+    while read -r link target; do
+        install -d "$stage$(dirname "$link")"
+        ln -s "$target" "$stage$link"
+    done < "$in/links"
     sed -e "s|@NAME@|$name|" -e "s|@PROGRAM@|$program|g" -e "s|@VERSION@|$package_version|" \
         -e "s|@ABI@|FreeBSD:$major:$abiarch|" "$in/manifest.in" > "/tmp/manifest-$goarch"
     mkdir -p "$package_folder"
@@ -191,6 +200,14 @@ for each in $programs; do
     "/usr/local/bin/$each" --version | grep -qF "$program_version" ||
         fail "$each --version does not report $program_version"
 done
+# Every link of the package leads to an installed program: for the client that is the mount
+# helper, which mount(8) runs when the line of /etc/fstab names it with mountprog=.
+while read -r link target; do
+    [ -L "$link" ] || fail "$link is not a link after the install"
+    found="$(readlink "$link")"
+    [ "$found" = "$target" ] || fail "$link leads to $found, not to $target"
+    [ -x "$target" ] || fail "$link leads to $target, which is not a program"
+done < "$in/links"
 # Installing only installs: the service is neither turned on nor running until the
 # administrator does it, and the install message says how. pkg ends every process an install
 # script leaves behind, so a package could not start its service anyway. onestatus asks even
@@ -219,12 +236,18 @@ wait_for 20 answers
 echo "turned on and started as the message says, running as $expected_user, answering, reload and restart work"
 phase_done "start the service and check it"
 
+# What only this program has to prove, with the service running and answering.
+if command -v extra_checks >/dev/null 2>&1; then
+    extra_checks
+    phase_done "check what only this program needs"
+fi
+
 # An upgrade leaves a running service running and never changes rc.conf. The package cannot
 # restart the service, because pkg ends every process a package script starts, so the running
 # program keeps its old version until the administrator restarts it, and the upgrade message
-# says so. The new package is the next revision of the same version, in a repository of its
-# own so that the published one stays as it is; pkg takes it as an upgrade of the installed one.
-upgrade_version="${version}_1"
+# says so. The new package is the next revision of the same version (the host writes its version,
+# argument 7), in a repository of its own so that the published one stays as it is; pkg takes it
+# as an upgrade of the installed one.
 upgrade_folder=/tmp/upgrade-repo
 rm -rf "$upgrade_folder"
 build amd64 amd64 "$upgrade_version" "$upgrade_folder/All"
@@ -256,6 +279,9 @@ if answers; then fail "the service still answers after the package was removed";
 for each in $programs; do
     [ ! -e "/usr/local/bin/$each" ] || fail "remove left $each behind"
 done
+while read -r link _; do
+    [ ! -L "$link" ] || fail "remove left the link $link behind"
+done < "$in/links"
 grep -qs "^${program}_enable=" /etc/rc.conf || fail "the removal deleted ${program}_enable from rc.conf"
 grep -qF "sysrc -x ${program}_enable" "$pkg_output" || fail "the remove message does not say how to delete the setting"
 sysrc -x "${program}_enable" || fail "sysrc could not delete the setting"

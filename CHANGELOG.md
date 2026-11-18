@@ -6,6 +6,39 @@ the setup script and the page at packages.splicefs.org.
 
 The change log of all parts of SpliceFS, side by side: https://splicefs.org/changelog/
 
+## [0.4.29] - 2026-11-18
+
+- Internal: the FreeBSD upgrade check upgrades to a well-formed next revision.
+
+## [0.4.28] - 2026-11-18
+
+- Internal: the fstab test works with server releases before and after splicefsdctl.
+
+## [0.4.27] - 2026-11-18
+
+- Internal: the FreeBSD packages are built and checked on every pull request.
+
+## [0.4.26] - 2026-11-18
+
+- Internal: the lifecycle test no longer counts files of the systems' own services.
+
+## [0.4.25] - 2026-11-18
+
+- Internal: fixes the package tests, which could not run one of their scripts, and a publish that
+  could miss a changed index file.
+
+## [0.4.24] - 2026-11-18
+
+- FreeBSD: a SpliceFS folder can be mounted at boot from /etc/fstab (see "After the install").
+
+## [0.4.23] - 2026-11-18
+
+- Documentation: how to uninstall SpliceFS completely, per system ("Uninstall" on the install page).
+
+## [0.4.22] - 2026-11-18
+
+- Alpine: a SpliceFS folder can be mounted at boot from /etc/fstab (see "After the install").
+
 ## [0.4.21] - 2026-11-18
 
 - Internal: package publishes run from a number tag of this repository.

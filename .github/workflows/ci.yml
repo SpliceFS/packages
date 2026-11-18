@@ -36,12 +36,47 @@ jobs:
       program: ${{ matrix.program }}
       packages-ref: ${{ github.sha }}
 
+  # The whole life of the packages: set up the repository, install the published release of both
+  # programs, upgrade to the new packages, remove, install, uninstall as the documentation says,
+  # and find the system as it was. It needs the packages of the server and of the client in one
+  # run, and a call of package-and-test.yml or test-packages.yml holds one program, so the job is
+  # here, where both calls are known. The packages are the ones of the jobs above; their build
+  # keys differ, which the test repository takes care of by signing again.
+  lifecycle:
+    name: Lifecycle (${{ matrix.format }}, ${{ matrix.arch }})
+    needs: released
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        format: [deb, rpm, apk]
+        arch: [amd64, arm64]
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    env:
+      FORMAT: ${{ matrix.format }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: packages-server-${{ matrix.arch }}
+          path: dist
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: packages-client-${{ matrix.arch }}
+          path: dist
+      - name: Install, upgrade, remove and uninstall in a clean system of every release
+        run: make lifecycle-test ONLY="$FORMAT"
+
   # The one check a branch must pass. A job that did not run counts as failed: a job is skipped
   # only when one it needs failed. A new job is added to the list when it is added above, and
   # nowhere else. The other workflows of this repository are separate runs and are not in it.
   all-checks:
     name: All checks
-    needs: [check, released]
+    needs: [check, released, lifecycle]
     if: ${{ always() }}
     runs-on: ubuntu-latest
     steps:

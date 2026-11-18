@@ -1,8 +1,10 @@
 name: Package and test
 
-# Builds the deb, rpm and Alpine packages of a SpliceFS program, makes the signed repositories,
-# and tests both on the server images of packaging/test-systems. A repository that releases a
-# program calls this workflow from its own CI:
+# Builds the deb, rpm, Alpine and FreeBSD packages of a SpliceFS program, makes the signed
+# repositories, and tests them: the deb, rpm and Alpine packages on the server images of
+# packaging/test-systems, the FreeBSD packages in a FreeBSD machine of each release of
+# packaging/freebsd/releases. A repository that releases a program calls this workflow from
+# its own CI:
 #
 #   packages:
 #     name: Packages
@@ -24,7 +26,10 @@ name: Package and test
 # revision comes from the published repository (scripts/next-revision.sh), never from a file.
 #
 # Every key is a throwaway key made in the run: no secret is given to this workflow, and
-# nothing it makes is published.
+# nothing it makes is published. The publish of a release (publish-one-program.yml) builds the
+# FreeBSD packages with the same make target, so the checks of the FreeBSD machine, which
+# install, start, upgrade and remove the package, run on every pull request and not first at
+# publish time.
 on:
   workflow_call:
     inputs:
@@ -45,17 +50,20 @@ permissions:
   contents: read
 
 jobs:
-  # Says where the source of what is packaged is. The newest release is named once here, so
-  # that every job of the run packages the same one, also when a release is made meanwhile.
+  # Says what is packaged, once, so that every job of the run packages the same thing: where
+  # the source is (the newest release is named here, also when a release is made meanwhile),
+  # the version and revision of every package format, and the FreeBSD releases to build on.
   source:
     name: Source
     runs-on: ubuntu-latest
     outputs:
       repository: ${{ steps.release.outputs.repository || github.repository }}
       ref: ${{ steps.release.outputs.ref || github.sha }}
+      version: ${{ steps.version.outputs.version }}
+      revision: ${{ steps.version.outputs.revision }}
+      freebsd-releases: ${{ steps.freebsd.outputs.releases }}
     steps:
       - name: Packages
-        if: ${{ inputs.bin-artifact == '' }}
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: SpliceFS/packages
@@ -73,6 +81,30 @@ jobs:
           echo "newest release of $PROGRAM: $tag of $release_repo"
           echo "repository=$release_repo" >> "$GITHUB_OUTPUT"
           echo "ref=$tag" >> "$GITHUB_OUTPUT"
+      - name: Source of the program
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ steps.release.outputs.repository || github.repository }}
+          ref: ${{ steps.release.outputs.ref || github.sha }}
+          path: src
+          persist-credentials: false
+      - name: Version and revision of the packages
+        id: version
+        env:
+          PROGRAM: ${{ inputs.program }}
+          NEWEST_RELEASE: ${{ inputs.bin-artifact == '' }}
+        run: |
+          version="v$(cat src/VERSION)"
+          revision=0
+          if [ "$NEWEST_RELEASE" = true ]; then
+            revision="$(scripts/next-revision.sh "$PROGRAM" "$version")"
+          fi
+          echo "packaging $PROGRAM $version as revision $revision"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "revision=$revision" >> "$GITHUB_OUTPUT"
+      - name: List the FreeBSD releases as JSON
+        id: freebsd
+        run: echo "releases=$(scripts/freebsd-releases.sh)" >> "$GITHUB_OUTPUT"
 
   # Once for each CPU type the runners offer. The repositories are made here too, because they
   # need the packages of all three formats. The jobs below test what this job leaves in dist.
@@ -124,16 +156,11 @@ jobs:
         working-directory: packages
         env:
           PROGRAM: ${{ inputs.program }}
-          NEWEST_RELEASE: ${{ inputs.bin-artifact == '' }}
+          VERSION: ${{ needs.source.outputs.version }}
+          REVISION: ${{ needs.source.outputs.revision }}
         run: |
-          version="v$(cat "$GITHUB_WORKSPACE/src/VERSION")"
-          revision=0
-          if [ "$NEWEST_RELEASE" = true ]; then
-            revision="$(scripts/next-revision.sh "$PROGRAM" "$version")"
-          fi
-          echo "packaging $PROGRAM $version as revision $revision"
           make packages PROGRAM="$PROGRAM" BIN="$GITHUB_WORKSPACE/bin" SRC="$GITHUB_WORKSPACE/src" \
-            VERSION="$version" REVISION="$revision"
+            VERSION="$VERSION" REVISION="$REVISION"
       - name: Build the signed package repositories
         working-directory: packages
         env:
@@ -146,6 +173,65 @@ jobs:
             packages/dist/${{ inputs.program }}/
             packages/dist/keys/
           if-no-files-found: error
+
+  # The FreeBSD packages, one job for each release of packaging/freebsd/releases. FreeBSD cannot
+  # run in a container, so make package-freebsd starts a virtual machine of the release, which
+  # needs the hardware virtualization that ubuntu-latest (amd64) offers; the make target stops
+  # at once when /dev/kvm is missing (scripts/freebsd-require-kvm.sh). The machine builds the
+  # packages for amd64 and arm64, installs the amd64 one from the repository it signed with the
+  # throwaway key, starts the service, upgrades and removes it, and checks the boot order and
+  # the fstab line (programs/<program>/freebsd/check-lib.sh). Nothing of it is kept: no test of
+  # test-packages.yml uses a FreeBSD package.
+  freebsd:
+    name: FreeBSD packages (${{ matrix.release }})
+    needs: source
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        release: ${{ fromJSON(needs.source.outputs.freebsd-releases) }}
+    steps:
+      - name: Packages
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: SpliceFS/packages
+          ref: ${{ inputs.packages-ref }}
+          path: packages
+          persist-credentials: false
+      - name: Source of the program
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ needs.source.outputs.repository }}
+          ref: ${{ needs.source.outputs.ref }}
+          path: src
+          persist-credentials: false
+      - name: Programs of the calling build
+        if: ${{ inputs.bin-artifact != '' }}
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ${{ inputs.bin-artifact }}
+          path: bin
+      - name: FreeBSD programs of the release, proven by its signature
+        if: ${{ inputs.bin-artifact == '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PROGRAM: ${{ inputs.program }}
+          REPOSITORY: ${{ needs.source.outputs.repository }}
+          TAG: ${{ needs.source.outputs.ref }}
+        run: |
+          gh release download "$TAG" --repo "$REPOSITORY" --dir release \
+            --pattern '*-freebsd-*.tar.gz' --pattern SHA256SUMS --pattern SHA256SUMS.asc
+          packages/scripts/release-bin.sh "$TAG" "$PWD/release" "$PWD/bin"
+      - name: Build the packages on FreeBSD and check them
+        working-directory: packages
+        env:
+          PROGRAM: ${{ inputs.program }}
+          VERSION: ${{ needs.source.outputs.version }}
+          REVISION: ${{ needs.source.outputs.revision }}
+          RELEASE: ${{ matrix.release }}
+        run: |
+          make package-freebsd PROGRAM="$PROGRAM" BIN="$GITHUB_WORKSPACE/bin" SRC="$GITHUB_WORKSPACE/src" \
+            VERSION="$VERSION" REVISION="$REVISION" FREEBSD="$RELEASE"
 
   # Installs, starts, upgrades and installs from the repository, on every system of
   # packaging/test-systems. The jobs are in a workflow of their own, which the release of a
@@ -162,7 +248,7 @@ jobs:
   # only when one it needs failed. A new job is added to the list when it is added above.
   result:
     name: Result
-    needs: [source, packages, tests]
+    needs: [source, packages, freebsd, tests]
     if: ${{ always() }}
     runs-on: ubuntu-latest
     steps:

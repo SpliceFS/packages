@@ -168,6 +168,26 @@ else
 fi
 rm -rf "$tree_of"
 
+# The FreeBSD package installs under /usr/local, so the links that every format shares move
+# there, both the link and its target. $1 the program, $2 the links wanted as "<link> <target>"
+# items each followed by a comma, or nothing.
+freebsd_link_list_of() {
+    # The inner shell expands $1, which is the root of the repository.
+    # shellcheck disable=SC2016
+    got="$(cd "$tree" && PROGRAM="$1" VERSION=v1.2.3 REVISION=0 PACKAGE_DATE=20261112 sh -c \
+        '. "$1/scripts/package-lib.sh"; package_freebsd_link_list | tr "\n" ,' sh "$root" 2>&1)" || true
+    if [ "$got" = "$2" ]; then
+        printf 'ok   package_freebsd_link_list of %-6s %s\n' "$1" "$2"
+    else
+        printf 'FAIL package_freebsd_link_list of %s: want "%s" got "%s"\n' "$1" "$2" "$got"
+        failed=$((failed + 1))
+    fi
+}
+
+freebsd_link_list_of demo \
+    '/usr/local/sbin/mount.demo /usr/local/bin/democtl,/usr/local/lib/demo/helper /usr/local/bin/demod,'
+freebsd_link_list_of other ''
+
 # The packing list of a FreeBSD package is made from program.conf and config-folders, byte for
 # byte, and is kept nowhere else. $1 the folder the library is read from, $2 the program, the
 # list wanted on standard input.
@@ -192,6 +212,8 @@ plist_of() {
 plist_of "$tree" demo <<'PLIST'
 bin/demod
 bin/democtl
+sbin/mount.demo
+lib/demo/helper
 etc/rc.d/demod
 @dir etc/splicefs/demo/alpha.d
 @dir etc/splicefs/demo/beta.d
@@ -216,6 +238,7 @@ PLIST
 plist_of "$root" client <<'PLIST'
 bin/splicefs
 bin/splicefsctl
+sbin/mount.splicefs
 etc/rc.d/splicefs
 @dir etc/splicefs/client/conf.d
 @dir etc/splicefs/client/clusters.d
@@ -238,6 +261,27 @@ check() {
         failed=$((failed + 1))
     fi
 }
+
+# $1 VERSION, $2 REVISION, $3 the FreeBSD version of the package the upgrade check builds. It is
+# the next revision of the same program version, written by package_versions like every other
+# version: a FreeBSD version has one port revision, so 1.2.3_1 upgrades to 1.2.3_2 and never to
+# 1.2.3_1_1.
+check_upgrade() {
+    got="$(VERSION="$1" REVISION="$2" PACKAGE_DATE=20261112 sh -c \
+        '. scripts/package-lib.sh; package_freebsd_upgrade_version' 2>&1)" || true
+    if [ "$got" = "$3" ]; then
+        printf 'ok   %-18s rev %-2s upgrades to %s\n' "$1" "$2" "$got"
+    else
+        printf 'FAIL %-18s rev %s upgrade want "%s" got "%s"\n' "$1" "$2" "$3" "$got"
+        failed=$((failed + 1))
+    fi
+}
+
+check_upgrade v1.2.3 0 1.2.3_1
+check_upgrade v1.2.3 1 1.2.3_2
+check_upgrade v1.2.3 5 1.2.3_6
+check_upgrade v1.2.3-rc.1 1 1.2.3.rc1_2
+check_upgrade v1.2.3-dirty 0 1.2.3.20261112_1
 
 # $1 VERSION that must be refused, $2 text the message must contain.
 refuse() {

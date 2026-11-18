@@ -23,6 +23,13 @@ package_link_list() {
     grep -v -e '^#' -e '^$' "$defs/links"
 }
 
+# Prints the links of the FreeBSD package, "<link> <target>" a line: the same links, moved from /usr
+# to /usr/local, where that package installs. The links file stays the one place that says which
+# links there are.
+package_freebsd_link_list() {
+    package_link_list | sed -e 's|^/usr/|/usr/local/|' -e 's| /usr/| /usr/local/|'
+}
+
 # Makes the links the program installs under the folder $1, for the package formats that build a
 # tree of files.
 package_links() {
@@ -56,8 +63,9 @@ package_docs() {
 }
 
 # Prints the packing list that pkg create reads for the FreeBSD package, paths relative to
-# /usr/local. Every line is made from a fact that program.conf and config-folders hold: the
-# programs, the rc script that is named after the service program, and the configuration folders.
+# /usr/local. Every line is made from a fact that program.conf, links and config-folders hold: the
+# programs, the links, the rc script that is named after the service program, and the
+# configuration folders.
 # A folder comes before the one that holds it, so that pkg removes the inner one first. The
 # folder of all SpliceFS programs is shared by the server and the client, and pkg removes it
 # only when it is empty.
@@ -65,6 +73,7 @@ package_docs() {
 # shellcheck disable=SC2154
 package_freebsd_plist() {
     for plist_program in $programs; do echo "bin/$plist_program"; done
+    package_freebsd_link_list | while read -r plist_link _; do echo "${plist_link#/usr/local/}"; done
     echo "etc/rc.d/$program"
     for plist_folder in $confsubdirs; do echo "@dir ${confdir#/}/$plist_folder"; done
     echo "@dir ${confdir#/}"
@@ -113,6 +122,34 @@ pull_image() {
         if [ "$tries" -lt 3 ]; then sleep 5; fi
     done
     return 1
+}
+
+# Runs the command once a second until it succeeds or the given number of seconds is over.
+wait_for() {
+    limit="$1"
+    shift
+    waited=0
+    until "$@"; do
+        waited=$((waited + 1))
+        [ "$waited" -lt "$limit" ] || return 1
+        sleep 1
+    done
+}
+
+# Ends this system's run with the message when the command fails. The command runs through
+# "$@" because errexit is off in every check (see run_checks): each one is guarded
+# explicitly, and its status is the answer.
+must() {
+    message="$1"
+    shift
+    "$@" || fail "$message"
+}
+
+# The same for a command that has to fail: ends the run with the message when it succeeds.
+refuse() {
+    message="$1"
+    shift
+    if "$@"; then fail "$message"; fi
 }
 
 # Whether a line of packaging/test-systems is part of this run. ONLY names one format or one
@@ -249,3 +286,13 @@ versions="$(package_versions "$VERSION" "$REVISION" "$PACKAGE_DATE")" || exit 1
 read -r debver rpmver rpmrel apkver apkrel pkgver <<WORDS
 $versions
 WORDS
+
+# The FreeBSD version of the package the upgrade check builds (scripts/freebsd-job.sh): the same
+# program version at the next revision, which pkg takes as an upgrade of the one installed. It is
+# written by package_versions like every other version, because a FreeBSD version holds one port
+# revision and appending another to pkgver would not be a version at all. REVISION was checked
+# above, so the call cannot fail.
+package_freebsd_upgrade_version() {
+    pu_words="$(package_versions "$VERSION" "$((REVISION + 1))" "$PACKAGE_DATE")" || exit 1
+    printf '%s\n' "${pu_words##* }"
+}

@@ -3,7 +3,12 @@
 #
 # PROVIDE: splicefs
 # REQUIRE: NETWORKING DAEMON FILESYSTEMS
+# BEFORE: mountlate
 # KEYWORD: shutdown
+#
+# mountlate mounts the fstab lines marked "late" with the mount helper of the client, which only
+# asks the running client, so the client must run first. mountlate needs DAEMON as this script
+# does, so the order is DAEMON, this script, mountlate.
 #
 # Settings for /etc/rc.conf:
 #   splicefs_enable   "YES" starts the client at boot and lets "service splicefs start" run
@@ -23,6 +28,7 @@ load_rc_config "$name"
 : "${splicefs_enable:=NO}"
 
 program=/usr/local/bin/splicefs
+control=/usr/local/bin/splicefsctl
 logfile=/var/log/splicefs.log
 # daemon(8) writes two pid files: its own, which stop and status use, and the client's,
 # which reload needs because the signal must reach the client and not its supervisor.
@@ -41,6 +47,7 @@ command_args="-f -r -R 5 -P ${pidfile} -p ${childpidfile} -o ${logfile} ${progra
 
 extra_commands=reload
 start_precmd=splicefs_prestart
+start_postcmd=splicefs_wait
 reload_cmd=splicefs_reload
 
 splicefs_prestart() {
@@ -48,6 +55,27 @@ splicefs_prestart() {
     install -d -o root -g wheel -m 0755 /var/cache/splicefs
     # The pid files and the control socket of the client live here.
     install -d -o root -g wheel -m 0755 /var/run/splicefs
+}
+
+# daemon(8) returns as soon as it has started the client, which answers on its control socket
+# only once it has connected and mounted. The mount helper of an fstab line needs that answer, so
+# the start is not over, and mountlate does not run, before splicefsctl status gets it. Each try
+# is cut off after 2 seconds because a client that has the socket but is not serving yet would
+# otherwise keep the call waiting; 30 tries cover the 15 seconds a cluster that is down at boot
+# takes to give up. When none is answered, the supervisor and the client are ended here, because
+# a failed start leaves them running.
+splicefs_wait() {
+    tries=0
+    until timeout 2 "${control}" status >/dev/null 2>&1; do
+        tries=$((tries + 1))
+        if [ "${tries}" -ge 30 ]; then
+            echo "${name} does not answer, see ${logfile}"
+            supervisor_pid="$(cat "${pidfile}")"
+            kill "${supervisor_pid}"
+            return 1
+        fi
+        sleep 1
+    done
 }
 
 splicefs_reload() {

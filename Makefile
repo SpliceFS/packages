@@ -10,7 +10,16 @@ site:
 tracked-files:
 	scripts/tracked-files.sh
 
-check: site tracked-files
+# A script that lost its executable bit fails only where it is run directly, which is often a CI
+# job far from the commit that lost it. This finds it in every check. Libraries (-lib.sh) are
+# read by other scripts and never run; the files in steps/ are shown on the install page and run
+# by the tests through sh.
+.PHONY: script-modes
+script-modes:
+	@bad="$$(git ls-files -s -- 'scripts/*.sh' 'tests/*.sh' | awk '$$1 != "100755" && $$4 !~ /-lib\.sh$$/ {print $$4}')"; \
+	if [ -n "$$bad" ]; then echo "not executable in git:"; echo "$$bad"; exit 1; fi
+
+check: site tracked-files script-modes
 	sh scripts/check.sh
 
 # Static analysis of every shell file. The built script is analyzed, not the template,
@@ -176,13 +185,18 @@ ONLY ?=
 PLATFORM ?=
 TEST_VARS = PROGRAM=$(PROGRAM) VERSION=$(VERSION) PLATFORM=$(PLATFORM) ONLY=$(ONLY)
 
-.PHONY: built-packages package-order-test package-test
+.PHONY: built-apk-packages built-packages package-order-test apk-resign-test package-test
 
-# Stops at once, with the name of what is missing, before any image starts.
-built-packages:
+# Stop at once, with the name of what is missing, before any image starts. A test that uses the
+# Alpine packages only (fstab-test) needs built-apk-packages; the others need every format.
+built-apk-packages:
 	@: $(if $(PROGRAM),,$(error PROGRAM is not set; see the comment above PROGRAM))
-	@ls "dist/$(PROGRAM)"/*.deb "dist/$(PROGRAM)"/*.rpm "dist/$(PROGRAM)"/alpine/*/*.apk >/dev/null 2>&1 || \
-		{ echo "FAIL: no packages in dist/$(PROGRAM): run make packages first"; exit 1; }
+	@ls "dist/$(PROGRAM)"/alpine/*/*.apk >/dev/null 2>&1 || \
+		{ echo "FAIL: no Alpine packages in dist/$(PROGRAM): run make packages first"; exit 1; }
+
+built-packages: built-apk-packages
+	@ls "dist/$(PROGRAM)"/*.deb "dist/$(PROGRAM)"/*.rpm >/dev/null 2>&1 || \
+		{ echo "FAIL: no deb and rpm packages in dist/$(PROGRAM): run make packages first"; exit 1; }
 
 # Checks in a Debian, a Rocky Linux and an Alpine system that the versions of the packages sort
 # the way a release needs (a pre-release before its release) and that apk accepts them. It is a
@@ -190,9 +204,14 @@ built-packages:
 package-order-test:
 	scripts/package-order-test.sh
 
+# Signs the Alpine packages of dist/PROGRAM again with a new key (scripts/apk-resign.sh, which the
+# lifecycle test uses) and checks that apk accepts them with that key and refuses them without it.
+apk-resign-test: built-apk-packages
+	PROGRAM=$(PROGRAM) APK_IMAGE=$(APK_IMAGE) scripts/apk-resign-test.sh
+
 # Installs and removes the package in a clean, booted server of every system listed in
 # packaging/test-systems and reports each system's result.
-package-test: built-packages package-order-test
+package-test: built-packages package-order-test apk-resign-test
 	$(TEST_VARS) scripts/package-test.sh
 
 # Proves the service, not only the files: in a container per system that is booted as a server,
@@ -205,6 +224,15 @@ package-test: built-packages package-order-test
 .PHONY: service-test
 service-test: built-packages
 	$(TEST_VARS) scripts/service-test.sh
+
+# Proves that the client mounts from the boot mounts of the system, on every Alpine image of
+# packaging/test-systems (scripts/fstab-test.sh): installs the client package next to a real server
+# (SERVER_BIN, the folder with the splicefsd program for the CPU type of the container), writes an
+# fstab line, and checks that OpenRC's netmount service mounts it and unmounts it again.
+.PHONY: fstab-test
+SERVER_BIN ?=
+fstab-test: built-apk-packages
+	$(TEST_VARS) SERVER_BIN=$(SERVER_BIN) scripts/fstab-test.sh
 
 # The part of the upgrade test that decides whether the packaging changed, checked against small
 # hand-made package listings. It needs no Docker, so it is part of check.
@@ -225,17 +253,42 @@ upgrade-diff-test:
 upgrade-test: built-packages
 	$(TEST_VARS) scripts/upgrade-test.sh
 
+# The whole life of the packages in one booted server per system of packaging/test-systems: our
+# repository is set up with setup.sh, the published release of the server and the client is
+# installed from it, upgraded to the new packages, removed, installed again, removed, and the
+# repository taken away with setup.sh --remove; the system must then match the one it started as
+# (what is left out is in scripts/lifecycle-excluded). It needs the new packages of both
+# programs in dist/server and dist/client (make packages for each), Docker and the network.
+# ONLY limits it to one format or one image; PLATFORM is as for the other tests.
+.PHONY: lifecycle-repo lifecycle-test
+lifecycle-repo:
+	$(MAKE) built-packages PROGRAM=server
+	$(MAKE) built-packages PROGRAM=client
+	$(MAKE) keys
+	for p in server client; do \
+		PROGRAM=$$p PLATFORM=$(PLATFORM) scripts/lifecycle-repo.sh && \
+		scripts/part.sh apk-resign $(REPO_RUN) $(APK_IMAGE) sh scripts/apk-resign.sh /repo/dist/lifecycle/$$p && \
+		$(MAKE) repo PROGRAM=$$p REPO_DIR=dist/lifecycle/$$p || exit 1; \
+	done
+
+lifecycle-test: lifecycle-repo
+	PROGRAM=server PLATFORM=$(PLATFORM) ONLY=$(ONLY) scripts/lifecycle-test.sh
+
 # Signed package repositories in dist/PROGRAM/repo, made from the packages make packages left in
 # dist/PROGRAM (it builds none). Keys come from scripts/signing-keys.sh, which is the one place
 # that picks real or throwaway keys. Each format runs in the image of its own distribution's
 # tools, with the keys mounted read-only.
 REPO_RUN = docker run --rm --user "$(shell id -u):$(shell id -g)" $(KEYS_MOUNT) -v "$(CURDIR)":/repo -w /repo
 
+#   REPO_DIR  the folder that holds the packages and receives the repository in REPO_DIR/repo;
+#             dist/PROGRAM unless the lifecycle test makes a repository of its own.
+REPO_DIR ?= dist/$(PROGRAM)
+
 .PHONY: repo repo-test
 repo: built-packages keys
-	scripts/part.sh repo-apt $(REPO_RUN) $(GO_IMAGE) sh scripts/repo-apt.sh /repo/dist/$(PROGRAM)
-	scripts/part.sh repo-rpm $(REPO_RUN) $(RPM_IMAGE) sh scripts/repo-rpm.sh /repo/dist/$(PROGRAM)
-	scripts/part.sh repo-apk $(REPO_RUN) $(APK_IMAGE) sh scripts/repo-apk.sh /repo/dist/$(PROGRAM)
+	scripts/part.sh repo-apt $(REPO_RUN) $(GO_IMAGE) sh scripts/repo-apt.sh /repo/$(REPO_DIR)
+	scripts/part.sh repo-rpm $(REPO_RUN) $(RPM_IMAGE) sh scripts/repo-rpm.sh /repo/$(REPO_DIR)
+	scripts/part.sh repo-apk $(REPO_RUN) $(APK_IMAGE) sh scripts/repo-apk.sh /repo/$(REPO_DIR)
 
 # Installs from the repository on every system in packaging/test-systems with signature checks
 # on, and checks that a damaged repository is refused.

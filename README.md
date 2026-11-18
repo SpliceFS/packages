@@ -76,6 +76,43 @@ sysrc -x splicefsd_enable    # the server
 sysrc -x splicefs_enable     # the client
 ```
 
+### Mount at boot from fstab (client)
+
+The client can also mount from the boot mounts of the system. The cluster must be defined in
+`/etc/splicefs/client/clusters.d`, and the client service must be running: the mount helper
+(`mount.splicefs`, in `/usr/sbin` on Linux and in `/usr/local/sbin` on FreeBSD) only asks the
+running client. Add a line of type `splicefs` to `/etc/fstab`; the options are listed in the
+[client configuration](https://github.com/SpliceFS/client/blob/main/docs/configuration.md).
+
+systemd (Debian, Ubuntu, Rocky Linux, Amazon Linux, openSUSE), as root:
+
+```
+echo 'example:/ /mnt/files splicefs _netdev,nofail,x-systemd.requires=splicefs.service 0 0' >> /etc/fstab
+```
+
+OpenRC (Alpine), as root. `netmount` mounts the `_netdev` lines once the network is up, and the
+`fuse` service loads the FUSE kernel module at boot. The package turns neither on:
+
+```
+echo 'example:/ /mnt/files splicefs _netdev,nofail 0 0' >> /etc/fstab
+rc-update add fuse boot && rc-service fuse start
+rc-update add netmount default && rc-service netmount start
+```
+
+FreeBSD (pkg), as root. `mount(8)` runs a helper only for the file system types it knows, unless
+the line names one with `mountprog=`, so the line must. `late` mounts it in the last stage of the
+boot, after the network and the daemons, and the client service starts before that and loads the
+`fusefs` kernel module itself. `ro` is there because FreeBSD wants `ro` or `rw` in the options
+(either works; the mount is read-only whatever is asked). Enable the service as above, then:
+
+```
+echo 'example:/ /mnt/files splicefs ro,late,failok,mountprog=/usr/local/sbin/mount.splicefs 0 0' >> /etc/fstab
+```
+
+`failok` keeps a line that fails to mount (for example while the cluster cannot be reached) from
+stopping the boot; without it FreeBSD drops into single user mode. Run `mount /mnt/files` once by
+hand to see that the line works.
+
 ## Remove the repository
 
 `sh setup.sh --remove` takes away what the setup added, and nothing else: the repository
@@ -91,14 +128,109 @@ curl --proto '=https' --tlsv1.2 -fsSL https://packages.splicefs.org/setup.sh -o 
   command, then the repository. When the script is done it prints that command for your system,
   for example `sudo apt-get remove splicefs-server splicefs-client`. Packages that stay installed
   keep working, but they get no updates.
+  To remove SpliceFS with its data, see Uninstall.
 - On dnf and zypper systems it also removes the key that the setup added to the rpm database,
   and no other key.
 - A file is removed only when its content is exactly what the setup writes there. A file that
   someone changed is left in place, and the script prints a warning with its path.
-- The folders the setup created are left in place, because other software keeps its files in
-  them too.
+- A folder the setup created is removed when it is empty. A folder that holds any other file
+  stays, and so does a folder the system ships, such as `/etc/apt/keyrings`.
 - It is safe to run again, and on a system that was never set up it does nothing. It makes the
   same self-check as the setup, so it needs the latest published script.
+
+## Uninstall
+
+The packages delete neither the data nor the user when they are removed, so that installing them
+again picks up where you left off. To take SpliceFS off a system completely, run the commands for
+your system in this order: the packages, the packages that only they needed, the data and
+configuration folders, the `splicefs` user with its group, and last the repository. On FreeBSD
+the settings of the services in `/etc/rc.conf` are deleted right after the packages. Read the list
+of packages your package manager shows before you confirm it. The last command needs the setup
+script, downloaded as under "Remove the repository". On Alpine and FreeBSD, run them as root.
+These commands are on the install page too, and `make check` proves that both show the same.
+
+Debian and Ubuntu:
+
+```
+# Remove the packages and their configuration files:
+sudo apt-get purge splicefs-server splicefs-client
+
+# Remove the packages they needed that nothing else needs now:
+sudo apt-get autoremove --purge
+
+# Delete the data and the configuration folder, then the user and its group:
+sudo rm -rf /var/lib/splicefs /etc/splicefs
+sudo userdel splicefs
+
+# Remove the repository and the signing key, with the setup script from step 1:
+sudo sh ~/splicefs-setup.sh --remove
+```
+
+RHEL, Rocky Linux, AlmaLinux and Amazon Linux:
+
+```
+# Remove the packages:
+sudo dnf remove splicefs-server splicefs-client
+
+# Remove the packages they needed that nothing else needs now:
+sudo dnf autoremove
+
+# Delete the data and the configuration folder, then the user and its group:
+sudo rm -rf /var/lib/splicefs /etc/splicefs
+sudo userdel splicefs
+
+# Remove the repository and the signing key, with the setup script from step 1:
+sudo sh ~/splicefs-setup.sh --remove
+```
+
+openSUSE Leap:
+
+```
+# Remove the packages, and the packages they needed that nothing else needs now:
+sudo zypper remove --clean-deps splicefs-server splicefs-client
+
+# Delete the data and the configuration folder, then the user and its group:
+sudo rm -rf /var/lib/splicefs /etc/splicefs
+sudo userdel splicefs
+
+# Remove the repository and the signing key, with the setup script from step 1:
+sudo sh ~/splicefs-setup.sh --remove
+```
+
+Alpine:
+
+```
+# Remove the packages, and the packages they needed that nothing else needs now:
+apk del splicefs-server splicefs-client
+
+# Delete the data, the logs and the configuration folder, then the user and its group:
+rm -rf /var/lib/splicefs /etc/splicefs /var/log/splicefsd.log /var/log/splicefs.log
+deluser splicefs
+
+# Remove the repository and the signing key, with the setup script from step 1:
+sh ~/splicefs-setup.sh --remove
+```
+
+FreeBSD:
+
+```
+# Remove the packages:
+pkg delete splicefs-server splicefs-client
+
+# Delete the settings of the services from /etc/rc.conf, which removing a package leaves alone:
+sysrc -x splicefsd_enable
+sysrc -x splicefs_enable
+
+# Remove the packages they needed that nothing else needs now:
+pkg autoremove
+
+# Delete the data and the configuration folder, then the user and its group:
+rm -rf /var/db/splicefs /usr/local/etc/splicefs
+pw userdel splicefs
+
+# Remove the repository and the signing key, with the setup script from step 1:
+sh ~/splicefs-setup.sh --remove
+```
 
 ## Verify the setup script
 
@@ -156,10 +288,12 @@ make e2e-freebsd  # runs the setup script in a FreeBSD machine of every supporte
 make packages PROGRAM=server BIN=<programs> SRC=<source> VERSION=v1.2.3   # builds deb, rpm and apk into dist/server (PROGRAM=client for the client)
 make package-test PROGRAM=server   # installs and removes each package on every server image (ONLY=deb or ONLY=<image> for one)
 make service-test PROGRAM=server   # proves the service installs idle, starts when told, answers, restarts, upgrades and stops, on every image
+make fstab-test PROGRAM=client SERVER_BIN=<splicefsd folder>   # proves an fstab line is mounted by OpenRC's netmount on every Alpine image
 make upgrade-test PROGRAM=server  # installs the newest published release, then upgrades to the packages in dist (only when the packaging changed)
 make repo PROGRAM=server           # builds the signed apt, rpm and Alpine repositories into dist/server/repo
 make repo-test PROGRAM=server      # installs from them with signature checks on
 make package-order-test                           # checks that the package versions sort right in dpkg, rpm and apk
+make apk-resign-test PROGRAM=server               # checks that Alpine packages signed again are trusted with the new key only
 ```
 
 The tests need Docker and the packages that `make packages` left in `dist/<program>`. `make packages`
@@ -170,7 +304,9 @@ are not given the version again. A `VERSION` given to a test that is not the rec
 
 The workflow `package-and-test.yml` does all of the above for one program, from the CI run of the
 repository that releases it: it builds the packages and the signed repositories on amd64 and
-arm64 runners, runs the package, service, repository and upgrade tests of every format, and ends
+arm64 runners, runs the package, service, repository and upgrade tests of every format, builds
+the FreeBSD packages in a FreeBSD machine of each release in `packaging/freebsd/releases`
+(`make package-freebsd`, which needs the hardware virtualization of an amd64 runner), and ends
 in one job, `Result`, that fails unless all passed. The caller builds its programs, uploads its
 `dist/bin` as an artifact, and calls:
 
@@ -196,8 +332,9 @@ ref of the `uses` line.
 ## Layout
 
 - `site/`: the install page (`index.html`).
-- `steps/`: the manual repository setup and the install commands for each package manager,
-  shown on the page.
+- `steps/`: the manual repository setup and the install commands for each package manager
+  (`<family>.sh`), and the uninstall commands (`uninstall-<family>.sh`), shown on the page. The
+  lifecycle test runs the uninstall files.
 - `keys/`: the public signing keys.
 - `scripts/`: `build-site.sh`, `sign-site.sh`, `publish.sh` and `check.sh`, `setup-remove-test.sh`
   (setup and removal in a fake root, for every family), and the scripts that

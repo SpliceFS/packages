@@ -1,4 +1,6 @@
-# Links the package installs: "<link> <target>" per line.
+# Links the package installs: "<link> <target>" per line. The paths are those of the deb, rpm and
+# Alpine packages, under /usr; the FreeBSD package puts them under /usr/local.
 # mount(8) runs mount.<type> for "mount -t <type>" and for fstab lines of that type. The
-# control tool is that helper when it is started under this name.
+# control tool is that helper when it is started under this name. FreeBSD runs no helper for a
+# type that it does not know, unless the line of /etc/fstab names it with mountprog=.
 /usr/sbin/mount.splicefs /usr/bin/splicefsctl
