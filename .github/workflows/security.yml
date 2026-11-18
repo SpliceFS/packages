@@ -4,6 +4,8 @@ on:
   push:
     branches: [main]
   pull_request:
+  merge_group:
+    types: [checks_requested]
   schedule:
     # Weekly, so new analyzer rules are applied without a code change.
     - cron: "41 6 * * 1"
@@ -18,7 +20,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # The setup script runs as root on other people's systems, so every warning counts.
-      - name: Analyze the setup script, the manual steps and the build scripts
+      - name: Analyze the setup script, the steps and the build scripts
         run: make lint
 
   codeql:
@@ -29,18 +31,21 @@ jobs:
       security-events: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      # The page carries its own script; CodeQL reads it out of the HTML.
+      # The workflows hold the signing and upload keys, so they are what an attacker would aim at.
       - uses: github/codeql-action/init@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
         with:
-          languages: javascript-typescript
+          languages: actions
           queries: security-and-quality
       - uses: github/codeql-action/analyze@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
         with:
-          category: /language:javascript-typescript
+          category: /language:actions
 
+  # Needs a base and a head to compare. The action takes them from the pull request, and from the
+  # merge group (its base_sha and head_sha) when the merge queue runs it. A push or a schedule has
+  # neither.
   dependency-review:
     name: Dependency review
-    if: github.event_name == 'pull_request'
+    if: contains(fromJSON('["pull_request","merge_group"]'), github.event_name)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -50,11 +55,12 @@ jobs:
 
   # A failed run of this workflow opens an issue assigned to the account in the repository
   # variable ALERT_ASSIGNEE, so that someone gets an email; GitHub sends none for runs the
-  # bots start. Pull requests are left out: their author sees the failed check there.
+  # bots start. Pull requests and merge groups are left out: their author sees the failed check
+  # there, and the merge queue takes a failed pull request out.
   alert:
     name: Report a failure
     needs: [shellcheck, codeql, dependency-review]
-    if: ${{ failure() && github.event_name != 'pull_request' }}
+    if: ${{ failure() && !contains(fromJSON('["pull_request","merge_group"]'), github.event_name) }}
     permissions:
       issues: write
     uses: SpliceFS/.github/.github/workflows/report-failure-v1.yml@main

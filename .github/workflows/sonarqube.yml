@@ -1,12 +1,17 @@
 name: SonarQube
 
 # Code quality and security rating on SonarQube Cloud. The job does nothing until the
-# repository secret SONAR_TOKEN exists.
+# repository secret SONAR_TOKEN exists. It also does nothing in a merge group: SonarQube Cloud
+# rates branches and pull requests, and the ref of a merge group is neither, so the scanner has
+# nothing to attach the result to. The pull request was scanned before it entered the queue, and
+# the job still reports, so that the merge queue does not wait for it.
 
 on:
   push:
     branches: [main]
   pull_request:
+  merge_group:
+    types: [checks_requested]
 
 permissions:
   contents: read
@@ -18,11 +23,18 @@ jobs:
     runs-on: ubuntu-latest
     env:
       SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      EVENT_NAME: ${{ github.event_name }}
     steps:
-      - name: Check that SonarQube is configured
+      - name: Check that SonarQube is configured and the run is one it rates
         id: gate
         run: |
-          if [ -n "$SONAR_TOKEN" ]; then echo "enabled=true" >> "$GITHUB_OUTPUT"; else echo "SONAR_TOKEN is not set; skipping."; fi
+          if [ "$EVENT_NAME" = merge_group ]; then
+            echo "A merge group is not a branch or a pull request of SonarQube Cloud; skipping."
+          elif [ -n "$SONAR_TOKEN" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "SONAR_TOKEN is not set; skipping."
+          fi
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         if: steps.gate.outputs.enabled == 'true'
         with:
