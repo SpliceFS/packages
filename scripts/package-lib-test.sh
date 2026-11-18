@@ -262,6 +262,27 @@ check() {
     fi
 }
 
+# $1 VERSION, $2 REVISION, $3 the FreeBSD version of the package the upgrade check builds. It is
+# the next revision of the same program version, written by package_versions like every other
+# version: a FreeBSD version has one port revision, so 1.2.3_1 upgrades to 1.2.3_2 and never to
+# 1.2.3_1_1.
+check_upgrade() {
+    got="$(VERSION="$1" REVISION="$2" PACKAGE_DATE=20261112 sh -c \
+        '. scripts/package-lib.sh; package_freebsd_upgrade_version' 2>&1)" || true
+    if [ "$got" = "$3" ]; then
+        printf 'ok   %-18s rev %-2s upgrades to %s\n' "$1" "$2" "$got"
+    else
+        printf 'FAIL %-18s rev %s upgrade want "%s" got "%s"\n' "$1" "$2" "$3" "$got"
+        failed=$((failed + 1))
+    fi
+}
+
+check_upgrade v1.2.3 0 1.2.3_1
+check_upgrade v1.2.3 1 1.2.3_2
+check_upgrade v1.2.3 5 1.2.3_6
+check_upgrade v1.2.3-rc.1 1 1.2.3.rc1_2
+check_upgrade v1.2.3-dirty 0 1.2.3.20261112_1
+
 # $1 VERSION that must be refused, $2 text the message must contain.
 refuse() {
     if got="$(VERSION="$1" REVISION=0 PACKAGE_DATE=20261112 sh -c '. scripts/package-lib.sh' 2>&1)"; then
