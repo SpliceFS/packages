@@ -168,6 +168,26 @@ else
 fi
 rm -rf "$tree_of"
 
+# The FreeBSD package installs under /usr/local, so the links that every format shares move
+# there, both the link and its target. $1 the program, $2 the links wanted as "<link> <target>"
+# items each followed by a comma, or nothing.
+freebsd_link_list_of() {
+    # The inner shell expands $1, which is the root of the repository.
+    # shellcheck disable=SC2016
+    got="$(cd "$tree" && PROGRAM="$1" VERSION=v1.2.3 REVISION=0 PACKAGE_DATE=20261112 sh -c \
+        '. "$1/scripts/package-lib.sh"; package_freebsd_link_list | tr "\n" ,' sh "$root" 2>&1)" || true
+    if [ "$got" = "$2" ]; then
+        printf 'ok   package_freebsd_link_list of %-6s %s\n' "$1" "$2"
+    else
+        printf 'FAIL package_freebsd_link_list of %s: want "%s" got "%s"\n' "$1" "$2" "$got"
+        failed=$((failed + 1))
+    fi
+}
+
+freebsd_link_list_of demo \
+    '/usr/local/sbin/mount.demo /usr/local/bin/democtl,/usr/local/lib/demo/helper /usr/local/bin/demod,'
+freebsd_link_list_of other ''
+
 # The packing list of a FreeBSD package is made from program.conf and config-folders, byte for
 # byte, and is kept nowhere else. $1 the folder the library is read from, $2 the program, the
 # list wanted on standard input.
@@ -192,6 +212,8 @@ plist_of() {
 plist_of "$tree" demo <<'PLIST'
 bin/demod
 bin/democtl
+sbin/mount.demo
+lib/demo/helper
 etc/rc.d/demod
 @dir etc/splicefs/demo/alpha.d
 @dir etc/splicefs/demo/beta.d
@@ -216,6 +238,7 @@ PLIST
 plist_of "$root" client <<'PLIST'
 bin/splicefs
 bin/splicefsctl
+sbin/mount.splicefs
 etc/rc.d/splicefs
 @dir etc/splicefs/client/conf.d
 @dir etc/splicefs/client/clusters.d

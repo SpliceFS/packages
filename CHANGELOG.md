@@ -6,6 +6,10 @@ the setup script and the page at packages.splicefs.org.
 
 The change log of all parts of SpliceFS, side by side: https://splicefs.org/changelog/
 
+## [0.4.24] - 2026-11-18
+
+- FreeBSD: a SpliceFS folder can be mounted at boot from /etc/fstab (see "After the install").
+
 ## [0.4.23] - 2026-11-18
 
 - Documentation: how to uninstall SpliceFS completely, per system ("Uninstall" on the install page).
