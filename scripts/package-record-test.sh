@@ -121,7 +121,9 @@ else
 fi
 # The release to upgrade from is given to the record only: no packager has a use for it.
 from_dry="$(cd "$root" && make -n --no-print-directory packages PROGRAM=demo BIN=/bin SRC=/tmp VERSION=v1.2.3 PACKAGE_DATE=20261112 UPGRADE_FROM=v1.2.2 2>&1)" || true
-if [ "$(printf '%s\n' "$from_dry" | grep -c 'UPGRADE_FROM=v1.2.2')" = 1 ] && printf '%s\n' "$from_dry" | tail -n 1 | grep -q 'UPGRADE_FROM=v1.2.2 .*write_package_record'; then
+from_count="$(printf '%s\n' "$from_dry" | grep -c 'UPGRADE_FROM=v1.2.2' || true)"
+from_last="$(printf '%s\n' "$from_dry" | tail -n 1)"
+if [ "$from_count" = 1 ] && printf '%s' "$from_last" | grep -q 'UPGRADE_FROM=v1.2.2 .*write_package_record'; then
     echo "ok   make packages gives the release to upgrade from to the record only"
 else
     printf 'FAIL make packages does not give UPGRADE_FROM to the record alone: %s\n' "$from_dry"

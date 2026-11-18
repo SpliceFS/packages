@@ -103,10 +103,11 @@ build v0.5.35
 printf '%s\n' v0.5.36 > "$stand/latest"
 (cd "$tree" && STAND_IN="$stand" PATH="$stand/bin:$PATH" PROGRAM=client PLATFORM=linux/amd64 \
     sh scripts/lifecycle-repo.sh > "$work/out" 2>&1) || true
-if [ "$(cat "$tree/dist/lifecycle/client/published" 2>/dev/null)" = "TAG=v0.5.35" ]; then
+written="$(cat "$tree/dist/lifecycle/client/published" 2>/dev/null || true)"
+if [ "$written" = "TAG=v0.5.35" ]; then
     echo "ok   lifecycle-repo.sh: the tag written down for the lifecycle test is the recorded one"
 else
-    printf 'FAIL lifecycle-repo.sh: the tag written down is "%s"\n' "$(cat "$tree/dist/lifecycle/client/published" 2>/dev/null)"
+    printf 'FAIL lifecycle-repo.sh: the tag written down is "%s"\n' "$written"
     failed=$((failed + 1))
 fi
 
