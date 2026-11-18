@@ -286,3 +286,13 @@ versions="$(package_versions "$VERSION" "$REVISION" "$PACKAGE_DATE")" || exit 1
 read -r debver rpmver rpmrel apkver apkrel pkgver <<WORDS
 $versions
 WORDS
+
+# The FreeBSD version of the package the upgrade check builds (scripts/freebsd-job.sh): the same
+# program version at the next revision, which pkg takes as an upgrade of the one installed. It is
+# written by package_versions like every other version, because a FreeBSD version holds one port
+# revision and appending another to pkgver would not be a version at all. REVISION was checked
+# above, so the call cannot fail.
+package_freebsd_upgrade_version() {
+    pu_words="$(package_versions "$VERSION" "$((REVISION + 1))" "$PACKAGE_DATE")" || exit 1
+    printf '%s\n' "${pu_words##* }"
+}

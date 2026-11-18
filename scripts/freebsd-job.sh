@@ -15,6 +15,7 @@
 # check on, and a repository signed with another key must be refused.
 #
 #   freebsd-job.sh <input folder> <output folder> <package name> <program> <package version> <program version>
+#                  <upgrade package version>
 
 # expected_user and answers are set by check-lib.sh of the program, which ShellCheck cannot follow.
 # shellcheck disable=SC2154
@@ -25,6 +26,7 @@ name="$3"
 program="$4"
 version="$5"
 program_version="$6"
+upgrade_version="$7"
 mkdir -p "$out"
 
 # Prints how long the phase that just ended took. timing.sh is not used: this script runs
@@ -243,9 +245,9 @@ fi
 # An upgrade leaves a running service running and never changes rc.conf. The package cannot
 # restart the service, because pkg ends every process a package script starts, so the running
 # program keeps its old version until the administrator restarts it, and the upgrade message
-# says so. The new package is the next revision of the same version, in a repository of its
-# own so that the published one stays as it is; pkg takes it as an upgrade of the installed one.
-upgrade_version="${version}_1"
+# says so. The new package is the next revision of the same version (the host writes its version,
+# argument 7), in a repository of its own so that the published one stays as it is; pkg takes it
+# as an upgrade of the installed one.
 upgrade_folder=/tmp/upgrade-repo
 rm -rf "$upgrade_folder"
 build amd64 amd64 "$upgrade_version" "$upgrade_folder/All"
