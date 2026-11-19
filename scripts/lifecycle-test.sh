@@ -1,9 +1,10 @@
 #!/bin/sh
 # check-not-run: needs Docker, the network and the packages of both programs (make lifecycle-test)
-# Tests the whole life of the packages on every system in packaging/test-systems, in ONE boot of
-# the server image per system, the way a person would use them: set up our repository, install
-# the newest published packages of both programs, upgrade to the new packages, remove them, install the
-# new ones fresh, uninstall as the documentation says, and find the system as it was.
+# Tests the whole life of the packages on every system in packaging/test-systems, all at the same
+# time, in ONE boot of the server image per system, the way a person would use them: set up our
+# repository, install the newest published packages of both programs, upgrade to the new
+# packages, remove them, install the new ones fresh, uninstall as the documentation says, and find
+# the system as it was.
 # Runs on the host after make packages (make lifecycle-test); it needs Docker, curl and python3.
 # The steps, in one booted system:
 #   1. the file list and the checksums of /etc are written down (scripts/lifecycle-snapshot.sh);
@@ -24,6 +25,8 @@
 #      sh setup.sh --remove, run as they are written; nothing of ours is installed or running;
 #   9. the file list and the checksums of /etc are the same as in step 1, apart from the paths of
 #      scripts/lifecycle-excluded.
+# Before every step, the core dumps that appeared since the step before are printed with the
+# program that dumped them (scripts/core-files.sh), so a crash names its program and its step.
 # The test repository is the newest published packages plus the new ones (scripts/lifecycle-repo.sh,
 # make lifecycle-repo), served from this machine like tests/run.sh serves the end to end site. The
 # checks are those of the other tests: the service checks (scripts/service-check-lib.sh, the
@@ -53,12 +56,16 @@ for p in $packaged; do
     [ -f "dist/lifecycle/$p/published" ] || fail "dist/lifecycle/$p/published does not exist: run make lifecycle-repo first"
     [ -d "dist/lifecycle/$p/repo" ] || fail "dist/lifecycle/$p/repo does not exist: run make lifecycle-repo first"
 done
+. scripts/systems-lib.sh
 work="$(mktemp -d "$root/dist/lifecycle/run.XXXXXX")"
-log="$work/log"
-container=""
+mkdir "$work/systems"
+# Every container of this run carries the process id of this run in its name, so the cleanup finds
+# all of them and no other run's.
+prefix="splicefs-lifecycle-test-$$"
 cleanup() {
+    stop_systems
     stop_site_server
-    if [ -n "$container" ]; then docker rm -f "$container" >/dev/null 2>&1 || true; fi
+    docker ps -aq --filter "name=$prefix-" | xargs docker rm -f >/dev/null 2>&1 || true
     rm -rf "$work"
 }
 trap cleanup EXIT
@@ -194,8 +201,24 @@ take_snapshot() {
     docker exec "$1" sh /src/scripts/lifecycle-snapshot.sh >"$2" || fail "the snapshot of the system failed"
 }
 
-# One system, in the order of the steps in the header. The caller runs this in a subshell so
-# that fail, which every check calls, ends only this system.
+# Prints the core dumps that appeared in the system $1 since the last call, with what ran before
+# them ($2), so that a crash in any step names its program and its step (scripts/core-files.sh).
+# The comparison of step 9 finds a core on the root filesystem anyway; this says where it came from.
+note_new_cores() {
+    docker exec "$1" sh /src/scripts/core-files.sh >"$own/cores-now" || fail "looking for core dumps failed"
+    grep -vxFf "$own/cores-seen" "$own/cores-now" | sed "s/^/core dump after $2: /" || true
+    mv "$own/cores-now" "$own/cores-seen"
+}
+
+# Starts the step $1 of the system $c: first the core dumps of the step before it.
+step() {
+    note_new_cores "$c" "$previous_step"
+    previous_step="step $1"
+    echo "step $1"
+}
+
+# One system, in the order of the steps in the header, with its files in the folder $own. The
+# caller runs this in a subshell so that fail, which every check calls, ends only this system.
 run_lifecycle() {
     c="$1"
     # wait_booted is one test whose status is the answer, so set -e being off inside it changes nothing.
@@ -208,99 +231,81 @@ run_lifecycle() {
     # The administrator opens the port of the server before anything is installed, so it is part
     # of the system as it was before the test.
     as_new server must "opening the port in the firewall failed" open_firewall "$c"
+    : >"$own/cores-seen"
+    previous_step="the boot"
 
-    echo "step 1: the vanilla system is written down"
-    take_snapshot "$c" "$work/before"
+    step "1: the vanilla system is written down"
+    take_snapshot "$c" "$own/before"
 
-    echo "step 2: sh setup.sh"
+    step "2: sh setup.sh"
     must "setup.sh failed" docker exec "$c" sh /site/setup.sh
     as_new server must "refreshing the package index failed" repo_refresh "$c"
 
-    echo "step 3: the published package is installed from the repository"
+    step "3: the published package is installed from the repository"
     for p in $packaged; do
         as_published "$p" must "installing the published $p failed" repo_install "$c"
         as_published "$p" in_system "$c" check_service_version
         as_published "$p" check_service_after_published_install "$c"
     done
 
-    echo "step 4: the upgrade to the new packages"
+    step "4: the upgrade to the new packages"
     for p in $packaged; do
         as_new "$p" check_upgrade_keeps_running "$c" repo_upgrade
         as_new "$p" in_system "$c" check_versions
         as_new "$p" check_service_after_upgrade "$c"
     done
 
-    echo "step 5: one program is removed, the other still works"
+    step "5: one program is removed, the other still works"
     as_new server check_removal "$c"
     as_new client must "the client stopped working when the server was removed" \
         wait_for 10 active_and_answering "$c"
 
-    echo "step 6: the other program is removed"
+    step "6: the other program is removed"
     as_new client check_removal "$c"
     check_nothing_of_ours "$c"
 
-    echo "step 7: the new version is installed fresh"
+    step "7: the new version is installed fresh"
     for p in $packaged; do
         as_new "$p" must "installing $p failed" repo_install "$c"
         as_new "$p" in_system "$c" check_versions check_links check_config_folders check_extras
         as_new "$p" check_service_after_install "$c"
     done
 
-    echo "step 8: the documented uninstall"
+    step "8: the documented uninstall"
     as_new server documented_uninstall "$c"
     for p in $packaged; do
         as_new "$p" check_stopped_after_removal "$c"
     done
     check_nothing_of_ours "$c"
 
-    echo "step 9: the system is as it was"
-    take_snapshot "$c" "$work/after"
-    if ! diff "$work/before" "$work/after" >"$work/diff"; then
-        cat "$work/diff"
+    step "9: the system is as it was"
+    take_snapshot "$c" "$own/after"
+    if ! diff "$own/before" "$own/after" >"$own/diff"; then
+        cat "$own/diff"
         fail "the system is not as it was before the setup: the lines above differ"
     fi
     echo "ok: the files and the checksums of /etc are as they were"
 }
 
-passed=0
-failed=0
-count=0
 systems="$(cat packaging/test-systems)"
 
 # The site is built once the port is known: its address is part of the setup script and of its
 # checksum. Both repositories are signed with one set of keys, so one setup script trusts both.
+# Every system reads the same site, and none writes to it.
 site="$work/site"
 start_site_server "$site" "$work"
 KEYS_DIR="$root/dist/keys" BASE_URL="http://host.docker.internal:$site_port" SITE_DIR="$site" \
     sh scripts/build-site.sh >"$work/build.log" 2>&1 || { cat "$work/build.log" >&2; exit 1; }
 for p in $packaged; do cp -R "dist/lifecycle/$p/repo" "$site/$p"; done
 
-# A here-document keeps the counters in this shell; a pipe would run the loop in a subshell.
-while read -r format image; do
-    # Blank lines and comments are skipped; every other line is a system to test.
-    case "$format" in "" | "#"*) continue ;; *) ;; esac
-    # system_selected is one test whose status is the answer, so set -e being off inside it changes nothing.
-    # shellcheck disable=SC2310
-    system_selected "$format" "$image" || continue
-    for needed in "scripts/service-test-$format.sh" "scripts/lifecycle-test-$format.sh"; do
-        [ -f "$needed" ] || fail "$needed does not exist"
-    done
-
-    # A registry failure must not look like a failed lifecycle test.
-    # Errexit is off for the call to read its status; pull_image checks every command itself.
-    set +e
-    pull_image "$platform" "$image"
-    pulled=$?
-    set -e
-    if [ "$pulled" -ne 0 ]; then
-        echo "FAIL $format $image"
-        echo "     could not download the image $image (3 tries)"
-        failed=$((failed + 1))
-        continue
-    fi
-
-    count=$((count + 1))
-    container="splicefs-lifecycle-test-$$-$count"
+# One system, in a container and a folder of its own: number $3 of the list.
+# Usage: test_system FORMAT IMAGE NUMBER.
+test_system() {
+    format="$1"
+    container="$prefix-$3"
+    own="$work/system-$3"
+    mkdir "$own"
+    log="$own/log"
     # The options of both programs: the server publishes its port. run_options prints whole
     # options and nothing else, so it is left unquoted on purpose.
     options=""
@@ -311,7 +316,7 @@ while read -r format image; do
     # boot_system is one test whose status is the answer, so set -e being off inside it changes nothing.
     # shellcheck disable=SC2086,SC2310
     if boot_system --name "$container" --platform "$platform" --add-host=host.docker.internal:host-gateway \
-        -v "$site":/site:ro -v "$root":/src:ro $options "$image" 2>"$log"; then
+        -v "$site":/site:ro -v "$root":/src:ro $options "$2" 2>"$log"; then
         started=1
     fi
 
@@ -325,18 +330,32 @@ while read -r format image; do
         set -e
     fi
     if [ "$checked" -eq 0 ]; then
-        echo "ok   $format $image"
-        passed=$((passed + 1))
+        echo "ok   $format $2"
     else
-        echo "FAIL $format $image"
+        echo "FAIL $format $2"
         tail -n 70 "$log" | sed 's/^/     /'
-        failed=$((failed + 1))
     fi
     docker rm -f "$container" >/dev/null 2>&1 || true
-    container=""
+    return "$checked"
+}
+
+selected=""
+# A here-document keeps the list in this shell; a pipe would run the loop in a subshell.
+while read -r format image; do
+    # Blank lines and comments are skipped; every other line is a system to test.
+    case "$format" in "" | "#"*) continue ;; *) ;; esac
+    # system_selected is one test whose status is the answer, so set -e being off inside it changes nothing.
+    # shellcheck disable=SC2310
+    system_selected "$format" "$image" || continue
+    for needed in "scripts/service-test-$format.sh" "scripts/lifecycle-test-$format.sh"; do
+        [ -f "$needed" ] || fail "$needed does not exist"
+    done
+    selected="$selected$format $image
+"
 done <<LIST
 $systems
 LIST
 
-echo "passed: $passed  failed: $failed"
-[ "$failed" -eq 0 ]
+run_systems "$work/systems" pull_system test_system <<LIST
+$selected
+LIST

@@ -1,8 +1,8 @@
 #!/bin/sh
 # check-not-run: needs Docker and the packages in dist/PROGRAM (make package-test, make repo-test)
-# Tests on every system in packaging/test-systems, each in its own throwaway container that
-# is booted as a server (its service manager is process 1), and keeps going after a failure
-# so one run shows every system that is broken. Runs on the host (make package-test,
+# Tests on every system in packaging/test-systems, all at the same time, each in its own throwaway
+# container that is booted as a server (its service manager is process 1), and keeps going after
+# a failure so one run shows every system that is broken. Runs on the host (make package-test,
 # make repo-test, CI). Usage: package-test.sh [package|repo].
 # "package" (the default) install-tests the packages of the program in dist/PROGRAM with
 # scripts/package-test-<format>.sh; "repo" tests the signed repository in dist/PROGRAM/repo with
@@ -35,18 +35,47 @@ if [ "$kind" = repo ]; then
     mounts="$mounts -v $root/dist/keys/splicefs.rsa.pub:/keys/splicefs.rsa.pub:ro"
 fi
 systems="$(cat "$root/packaging/test-systems")"
-log="$(mktemp)"
-container="splicefs-$kind-test-$$"
+. scripts/systems-lib.sh
+work="$(mktemp -d)"
+# Every container of this run carries the process id of this run in its name, so the cleanup finds
+# all of them and no other run's.
+prefix="splicefs-$kind-test-$$"
 cleanup() {
-    rm -f "$log"
-    docker rm -f "$container" >/dev/null 2>&1 || true
+    stop_systems
+    docker ps -aq --filter "name=$prefix-" | xargs docker rm -f >/dev/null 2>&1 || true
+    rm -rf "$work"
 }
 trap cleanup EXIT
 trap 'exit 130' INT TERM
-passed=0
-failed=0
 
-# A here-document keeps the counters in this shell; a pipe would run the loop in a subshell.
+# One system, in a container and a log of its own: number $3 of the list.
+# Usage: test_system FORMAT IMAGE NUMBER.
+test_system() {
+    container="$prefix-$3"
+    log="$work/$3.log"
+    result=1
+    # The test runs in the booted system, so the install happens on a server that is up. The
+    # container keeps the mounts and the working directory it was started with.
+    # $mounts is split on purpose: it holds several -v options. Each step runs only when the
+    # one before it worked; the conditions are tests whose status is the answer.
+    # shellcheck disable=SC2086,SC2310
+    if boot_system --name "$container" --platform "$platform" \
+        -e PROGRAM -e VERSION -e PACKAGE_DATE -e REVISION -v "$root":/src:ro $mounts -w /src "$2" >"$log" 2>&1 &&
+        wait_booted "$1" "$container" >>"$log" 2>&1 &&
+        docker exec "$container" sh "scripts/$kind-test-$1.sh" /out >>"$log" 2>&1; then
+        echo "ok   $1 $2"
+        result=0
+    else
+        echo "FAIL $1 $2"
+        tail -n 15 "$log" | sed 's/^/     /'
+    fi
+    docker rm -f "$container" >/dev/null 2>&1 || true
+    return "$result"
+}
+
+# The systems to test. A here-document keeps the list in this shell; a pipe would run the loop in
+# a subshell.
+selected=""
 while read -r format image; do
     # Blank lines and comments are skipped; every other line is a system to test.
     case "$format" in "" | "#"*) continue ;; *) ;; esac
@@ -59,38 +88,12 @@ while read -r format image; do
         echo "skip $format $image (no $kind test yet)"
         continue
     fi
-    # A registry failure must not look like a failed package test.
-    # Errexit is off for the call to read its status; pull_image checks every command itself.
-    set +e
-    pull_image "$platform" "$image"
-    pulled=$?
-    set -e
-    if [ "$pulled" -ne 0 ]; then
-        echo "FAIL $format $image"
-        echo "     could not download the image $image (3 tries)"
-        failed=$((failed + 1))
-        continue
-    fi
-    # The test runs in the booted system, so the install happens on a server that is up. The
-    # container keeps the mounts and the working directory it was started with.
-    # $mounts is split on purpose: it holds several -v options. Each step runs only when the
-    # one before it worked; the conditions are tests whose status is the answer.
-    # shellcheck disable=SC2086,SC2310
-    if boot_system --name "$container" --platform "$platform" \
-        -e PROGRAM -e VERSION -e PACKAGE_DATE -e REVISION -v "$root":/src:ro $mounts -w /src "$image" >"$log" 2>&1 &&
-        wait_booted "$format" "$container" >>"$log" 2>&1 &&
-        docker exec "$container" sh "scripts/$kind-test-$format.sh" /out >>"$log" 2>&1; then
-        echo "ok   $format $image"
-        passed=$((passed + 1))
-    else
-        echo "FAIL $format $image"
-        tail -n 15 "$log" | sed 's/^/     /'
-        failed=$((failed + 1))
-    fi
-    docker rm -f "$container" >/dev/null 2>&1 || true
+    selected="$selected$format $image
+"
 done <<LIST
 $systems
 LIST
 
-echo "passed: $passed  failed: $failed"
-[ "$failed" -eq 0 ]
+run_systems "$work" pull_system test_system <<LIST
+$selected
+LIST
