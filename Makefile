@@ -50,10 +50,11 @@ publish: sign ## Signs, then uploads the site files
 publish-check: ## Lists the remote root to prove the upload credentials, changing nothing
 	sh scripts/publish.sh check
 
-# Builds both sibling repositories with one set of throwaway keys. Separate from e2e because
+# Builds the programs of ../server and ../client in their repositories (make build-all), packages
+# them here (make packages, make repo) with one set of throwaway keys. Separate from e2e because
 # the build takes minutes and the test can be repeated against the same packages. Only a run
 # with SOURCE=built needs it.
-e2e-prepare: ## Builds ../server and ../client with throwaway keys into dist/e2e
+e2e-prepare: ## Builds the programs of ../server and ../client and packages them with throwaway keys into dist/e2e
 	sh tests/prepare.sh
 
 # Runs the setup script in a container of every system in tests/systems. SOURCE=built (the

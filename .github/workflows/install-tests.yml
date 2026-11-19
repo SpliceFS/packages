@@ -43,7 +43,7 @@ jobs:
             arch: arm64
     steps:
       # The repositories sit side by side, as the tests expect them. The other two are needed
-      # only to build the packages.
+      # only to build the programs, which are packaged here.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           path: packages
@@ -57,7 +57,7 @@ jobs:
         with:
           repository: SpliceFS/client
           path: client
-      - name: Build both package repositories with one set of test keys and the test site
+      - name: Build the programs and both package repositories with one set of test keys
         if: needs.changes.outputs.install_source == 'built'
         working-directory: packages
         run: make e2e-prepare
