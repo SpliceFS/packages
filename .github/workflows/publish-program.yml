@@ -13,10 +13,10 @@ name: Publish programs
 #
 # One run handles every program of programs/ (scripts/list-programs.sh). For each program, the
 # latest GitHub release of it is looked at by publish-one-program.yml:
-#   - it is not published at all: its packages are published as revision 0;
-#   - it is published, and the packaging differs from the newest published revision: the packages
-#     are published as the next revision (scripts/next-revision.sh);
-#   - it is published and nothing differs: nothing of it is published, and the summary says so.
+#   - it is not published yet: its packages are built, tested and published;
+#   - it is published already: nothing of it is published, and the summary says so.
+# So a tag publishes a program only after a new release of the program; a change to the packaging
+# alone publishes nothing, and the next release of the program is published with it.
 #
 # The upload key reaches the whole site, and the site lets one rsync session at a time in with
 # it: a second one fails with "Another instance of rrsync is already accessing this directory",
@@ -25,7 +25,7 @@ name: Publish programs
 # publish job, after every build and test of every program has passed, writes the repositories of
 # each program and then the site files (the setup script, the keys, the page that sends people to the website), one after another. scripts/site-order-test.sh proves from
 # `needs` that no other job of the run of a tag opens a session. The jobs that only read the site
-# (the revision, the decision and the tests) use HTTPS, which has no such limit.
+# (the verify job and the tests) use HTTPS, which has no such limit.
 on:
   push:
     tags: ["[0-9]*"]
@@ -219,7 +219,7 @@ jobs:
             if grep -qx "signed-packages-$program" "$RUNNER_TEMP/artifacts"; then
               write="$write${write:+ }$program"
             else
-              echo "$program: nothing to publish, its packaging did not change" >> "$GITHUB_STEP_SUMMARY"
+              echo "$program: nothing to publish, its latest release was already published" >> "$GITHUB_STEP_SUMMARY"
             fi
           done
           echo "programs=$write" >> "$GITHUB_OUTPUT"
