@@ -25,8 +25,9 @@
 #      sh setup.sh --remove, run as they are written; nothing of ours is installed or running;
 #   9. the file list and the checksums of /etc are the same as in step 1, apart from the paths of
 #      scripts/lifecycle-excluded.
-# Before every step, the core dumps that appeared since the step before are printed with the
-# program that dumped them (scripts/core-files.sh), so a crash names its program and its step.
+# Before every step and after the snapshot of step 9, the core dumps that appeared since the step
+# before are printed with the program that dumped them (scripts/core-files.sh), so a crash names
+# its program and its step; a core in the difference of step 9 is named again next to it.
 # The test repository is the newest published packages plus the new ones (scripts/lifecycle-repo.sh,
 # make lifecycle-repo), served from this machine like tests/run.sh serves the end to end site. The
 # checks are those of the other tests: the service checks (scripts/service-check-lib.sh, the
@@ -203,11 +204,22 @@ take_snapshot() {
 
 # Prints the core dumps that appeared in the system $1 since the last call, with what ran before
 # them ($2), so that a crash in any step names its program and its step (scripts/core-files.sh).
-# The comparison of step 9 finds a core on the root filesystem anyway; this says where it came from.
+# They are also kept in cores-noted, for the comparison of step 9 to name them again next to it.
 note_new_cores() {
     docker exec "$1" sh /src/scripts/core-files.sh >"$own/cores-now" || fail "looking for core dumps failed"
-    grep -vxFf "$own/cores-seen" "$own/cores-now" | sed "s/^/core dump after $2: /" || true
+    grep -vxFf "$own/cores-seen" "$own/cores-now" | sed "s/^/core dump after $2: /" | tee -a "$own/cores-noted" || true
     mv "$own/cores-now" "$own/cores-seen"
+}
+
+# Prints, for every path of a core in the difference $2 of step 9, the core dump as a step noted
+# it, or else what the file in the system $1 is now: a core can be incomplete when it is looked at,
+# because the host's handler writes it while the system runs on.
+name_cores_in_difference() {
+    sed -n 's|^[<>] \(.*/core[^/]*\)$|\1|p' "$2" | while IFS= read -r path; do
+        grep -F ": $path pid " "$own/cores-noted" ||
+            docker exec "$1" sh /src/scripts/core-files.sh "$path" | sed "s/^/core dump no step could read: /" ||
+            fail "looking at $path failed"
+    done
 }
 
 # Starts the step $1 of the system $c: first the core dumps of the step before it.
@@ -232,6 +244,7 @@ run_lifecycle() {
     # of the system as it was before the test.
     as_new server must "opening the port in the firewall failed" open_firewall "$c"
     : >"$own/cores-seen"
+    : >"$own/cores-noted"
     previous_step="the boot"
 
     step "1: the vanilla system is written down"
@@ -280,8 +293,10 @@ run_lifecycle() {
 
     step "9: the system is as it was"
     take_snapshot "$c" "$own/after"
+    note_new_cores "$c" "$previous_step"
     if ! diff "$own/before" "$own/after" >"$own/diff"; then
         cat "$own/diff"
+        name_cores_in_difference "$c" "$own/diff"
         fail "the system is not as it was before the setup: the lines above differ"
     fi
     echo "ok: the files and the checksums of /etc are as they were"
