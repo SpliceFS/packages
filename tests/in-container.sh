@@ -167,9 +167,9 @@ run_printed() {
 
 # a. apt needs the certificate bundle for https sources, and the script refuses before it
 # writes anything when it is missing. The bundle is moved away on systems that have it, so
-# every apt system proves the refusal. A bare image gets the bundle here, first, because a run
-# against the published site reads the published script over https for the check of the next
-# step, which no apt system can do without it.
+# every apt system proves the refusal. A bare image gets the bundle here, first, because the run
+# reads the published script over https for the check of the next step, which no apt system can
+# do without it.
 if [ "$format" = deb ]; then
   bundle=/etc/ssl/certs/ca-certificates.crt
   moved=0
