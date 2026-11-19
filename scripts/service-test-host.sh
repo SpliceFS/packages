@@ -49,6 +49,11 @@ finish() {
 }
 trap finish EXIT
 
+# The runner starts the job while its own boot may still be going on; the check after the removal
+# wants the machine as settled as it was before the install, so the test starts on a settled one.
+# wait_booted is one test whose status is the answer, so set -e being off inside it changes nothing.
+# shellcheck disable=SC2310
+wait_booted "$format" "$machine" || fail "the machine did not finish booting before the test"
 install_package "$machine"
 check_idle_after_install "$machine"
 check_documented_start "$machine"

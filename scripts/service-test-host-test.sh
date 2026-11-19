@@ -118,4 +118,13 @@ check "a degraded service manager is healthy" 0 settles degraded
 check "a service manager that never settles is not healthy" 1 settles starting
 said "the state it ends in is named" "still 'starting' after 3 seconds"
 
+
+# The runner starts the job while its own boot may still be going on. The test waits for the
+# boot to end before it installs, so the check after the removal compares a settled machine with
+# a settled machine. The order is read from the script: the first wait comes before the install.
+first_wait="$(grep -n -m 1 '^wait_booted ' "$root/scripts/service-test-host.sh" | cut -d: -f1)"
+install_line="$(grep -n -m 1 '^install_package ' "$root/scripts/service-test-host.sh" | cut -d: -f1)"
+before_install() { [ -n "$first_wait" ] && [ -n "$install_line" ] && [ "$first_wait" -lt "$install_line" ]; }
+check "the test waits for the machine to finish booting before it installs" 0 before_install
+
 [ "$failed" -eq 0 ]
