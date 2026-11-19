@@ -79,11 +79,10 @@ jobs:
         env:
           PROGRAM: ${{ inputs.program }}
           VERSION: ${{ fromJSON(inputs.source).version }}
-          REVISION: ${{ fromJSON(inputs.source).revision }}
           RELEASE: ${{ matrix.release }}
         run: |
           make package-freebsd PROGRAM="$PROGRAM" BIN="$GITHUB_WORKSPACE/bin" SRC="$GITHUB_WORKSPACE/src" \
-            VERSION="$VERSION" REVISION="$REVISION" FREEBSD="$RELEASE"
+            VERSION="$VERSION" FREEBSD="$RELEASE"
 
   # Installs, starts, upgrades and installs from the repository, on every system of
   # packaging/test-systems. The jobs are in a workflow of their own, which the release of a
