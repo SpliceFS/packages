@@ -1,7 +1,7 @@
 # What the lifecycle test leaves out when it compares the files of a system before the setup and
 # after the removal (scripts/lifecycle-snapshot.sh, scripts/lifecycle-test.sh). One path to a
 # line, then why. Everything below a path is left out; the path itself is compared. A path that
-# ends in * is a name that starts that way. Nothing of SpliceFS may be listed here: a file of
+# ends in * is a name that starts that way; a path that ends in $ is that one path only. Nothing of SpliceFS may be listed here: a file of
 # ours that stays behind is what the test is for. A log file of ours below /var/log is compared
 # although /var/log is left out (scripts/lifecycle-snapshot.sh).
 /var/log          logs: the system and the package managers write them while they run
@@ -21,3 +21,6 @@
 /etc/shadow-*     the same backup of the password file
 /etc/group-*      the same backup of the group file
 /etc/gshadow-*    the same backup of the group password file
+/etc/hosts$       Docker writes this file itself and writes it again on every restart of the container, with the address the container has then
+/etc/hostname$    the same: Docker's file
+/etc/resolv.conf$ the same: Docker's file
