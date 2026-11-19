@@ -92,6 +92,23 @@ what the site serves. Without `UPGRADE_FROM` (a build by hand) the tests ask the
 and a program with no package on the site yet has nothing to upgrade from, so the upgrade test says so
 and skips.
 
+### What runs when
+
+A pull request runs `make check` and then only the tests of what its files change.
+`.github/test-groups` maps each path to the groups it needs, and `scripts/changed-groups.sh` reads it:
+
+- `deb`, `rpm`, `apk` and `freebsd`: the build and the tests of that package format. A file that
+  one format uses (a package definition, a format's script) needs that group alone; a file that every
+  format uses (`programs/`, `scripts/package-lib.sh`, the `Makefile`) needs all four. The version
+  order test and the lifecycle test run when any of deb, rpm and apk is needed, the lifecycle test
+  for those formats only.
+- `install`: the setup script run against the published site, on every system and on FreeBSD
+  (`install-tests.yml`). It builds no package, so it runs when `setup.sh.in`, `tests/` or its own
+  workflow changes, on its schedule, and on main, never for a change to a package.
+
+A path that no line of the file matches needs every group, so a new file is tested in full until it is
+named there. Runs of main, of a tag and of the schedule test everything.
+
 `make check` needs `python3`. It also uses `dash` and `bash` when they are installed.
 
 ## Layout

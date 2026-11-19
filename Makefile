@@ -50,29 +50,20 @@ publish: sign ## Signs, then uploads the site files
 publish-check: ## Lists the remote root to prove the upload credentials, changing nothing
 	sh scripts/publish.sh check
 
-# Builds the programs of ../server and ../client in their repositories (make build-all), packages
-# them here (make packages, make repo) with one set of throwaway keys. Separate from e2e because
-# the build takes minutes and the test can be repeated against the same packages. Only a run
-# with SOURCE=built needs it.
-e2e-prepare: ## Builds the programs of ../server and ../client and packages them with throwaway keys into dist/e2e
-	sh tests/prepare.sh
-
-# Runs the setup script in a container of every system in tests/systems. SOURCE=built (the
-# default) runs it against a site built from the packages of e2e-prepare and served over local HTTP;
-# SOURCE=published runs the published setup script against the published site, with its real keys
-# and its published packages, and needs no e2e-prepare. scripts/install-source.sh says which one a
-# run needs. Needs docker.
-e2e: ## Runs the setup script in a container of every system in tests/systems (needs Docker; SOURCE=published for the published site)
-	SOURCE=$(SOURCE) sh tests/run.sh
+# Runs the setup script in a container of every system in tests/systems, against the published
+# site: its published setup script, its real keys and its published packages. Nothing is built.
+# Needs docker.
+e2e: ## Runs the published setup script in a container of every system in tests/systems (needs Docker)
+	sh tests/run.sh
 
 # Runs the setup script as root in a virtual machine of every FreeBSD release in
 # packaging/freebsd/releases, which has no Linux container. The machine runs under QEMU in the
 # prepared image of its release (FREEBSD_IMAGE); this needs Docker and KVM (Linux on amd64), and
 # a computer without /dev/kvm stops at once, because an emulated machine takes many times as
-# long. FREEBSD=15.1 limits the run to one release. SOURCE is the one of e2e.
+# long. FREEBSD=15.1 limits the run to one release.
 .PHONY: e2e-freebsd
 e2e-freebsd: freebsd-kvm ## Runs the setup script in a FreeBSD machine of every release (FREEBSD=15.1 for one)
-	LINUX_IMAGE=$(GO_IMAGE) FREEBSD_IMAGE=$(FREEBSD_IMAGE) FREEBSD=$(FREEBSD) SOURCE=$(SOURCE) tests/freebsd.sh
+	LINUX_IMAGE=$(GO_IMAGE) FREEBSD_IMAGE=$(FREEBSD_IMAGE) FREEBSD=$(FREEBSD) tests/freebsd.sh
 
 # --- The packages of a program ------------------------------------------------------------------
 # The package definitions of each program are in programs/PROGRAM, with its program.conf. What is
@@ -105,9 +96,6 @@ GO_IMAGE ?= ghcr.io/splicefs/go:v1
 FREEBSD_IMAGE ?= ghcr.io/splicefs/freebsd-@RELEASE@:v2
 # Empty runs every release in the list; 15.1, for example, only that one.
 FREEBSD ?=
-# Where the end to end tests (e2e, e2e-freebsd) take the setup script and the packages from: built
-# (the default) or published. See scripts/published-site-lib.sh.
-SOURCE ?= built
 RPM_IMAGE ?= ghcr.io/splicefs/rpm-build:v1
 APK_IMAGE ?= ghcr.io/splicefs/apk-build:v1
 PROGRAM ?=
