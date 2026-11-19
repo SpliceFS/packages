@@ -44,20 +44,55 @@ answers() {
     answers_here
 }
 
-# The check after a removal asks that the machine's service manager is healthy: running, or
-# degraded (a runner has units of its own that fail). Right after a package is removed, systemd is
-# often still "starting" for a moment while it reloads units and finishes jobs, so the check waits
-# for the state to settle (HOST_SETTLE_SECONDS, 60 unless a test sets it) instead of looking once,
-# and names the state it ends in.
-host_settled() {
-    state="$(systemctl is-system-running 2>/dev/null)" || true
-    case "$state" in running | degraded) return 0 ;; *) return 1 ;; esac
+# What the checks ask of the machine's service manager is that the package left nothing behind:
+# no job of the program's unit is still pending and no unit failed that had not failed before the
+# install. The rest of the machine is not ours to judge: a runner may still be booting, or stay
+# "starting" for minutes, and have units of its own that fail, so is-system-running says nothing
+# about the package.
+
+# The units that are failed now, one per line.
+failed_units() {
+    listing="$(systemctl list-units --state=failed --plain --no-legend)" || return 1
+    printf '%s\n' "$listing" | awk 'NF { print $1 }'
 }
 
+# Run before the install: the units that failed then are not the package's doing.
+record_failed_units() {
+    failed_before="$(failed_units)" || fail "the failed units of the machine cannot be listed"
+}
+
+# The units that failed since record_failed_units, one per line.
+new_failed_units() {
+    now="$(failed_units)" || return 1
+    [ -n "$now" ] || return 0
+    printf '%s\n' "$now" | while read -r failed_unit; do
+        printf '%s\n' "$failed_before" | grep -q -x -F -e "$failed_unit" || echo "$failed_unit"
+    done
+}
+
+# The pending jobs of the program's unit, one per line; the unit is the second column.
+pending_jobs() {
+    listing="$(systemctl list-jobs --plain --no-legend)" || return 1
+    printf '%s\n' "$listing" | awk -v unit="$unit" '$2 == unit'
+}
+
+# Sets $unsettled to what is still wrong, and succeeds when nothing is.
+host_settled() {
+    if ! pending="$(pending_jobs)" || ! failures="$(new_failed_units)"; then
+        unsettled="systemctl cannot list the jobs and the failed units"
+        return 1
+    fi
+    unsettled="${pending:+a job of $unit is pending: $pending. }${failures:+new failed units: $(printf '%s' "$failures" | tr '\n' ' ')}"
+    [ -z "$unsettled" ]
+}
+
+# Waits for the job and the failures to end (HOST_SETTLE_SECONDS, 60 unless a test sets it), since
+# right after a removal systemd is often still busy with the unit, and names what is still wrong.
+# The shared check after a removal calls it by this name.
 wait_booted() {
     # host_settled is one test whose status is the answer, so set -e being off inside it changes nothing.
     # shellcheck disable=SC2310
     wait_for "${HOST_SETTLE_SECONDS:-60}" host_settled && return 0
-    echo "systemd is still '$state' after ${HOST_SETTLE_SECONDS:-60} seconds" >&2
+    echo "the machine did not settle within ${HOST_SETTLE_SECONDS:-60} seconds: $unsettled" >&2
     return 1
 }

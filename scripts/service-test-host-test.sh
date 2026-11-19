@@ -98,33 +98,86 @@ check "the client answers when the status command succeeds" 0 answers_here clien
 check "the client does not answer when the status command fails" 1 answers_here client 200 1
 check "the status command runs as root, which owns the control socket" 0 grep -q -e '^sudo splicefsctl status$' "$work/calls"
 
-# After a removal the check waits for systemd to settle. A stand-in systemctl answers
-# is-system-running with the states in $work/states, one per call, and keeps the last one.
-mkdir "$work/settle"
-# shellcheck disable=SC2016
-printf '#!/bin/sh\nf="%s/states"\nhead -n 1 "$f"\nif [ "$(wc -l < "$f")" -gt 1 ]; then tail -n +2 "$f" > "$f.next" && mv "$f.next" "$f"; fi\n' "$work" > "$work/settle/systemctl"
-chmod 755 "$work/settle/systemctl"
-# $@ the states systemd reports, one per look.
+# The check after a removal, and the record before the install, look at what the package can
+# affect and nothing else: the job of the program's unit and the units that failed. A stand-in
+# systemctl answers from files, one line per call, and keeps the last line: $work/answers/failed
+# for "list-units --state=failed" and $work/answers/jobs for "list-jobs". A line holds the units
+# of that answer, separated by spaces; an empty line is an answer with none. The runner says
+# "starting" to is-system-running all along, which must not matter. The stand-in sleep returns
+# at once: the calls are counted, not the seconds.
+mkdir "$work/settle" "$work/answers"
+cat > "$work/settle/systemctl" <<'EOF'
+#!/bin/sh
+echo "systemctl $*" >> "$FAKE_ANSWERS/asked"
+case "$*" in
+"list-units --state=failed --plain --no-legend") kind=failed format='%s loaded failed failed Some description\n' ;;
+"list-jobs --plain --no-legend") kind=jobs format='7 %s start running\n' ;;
+"is-system-running") echo starting; exit 1 ;;
+*) echo "unexpected: systemctl $*" >&2; exit 2 ;;
+esac
+file="$FAKE_ANSWERS/$kind"
+line="$(head -n 1 "$file")"
+if [ "$(wc -l < "$file")" -gt 1 ]; then tail -n +2 "$file" > "$file.next" && mv "$file.next" "$file"; fi
+for word in $line; do printf "$format" "$word"; done
+EOF
+printf '#!/bin/sh\n' > "$work/settle/sleep"
+chmod 755 "$work/settle/systemctl" "$work/settle/sleep"
+
+# $1 the answers about failed units, one per call (the first is the one before the install), $2
+# the answers about jobs, one per call; the answers are separated by |, the units in one by spaces.
+scenario() {
+    printf '%s\n' "$1" | tr '|' '\n' > "$work/answers/failed"
+    printf '%s\n' "$2" | tr '|' '\n' > "$work/answers/jobs"
+    : > "$work/answers/asked"
+}
+
+# Records the units that failed before the install, then waits the way the check after the removal
+# does. It gives up after 3 looks.
 settles() {
-    printf '%s\n' "$@" > "$work/states"
     # The command is for the shell that env starts, which reads $1.
     # shellcheck disable=SC2016
     env PROGRAM=server VERSION=v1.2.3 REVISION=0 PACKAGE_DATE=20261112 HOST_SETTLE_SECONDS=3 \
-        PATH="$work/settle:$work/bin:$PATH" \
-        sh -c 'cd "$1" && . scripts/package-lib.sh && . scripts/service-test-host-deb.sh && wait_booted deb host' sh "$root"
+        FAKE_ANSWERS="$work/answers" PATH="$work/settle:$work/bin:$PATH" \
+        sh -c 'cd "$1" && . scripts/package-lib.sh && . scripts/service-test-host-deb.sh && record_failed_units && wait_booted deb host' sh "$root"
 }
-check "a service manager that is starting for a moment, then running, is healthy" 0 settles starting starting running
-check "a degraded service manager is healthy" 0 settles degraded
-check "a service manager that never settles is not healthy" 1 settles starting
-said "the state it ends in is named" "still 'starting' after 3 seconds"
 
+scenario "" ""
+check "a machine with nothing failed and no job is healthy" 0 settles
+scenario "old.service|old.service|old.service" ""
+check "a unit that failed before the install is fine" 0 settles
+scenario "old.service|old.service new.service" ""
+check "a unit that failed after the install is not healthy" 1 settles
+said "the new failed unit is named" "new.service"
+check "the unit that failed before the install is not named" 1 grep -q -e 'old.service' "$work/out"
+scenario "|new.service|" ""
+check "a unit that failed after the install and is no longer failed is fine" 0 settles
+scenario "" "$unit|$unit|"
+check "a job for the unit that goes away is fine" 0 settles
+scenario "" "$unit"
+check "a job for the unit that stays is not healthy" 1 settles
+said "the pending job is named" "$unit"
+scenario "" "other.service"
+check "a job for another unit is fine" 0 settles
+scenario "" ""
+check "a machine that says starting all along is fine" 0 settles
+check "the state of the whole machine is not asked" 1 grep -q -e 'is-system-running' "$work/answers/asked"
+# A systemctl that fails to answer is not the same as a machine with nothing failed.
+mkdir "$work/broken"
+printf '#!/bin/sh\nexit 1\n' > "$work/broken/systemctl"
+chmod 755 "$work/broken/systemctl"
+# The command is for the shell that env starts, which reads $1.
+# shellcheck disable=SC2016
+check "a machine whose failed units cannot be listed is not recorded" 1 env PATH="$work/broken:$PATH" PROGRAM=server VERSION=v1.2.3 REVISION=0 PACKAGE_DATE=20261112 \
+    sh -c 'cd "$1" && . scripts/package-lib.sh && . scripts/service-test-host-deb.sh && record_failed_units' sh "$root"
 
-# The runner starts the job while its own boot may still be going on. The test waits for the
-# boot to end before it installs, so the check after the removal compares a settled machine with
-# a settled machine. The order is read from the script: the first wait comes before the install.
-first_wait="$(grep -n -m 1 '^wait_booted ' "$root/scripts/service-test-host.sh" | cut -d: -f1)"
+# The runner starts the job while its own boot may still be going on, and it may stay "starting"
+# for minutes; that boot is not ours. The test records which units failed before the install and
+# compares after the removal, so only what the package changed counts. The order is read from the
+# script: the record comes before the install, and nothing waits for the machine to boot.
+record_line="$(grep -n -m 1 '^record_failed_units' "$root/scripts/service-test-host.sh" | cut -d: -f1)"
 install_line="$(grep -n -m 1 '^install_package ' "$root/scripts/service-test-host.sh" | cut -d: -f1)"
-before_install() { [ -n "$first_wait" ] && [ -n "$install_line" ] && [ "$first_wait" -lt "$install_line" ]; }
-check "the test waits for the machine to finish booting before it installs" 0 before_install
+before_install() { [ -n "$record_line" ] && [ -n "$install_line" ] && [ "$record_line" -lt "$install_line" ]; }
+check "the failed units are recorded before the install" 0 before_install
+check "the test does not wait for the machine to finish booting" 1 grep -q -e '^wait_booted ' "$root/scripts/service-test-host.sh"
 
 [ "$failed" -eq 0 ]
