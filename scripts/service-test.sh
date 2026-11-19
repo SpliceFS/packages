@@ -1,8 +1,8 @@
 #!/bin/sh
 # check-not-run: needs Docker and the packages in dist/PROGRAM (make service-test)
-# Proves the service, not only the files: on every system in packaging/test-systems it boots
-# one container of the server image (scripts/package-lib.sh, boot_system), whose process 1 is
-# that system's own service manager, and installs the package of the program PROGRAM from
+# Proves the service, not only the files: on every system in packaging/test-systems, all at the
+# same time, it boots one container of the server image (scripts/package-lib.sh, boot_system),
+# whose process 1 is that system's own service manager, and installs the package of the program PROGRAM from
 # dist/PROGRAM into the running system. Installing only installs: the service is neither
 # enabled nor running until the administrator starts it with the documented command. The test
 # checks that, then that the service runs as its own user, does its job, restarts, and comes
@@ -53,11 +53,15 @@ use_recorded_version
 # Named explicitly because after a run with another platform the local image tag can point
 # at the other CPU type, and an empty setting would then silently test the wrong one.
 platform="${PLATFORM:-$(docker version --format '{{.Server.Os}}/{{.Server.Arch}}')}"
-log="$(mktemp)"
-container=""
+. scripts/systems-lib.sh
+work="$(mktemp -d)"
+# Every container of this run carries the process id of this run in its name, so the cleanup finds
+# all of them and no other run's.
+prefix="splicefs-service-test-$$"
 cleanup() {
-    rm -f "$log"
-    if [ -n "$container" ]; then docker rm -f "$container" >/dev/null 2>&1 || true; fi
+    stop_systems
+    docker ps -aq --filter "name=$prefix-" | xargs docker rm -f >/dev/null 2>&1 || true
+    rm -rf "$work"
 }
 trap cleanup EXIT
 trap 'exit 130' INT TERM
@@ -112,12 +116,53 @@ run_checks() {
     check_reinstall_idle "$1"
 }
 
-passed=0
-failed=0
-count=0
-systems="$(cat packaging/test-systems)"
+# One system, in a container and a log of its own: number $3 of the list. It runs in a process of
+# its own, so the functions of its format, sourced here, are its own too.
+# Usage: test_system FORMAT IMAGE NUMBER.
+test_system() {
+    format="$1"
+    container="$prefix-$3"
+    log="$work/$3.log"
+    # shellcheck source=/dev/null
+    . "scripts/service-test-$format.sh"
+    started=0
+    options="$(run_options)"
+    # run_options prints whole options and nothing else, so it is left unquoted on purpose.
+    # boot_system is one test whose status is the answer, so set -e being off inside it changes nothing.
+    # shellcheck disable=SC2086,SC2310
+    if boot_system --name "$container" --platform "$platform" \
+        -v "$root/dist/$PROGRAM":/pkg:ro $options "$2" 2>"$log"; then
+        started=1
+    fi
 
-# A here-document keeps the counters in this shell; a pipe would run the loop in a subshell.
+    # Errexit is switched off here on purpose: every command of run_checks is guarded with
+    # fail, and a failing check must end only this system, not the whole run.
+    checked=1
+    if [ "$started" -eq 1 ]; then
+        set +e
+        (run_checks "$container") >>"$log" 2>&1
+        checked=$?
+        set -e
+    fi
+    if [ "$checked" -eq 0 ]; then
+        echo "ok   $format $2"
+    else
+        echo "FAIL $format $2"
+        {
+            echo "--- $program.service on $2"
+            service_report "$container" || true
+            docker logs --tail 10 "$container" || true
+        } >>"$log" 2>&1
+        tail -n 70 "$log" | sed 's/^/     /'
+    fi
+    docker rm -f "$container" >/dev/null 2>&1 || true
+    return "$checked"
+}
+
+systems="$(cat packaging/test-systems)"
+selected=""
+
+# A here-document keeps the list in this shell; a pipe would run the loop in a subshell.
 while read -r format image; do
     # Blank lines and comments are skipped; every other line is a system to test.
     case "$format" in "" | "#"*) continue ;; *) ;; esac
@@ -135,59 +180,12 @@ while read -r format image; do
         echo "skipped: $format $image: $reason"
         continue
     fi
-
-    # A registry failure must not look like a failed service test.
-    # Errexit is off for the call to read its status; pull_image checks every command itself.
-    set +e
-    pull_image "$platform" "$image"
-    pulled=$?
-    set -e
-    if [ "$pulled" -ne 0 ]; then
-        echo "FAIL $format $image"
-        echo "     could not download the image $image (3 tries)"
-        failed=$((failed + 1))
-        continue
-    fi
-
-    count=$((count + 1))
-    container="splicefs-service-test-$$-$count"
-    started=0
-    options="$(run_options)"
-    # run_options prints whole options and nothing else, so it is left unquoted on purpose.
-    # boot_system is one test whose status is the answer, so set -e being off inside it changes nothing.
-    # shellcheck disable=SC2086,SC2310
-    if boot_system --name "$container" --platform "$platform" \
-        -v "$root/dist/$PROGRAM":/pkg:ro $options "$image" 2>"$log"; then
-        started=1
-    fi
-
-    # Errexit is switched off here on purpose: every command of run_checks is guarded with
-    # fail, and a failing check must end only this system, not the whole run.
-    checked=1
-    if [ "$started" -eq 1 ]; then
-        set +e
-        (run_checks "$container") >>"$log" 2>&1
-        checked=$?
-        set -e
-    fi
-    if [ "$checked" -eq 0 ]; then
-        echo "ok   $format $image"
-        passed=$((passed + 1))
-    else
-        echo "FAIL $format $image"
-        {
-            echo "--- $program.service on $image"
-            service_report "$container" || true
-            docker logs --tail 10 "$container" || true
-        } >>"$log" 2>&1
-        tail -n 70 "$log" | sed 's/^/     /'
-        failed=$((failed + 1))
-    fi
-    docker rm -f "$container" >/dev/null 2>&1 || true
-    container=""
+    selected="$selected$format $image
+"
 done <<LIST
 $systems
 LIST
 
-echo "passed: $passed  failed: $failed"
-[ "$failed" -eq 0 ]
+run_systems "$work" pull_system test_system <<LIST
+$selected
+LIST
