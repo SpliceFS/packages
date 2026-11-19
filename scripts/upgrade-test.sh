@@ -1,4 +1,5 @@
 #!/bin/sh
+# check-not-run: needs Docker, the network and the packages in dist/PROGRAM (make upgrade-test)
 # Tests the upgrade of the program PROGRAM from the published package the build recorded (the
 # newest on the package site when it recorded nothing) to the one in dist/PROGRAM, but only when the
 # packaging changed: a version whose packages differ from the published ones only in the programs

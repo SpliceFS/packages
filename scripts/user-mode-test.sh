@@ -1,4 +1,5 @@
 #!/bin/sh
+# check-not-run: needs Docker, the packages in dist/PROGRAM and SERVER_BIN (make user-mode-test)
 # Proves that an ordinary user can run the client under their own account, with the commands of
 # "Run as yourself" (steps/user-mode-start.sh and steps/user-mode-use.sh, the commands the install
 # page of the website shows). In a booted container of the first system of each

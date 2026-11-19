@@ -1,4 +1,5 @@
 #!/bin/sh
+# check: tracked-files.sh: a program, a file over 1 MiB and a private name are refused
 # Test of scripts/tracked-files.sh (part of make check): a tracked compiled program, a file over
 # 1 MiB and a file that names a private place are each refused and named, and a tree without
 # them passes. Each case is a small repository of its own, so the test does not depend on what

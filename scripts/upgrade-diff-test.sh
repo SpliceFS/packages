@@ -1,4 +1,5 @@
 #!/bin/sh
+# check: upgrade-diff.sh: when the packaging of two versions differs
 # Tests scripts/upgrade-diff.sh, the part of the upgrade test that decides whether the
 # packaging changed, with small hand-made package listings. Runs on the host, no Docker
 # (make upgrade-diff-test, part of make check). The listing format is described in

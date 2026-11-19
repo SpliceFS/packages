@@ -1,4 +1,5 @@
 #!/bin/sh
+# check: upgrade-from: the upgrade and lifecycle tests start from the newest package of the site the build recorded
 # Test that the tests which start from the published packages (scripts/lifecycle-repo.sh and
 # scripts/upgrade-test.sh) start from the newest package the package site serves, the one the build
 # recorded (UPGRADE_FROM of dist/PROGRAM/version, which scripts/published-newest.sh read once), and

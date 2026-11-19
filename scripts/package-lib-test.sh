@@ -1,4 +1,5 @@
 #!/bin/sh
+# check: package-lib.sh: program.conf, versions, documents, unit, system selection
 # Table test of how scripts/package-lib.sh turns VERSION into each package version. Runs on
 # the host, no Docker (make package-lib-test, part of make check). Whether the results also
 # sort right in each package manager is checked in containers by scripts/package-order-test.sh.

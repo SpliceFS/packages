@@ -1,4 +1,5 @@
 #!/bin/sh
+# check: published-repo.sh: the published repository of a program carried from the job that fetches it to the others
 # Tests scripts/published-repo.sh, which carries the published repository of a program, as
 # make program-fetch downloaded it, from the one job of a publish that downloads it to the jobs
 # that build on it. Runs on the host, no Docker, no rsync (part of make check). The repository

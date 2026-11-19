@@ -1,4 +1,5 @@
 #!/bin/sh
+# check: Makefile: a package test asks only for the packages it uses
 # Test of the targets of the Makefile that stop a package test when the packages it needs are not
 # in dist: a test that uses one format asks for that format only, a test that uses all of them
 # asks for all. Runs on the host, no Docker. The Makefile runs in a folder of its own, with a

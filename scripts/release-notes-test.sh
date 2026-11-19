@@ -1,4 +1,5 @@
 #!/bin/sh
+# check: release-notes.sh: the notes of a release are the entries of the pull requests merged since the last tag
 # Test of scripts/release-notes.sh: the notes of a release are the change log entries of the
 # pull requests merged since the previous version tag, then one line for every program release
 # published from the cut time of the previous version up to the cut time of this one, then the

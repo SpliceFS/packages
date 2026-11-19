@@ -1,4 +1,5 @@
 #!/bin/sh
+# check: workflows: every job that runs on a runner has a time limit, so a hang fails in minutes
 # Test of the time limits of the workflows (part of make check). A test that hangs keeps a job
 # running for up to 6 hours, GitHub's default, so every job that runs on a runner has a
 # job-level timeout-minutes, and a hang fails in minutes. A job that calls a reusable workflow

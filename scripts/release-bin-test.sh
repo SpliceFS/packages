@@ -1,4 +1,5 @@
 #!/bin/sh
+# check: release-bin.sh: release archives proven and unpacked to the layout of dist/bin
 # Test of scripts/release-bin.sh: the release archives of a program become the dist/bin layout
 # the package scripts read, and only after the signature and the checksums are proven. Runs on
 # the host, no Docker and no network (part of make check). It needs gpg, to make throwaway keys.

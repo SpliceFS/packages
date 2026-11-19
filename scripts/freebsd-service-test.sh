@@ -1,4 +1,5 @@
 #!/bin/sh
+# check: freebsd-service-test.sh: the FreeBSD packages leave the service off, and tell how to turn it on
 # Tests what the FreeBSD packages do about the service, on the host: no machine, no pkg, no
 # root (part of make check). The rc scripts run against a stand-in for rc.subr, the install
 # scripts of the manifests run with stand-ins for service, sysrc and pw. What rc.subr and pkg

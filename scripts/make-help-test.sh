@@ -1,4 +1,5 @@
 #!/bin/sh
+# check: make help: every target with a comment is listed, and every target the README names exists
 # Test of the way the Makefile describes itself (part of make check): make help lists every
 # target that has a comment above it, and every target the README names as "make TARGET" is
 # defined in the Makefile. The real files are checked, and copies with one fault each prove that

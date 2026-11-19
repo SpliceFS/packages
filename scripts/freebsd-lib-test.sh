@@ -1,4 +1,5 @@
 #!/bin/sh
+# check: freebsd-lib.sh: the FreeBSD machines, their device, job folder and package check
 # Host test of the scripts around the FreeBSD machines: no Docker, no machine, no network.
 # Docker is a stand-in program that records what it was asked to run, and the hardware
 # virtualization device is a file of the test's own choosing.

@@ -1,4 +1,5 @@
 #!/bin/sh
+# check: list-programs.sh: the programs of the repository as a JSON array for a workflow matrix
 # Test of scripts/list-programs.sh (part of make check): the programs of a repository are the
 # folders of programs/ that hold a program.conf, listed as a JSON array, and a program that
 # program-conf.sh refuses stops the list. Runs on the host, on a fixture tree.

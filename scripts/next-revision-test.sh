@@ -1,4 +1,5 @@
 #!/bin/sh
+# check: next-revision.sh: the revision a build needs to upgrade what is published
 # Test of scripts/next-revision.sh: which revision a build of a program version needs to be an
 # upgrade of what is published. Runs on the host, no Docker and no network (part of make
 # check): the published index is a file of the test, given by INDEX_FILE.

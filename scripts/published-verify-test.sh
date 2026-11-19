@@ -1,4 +1,5 @@
 #!/bin/sh
+# check: published-verify.sh: a package of the site is proven by the signed index of the site
 # Test of scripts/published-verify.sh: a package downloaded from the package site is proven by the
 # checksum the site's own index lists for it, and the index by its signature, as a package manager
 # does. Runs on the host, no Docker and no network (part of make check). It needs gpg, to make

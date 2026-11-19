@@ -1,4 +1,5 @@
 #!/bin/sh
+# check: publish-program.sh: the repositories of a program uploaded in order, nothing published lost
 # Proves publish-program.sh without a server: the upload goes to local folders through
 # UPLOAD_TARGET, and the checks of the real upload path run with a throwaway ssh key. The
 # repository is a small stand-in that has the files a real one has, so the test needs no Docker

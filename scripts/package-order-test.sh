@@ -1,4 +1,5 @@
 #!/bin/sh
+# check-not-run: needs Docker (make package-order-test)
 # Checks that the versions package-lib.sh makes sort the way a release process needs in each
 # package manager: dpkg in Debian, rpm in Rocky Linux, apk in Alpine, each in its own
 # container. Runs on the host (make package-order-test; CI runs it once for a change, as a job of

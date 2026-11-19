@@ -1,4 +1,5 @@
 #!/bin/sh
+# check-not-run: needs Docker and the packages in dist/PROGRAM (make package-test, make repo-test)
 # Tests on every system in packaging/test-systems, each in its own throwaway container that
 # is booted as a server (its service manager is process 1), and keeps going after a failure
 # so one run shows every system that is broken. Runs on the host (make package-test,

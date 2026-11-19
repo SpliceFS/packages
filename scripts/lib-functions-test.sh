@@ -1,4 +1,5 @@
 #!/bin/sh
+# check: scripts/*-lib.sh: no function is defined in two libraries
 # Fails when one shell function is defined in two of the libraries scripts/*-lib.sh, or twice in
 # one. A script that sources both gets the definition of whichever it sources last, so the same
 # name in two places means that a change to one of them is silently undone by the other. Every

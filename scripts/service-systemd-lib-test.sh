@@ -1,4 +1,5 @@
 #!/bin/sh
+# check: service-systemd-lib.sh: the systemd commands of the service test, and which of them run as root
 # Test of scripts/service-systemd-lib.sh, which part of make check runs on any computer: each
 # function asks the systemd of a system the same question in a container and on the machine
 # itself, and which of them need root. The two functions that run a command on a system are

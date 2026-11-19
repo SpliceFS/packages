@@ -1,4 +1,5 @@
 #!/bin/sh
+# check: release-tag-check.sh: only a number tag on a commit of main may use the keys
 # Test of scripts/release-tag-check.sh (part of make check): a run that holds the signing and
 # upload keys is for a number tag whose commit is on main, and for nothing else. Runs on the
 # host with a local repository as origin, no network.

@@ -1,4 +1,5 @@
 #!/bin/sh
+# check: published-newest.sh: the newest package a program has on the package site
 # Test of scripts/published-newest.sh: which published package of a program is the newest, the
 # one the upgrade tests start from. Runs on the host, no Docker and no network (part of make
 # check): the published index is a file of the test, given by INDEX_FILE.

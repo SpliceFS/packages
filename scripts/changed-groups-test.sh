@@ -1,4 +1,5 @@
 #!/bin/sh
+# check: changed-groups.sh: the test groups the changed files of a pull request need, and the groups the workflows ask for
 # Test of scripts/changed-groups.sh (part of make check): the test groups that the changed paths
 # of a pull request need, read from the real .github/test-groups, and that every group a workflow
 # asks for is a group of that file and the other way round. A misspelt group in the if of a job

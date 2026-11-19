@@ -1,4 +1,5 @@
 #!/bin/sh
+# check: package-record.sh: the version make packages built, read by the tests
 # Test of scripts/package-record.sh: make packages records the version it built in
 # dist/PROGRAM/version and every test that follows reads it from there. Runs on the host, no
 # Docker (part of make check). The Makefile cases use make -n, so nothing is built.

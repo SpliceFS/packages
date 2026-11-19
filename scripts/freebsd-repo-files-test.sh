@@ -1,4 +1,5 @@
 #!/bin/sh
+# check: freebsd-repo-files.sh: the input archive of a FreeBSD machine holds the key and is removed
 # Host test of freebsd-repo-files.sh: the input archive of a machine holds the private key, and
 # remove-input leaves nothing of it behind.
 set -eu
