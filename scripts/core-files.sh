@@ -5,8 +5,10 @@
 # program and the step it happened in. The kernel writes a core where the host's core_pattern says,
 # which in a container is the file core or core.PID in the folder the process was in, so files
 # whose name starts with core are looked at, and only 64-bit ELF cores (amd64, arm64) are reported.
+# Given paths, it reports those instead, each on a line, also one that is no core dump: the host's
+# handler writes a core while the system runs on, so a core can be incomplete when it is looked at.
 # Runs as root inside a container with only what a minimal system has: find, od, head and tail.
-# CORE_ROOT, for its test, is a folder that stands in for the root.
+# CORE_ROOT, for its test, is a folder that stands in for the root; paths are as the system has them.
 set -eu
 
 top="${CORE_ROOT:-}"
@@ -53,11 +55,36 @@ process_note() {
     done
 }
 
-find "$top/" -xdev -type f -name 'core*' -print | LC_ALL=C sort | while IFS= read -r file; do
+# Prints the line of the core dump at the path $1 of the system, or nothing when it is none.
+core_line() {
+    file="$top$1"
+    [ -f "$file" ] || return 0
     desc="$(process_note "$file")"
-    [ -n "$desc" ] || continue
+    [ -n "$desc" ] || return 0
     pid="$(number "$file" $((desc + 24)) 4)"
     program="$(text "$file" $((desc + 40)) 16)"
     args="$(text "$file" $((desc + 56)) 80)"
-    printf '%s pid %s program %s: %s\n' "${file#"$top"}" "$pid" "$program" "$args"
+    printf '%s pid %s program %s: %s\n' "$1" "$pid" "$program" "$args"
+}
+
+# Prints what the path $1 of the system is, when it is no core dump.
+not_a_core() {
+    if [ ! -f "$top$1" ]; then
+        echo "$1: not a file"
+        return 0
+    fi
+    start="$(od -An -c -N 4 "$top$1" | tr -s ' \n' ' ')"
+    size="$(wc -c <"$top$1")"
+    echo "$1: not a 64-bit ELF core with a process note: $((size)) bytes, starting${start% }"
+}
+
+if [ "$#" -gt 0 ]; then
+    for path in "$@"; do
+        line="$(core_line "$path")"
+        if [ -n "$line" ]; then echo "$line"; else not_a_core "$path"; fi
+    done
+    exit 0
+fi
+find "$top/" -xdev -type f -name 'core*' -print | sed "s|^$top||" | LC_ALL=C sort | while IFS= read -r path; do
+    core_line "$path"
 done
