@@ -24,8 +24,9 @@ upgrade_package() {
 reinstall_package() {
     case "$1:$2" in
         deb:*) apt-get install -y -qq --reinstall "$3" >/dev/null ;;
-        # rpm replaces a file itself, because dnf and zypper see nothing to do for it. Neither
-        # does apk for a file, which it adds again; a package of a repository is fixed.
+        # rpm replaces a file itself, because dnf and zypper see nothing to do for it. apk does
+        # nothing for a file either, so a file is put in a repository first; a package of a
+        # repository is fixed.
         rpm:file) rpm -U --replacepkgs --nosignature "$3" >/dev/null ;;
         rpm:repo)
             if command -v dnf >/dev/null 2>&1; then
@@ -34,9 +35,27 @@ reinstall_package() {
                 zypper --non-interactive install --force "$3" >/dev/null
             fi
             ;;
-        apk:file) apk add -q --allow-untrusted "$3" >/dev/null ;;
+        apk:file) reinstall_apk_file "$3" ;;
         *) apk fix -q --reinstall "$3" >/dev/null ;;
     esac
+}
+
+# apk reinstalls only a package that a repository offers, and does nothing for a file of the
+# installed version. So the file goes in a repository of its own, a folder for the CPU type with
+# the file and its index, and the package, whose name is in the file, is fixed from there. Only
+# that repository is read, so the run needs no network.
+reinstall_apk_file() {
+    ra_name="$(tar -xzOf "$1" .PKGINFO | sed -n 's/^pkgname = //p')"
+    ra_repo="$(mktemp -d)"
+    ra_dir="$ra_repo/$(apk --print-arch)"
+    ra_status=0
+    mkdir "$ra_dir" && cp "$1" "$ra_dir/" || ra_status=1
+    # The index says the file needs /bin/sh, which no repository of this folder provides.
+    [ "$ra_status" -ne 0 ] || apk index -q --allow-untrusted -o "$ra_dir/APKINDEX.tar.gz" "$ra_dir"/*.apk 2>/dev/null || ra_status=1
+    [ "$ra_status" -ne 0 ] || apk fix -q --reinstall --allow-untrusted --no-network --repositories-file /dev/null \
+        -X "$ra_repo" "$ra_name" >/dev/null || ra_status=1
+    rm -rf "$ra_repo"
+    return "$ra_status"
 }
 
 # The keys of a package file are not imported: the old one is signed with the release key and
