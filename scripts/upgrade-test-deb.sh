@@ -40,6 +40,8 @@ case "$mode" in
         apt-get update -qq >/dev/null || fail "deb upgrade: apt-get update failed"
         apt-get install -y -qq "$old" >/dev/null || fail "deb upgrade: installing the old package failed"
         write_markers deb
+        # upgrade_package is one command, so its status is that command's, set -e or not.
+        # shellcheck disable=SC2310
         upgrade_package deb "$PUBLISHED_VERSION" "$VERSION" file "$new" || fail "deb upgrade: installing the new package over the old one failed"
         unit="/usr/lib/systemd/system/$program.service"
         # The files the new package lists must all be there after the upgrade.
