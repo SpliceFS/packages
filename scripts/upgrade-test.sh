@@ -4,10 +4,10 @@
 # newest on the package site when it recorded nothing) to the one in dist/PROGRAM, but only when the
 # packaging changed: a version whose packages differ from the published ones only in the programs
 # and the content of the documents (both come from the source of the program) cannot break an
-# upgrade, so there is nothing to test. When the packaging
-# changed and the new packages are of the same program version as the published ones (a change to
-# the packaging alone publishes no new version), the new package is reinstalled over the old one
-# with the package manager's own command, which runs the upgrade scripts
+# upgrade, so there is nothing to test. When the packaging changed and the new packages are of
+# the same program version as the published ones (a change to the packaging alone is tested with
+# the latest release and publishes nothing), the new package is reinstalled over the old one with
+# the package manager's own command, which runs the upgrade scripts
 # (scripts/upgrade-package-lib.sh). Runs on the host after make packages (make upgrade-test, CI). For each
 # package format, for this machine's CPU type, it
 #   1. downloads the published package of that format from the package site, which is what people

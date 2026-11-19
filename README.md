@@ -74,7 +74,9 @@ The source tree and the version are the caller's own, at the commit under test. 
 `bin-artifact` the workflow tests the newest release of the program instead (`scripts/release-bin.sh`
 proves its archives with the signature and `SHA256SUMS` and unpacks them into the `BIN` layout);
 the CI of this repository does that for both programs, so a packaging change is tested on its own.
-It calls the two halves of the workflow itself, `build-packages.yml` and then `check-packages.yml`, so
+That publishes nothing: a package is published only for a new release of its program, and that
+release is published with the packaging as it is by then.
+The workflow calls its two halves itself, `build-packages.yml` and then `check-packages.yml`, so
 that the lifecycle test starts when both programs are built and does not wait for their tests.
 The jobs run the scripts of this repository at the commit of the `uses` line, never at a ref the
 caller chooses: the workflows check this repository out at `job.workflow_sha`, and
@@ -82,7 +84,7 @@ caller chooses: the workflows check this repository out at `job.workflow_sha`, a
 or ref from an input.
 
 A run reads the newest package of a program on the package site once (`scripts/published-newest.sh`,
-which prints a version such as `0.5.34-1`) and gives it to `make packages` as `UPGRADE_FROM`. The
+which prints a version such as `0.5.34`) and gives it to `make packages` as `UPGRADE_FROM`. The
 version record in `dist/<program>/version` keeps it, and the upgrade and lifecycle tests download that
 package from the site and start from it, so a package published while the run is going never turns
 the upgrade into a downgrade. A release on GitHub carries no packages: what people have installed is

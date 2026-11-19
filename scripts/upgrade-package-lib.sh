@@ -3,10 +3,10 @@
 # -apk.sh, and scripts/lifecycle-test-deb.sh, -rpm.sh and -apk.sh through docker exec). It is the
 # one place that says how the new package is put over the installed one.
 #
-# A change to the packaging alone is published with no new version, so the new package can have
-# the version of the installed one. The package managers then see no upgrade (rpm refuses it, and
-# the others do nothing or do it without a word), and the upgrade scripts of the package would
-# never run. So the package is reinstalled with the package manager's own command, which runs
+# A change to the packaging alone is tested with the programs of the latest release, which is
+# published already, so the new package has the version of the installed one. The package managers
+# then see no upgrade (rpm refuses it, and the others do nothing or do it without a word), and the
+# upgrade scripts of the package would never run. So the package is reinstalled with the package manager's own command, which runs
 # them. A package of a higher version is upgraded the normal way.
 
 # Installs the new package over the installed one, with the package manager of the system.

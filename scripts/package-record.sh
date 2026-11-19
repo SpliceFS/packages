@@ -8,7 +8,7 @@
 
 # Writes the record from PROGRAM, VERSION and PACKAGE_DATE of the environment, and from
 # UPGRADE_FROM, the version of the newest package of the program on the package site, as the apt
-# index writes it (0.5.34-1; scripts/published-newest.sh), which the caller read once for the whole
+# index writes it (0.5.34; scripts/published-newest.sh), which the caller read once for the whole
 # run: every job of the run then starts its upgrade from that package, also when a newer one is
 # published meanwhile, which would turn the upgrade into a downgrade. The word none when the caller
 # read the site and it lists no package of the program; empty when the caller did not read the
