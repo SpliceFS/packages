@@ -238,6 +238,14 @@ package-test: built-packages ## Installs and removes the package on every server
 service-test: built-packages ## Proves the service installs idle, starts when told, restarts, upgrades and stops
 	$(TEST_VARS) scripts/service-test.sh
 
+# Installs the Debian package of the program on this machine itself and proves the service there
+# with the checks of service-test, except the reboot, then removes the package again. A CI runner
+# is a whole machine that booted the normal way, which no container is. It changes the machine, so
+# the script refuses to run outside CI. It needs the deb package in dist/PROGRAM and sudo.
+.PHONY: service-test-host
+service-test-host: ## installs the deb package on the CI machine itself and proves the service there (CI only)
+	PROGRAM=$(PROGRAM) VERSION=$(VERSION) scripts/service-test-host.sh
+
 .PHONY: fstab-test
 SERVER_BIN ?=
 # Proves that the client mounts from the boot mounts of the system, on every Alpine image of

@@ -83,7 +83,6 @@ service_user() {
 service_report() {
     docker exec "$1" rc-service "$program" status || true
     docker exec "$1" tail -n 30 "/var/log/${program}.log" || true
-    docker logs --tail 10 "$1" || true
 }
 
 # Prints why an image cannot be tested, or nothing when it can.

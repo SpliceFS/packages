@@ -646,6 +646,11 @@ run "9. number-tags.sh: which tag names are versions of this repository" sh scri
 run "9. change-log-entry.sh: the entry of a pull request, with a default for the dependency bot only" sh scripts/change-log-entry-test.sh
 run "9. release-notes.sh: the notes of a release are the entries of the pull requests merged since the last tag" sh scripts/release-notes-test.sh
 run "9. tag-release.sh: the next number tag on a commit of main, and its release" sh scripts/tag-release-test.sh
+run "9. service-test-host.sh: refuses to run outside CI, and each program asks its service on the machine itself" \
+  sh scripts/service-test-host-test.sh
+run "9. service-systemd-lib.sh: the systemd commands of the service test, and which of them run as root" \
+  sh scripts/service-systemd-lib-test.sh
+run "9. scripts/*-lib.sh: no function is defined in two libraries" sh scripts/lib-functions-test.sh
 run "9. Makefile: a package test asks only for the packages it uses" sh scripts/built-packages-test.sh
 run "9. user-mode-packaging-test.sh: the packages leave the system to the administrator, the commands of a user need no settings of ours" \
   sh scripts/user-mode-packaging-test.sh
