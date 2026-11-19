@@ -1,4 +1,5 @@
 name: Package and test
+# Every job has a time limit: 3 times its longest run, so a hang fails in minutes.
 
 # Builds the deb, rpm, Alpine and FreeBSD packages of a SpliceFS program, makes the signed
 # repositories, and tests them: the deb, rpm and Alpine packages on the server images of
@@ -41,10 +42,6 @@ on:
         description: Artifact of the calling run that holds dist/bin; empty tests the newest release
         type: string
         default: ""
-      packages-ref:
-        description: Commit, branch or tag of SpliceFS/packages to use; keep it the ref of the uses line
-        type: string
-        default: main
 
 permissions:
   contents: read
@@ -59,7 +56,6 @@ jobs:
     with:
       program: ${{ inputs.program }}
       bin-artifact: ${{ inputs.bin-artifact }}
-      packages-ref: ${{ inputs.packages-ref }}
 
   # The FreeBSD packages and the tests of the deb, rpm and Alpine packages on every system of
   # packaging/test-systems: check-packages.yml. The release of a program runs the same package
@@ -71,7 +67,6 @@ jobs:
     with:
       program: ${{ inputs.program }}
       bin-artifact: ${{ inputs.bin-artifact }}
-      packages-ref: ${{ inputs.packages-ref }}
       source: ${{ toJSON(needs.build.outputs) }}
 
   # The one result a caller needs. A job that did not run counts as failed: a job is skipped
@@ -81,6 +76,7 @@ jobs:
     needs: [build, check]
     if: ${{ always() }}
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Every job succeeded
         env:

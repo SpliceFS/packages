@@ -177,6 +177,8 @@ MOUNT
     cat > "$box/run.sh" <<'RUN'
 fail() { echo "FAIL: $1"; exit 1; }
 . "$1"
+# The user mode check has a test of its own, below; here it only has to be called.
+check_user_mode() { echo "user mode check ran"; }
 extra_checks
 RUN
     status=0
@@ -192,6 +194,7 @@ machine_checks "$good_order" helper skipped
 same "the machine accepts splicefs before mountlate, and a late line that reaches the helper" \
     "0" "$machine_status"
 holds "the machine says that the order is right" "rcorder: splicefs starts before mountlate" "$machine_said"
+holds "the machine runs the user mode check after the boot checks" "user mode check ran" "$machine_said"
 holds "the machine says that the late line reached the helper" "the late line ran the helper" "$machine_said"
 machine_checks '/etc/rc.d/mountlate
 /usr/local/etc/rc.d/splicefs' helper skipped
@@ -207,6 +210,204 @@ holds "the machine refuses a late line that did not reach the helper" \
 machine_checks "$good_order" helper ran
 holds "the machine refuses a plain mount -a that runs a late line" "FAIL: mount -a ran the late line" \
     "$machine_said"
+
+# --- the user mode check of the machine -----------------------------------------------------
+
+# check_user_mode of check-lib.sh runs the steps of "Run as yourself" in the machine: the
+# one-time steps as root, then the client as an ordinary user. Here stand-ins show that it tells
+# a machine where all of it works from one where a part does not. The machine's own tools are
+# stand-ins; only the files the steps write under /etc and the file /dev/fuse are moved into a
+# folder of the test. What the real tools do is proved in the machine.
+#   um_fail        the tools that fail, by name ("" for none)
+#   um_client      "ready" for a client that answers, "dead" for one that stops at once
+#   um_socket      the owner and mode the client's socket folder has
+#   um_fuse_stat   the mode and group of /dev/fuse after the devfs rule
+#   um_fuse        "file" for a /dev/fuse that opens, "dir" for one that cannot be opened
+#   um_cache       "home" when the client puts its cache in the user's home, else "root"
+# user_mode_machine sets user_mode_status and user_mode_said, and puts the settings back.
+um_fail='' um_client=ready um_socket='alice 700' um_fuse_stat='crw-rw---- operator' um_fuse=file um_cache=home
+
+# Writes the stand-ins of the tools into the folder $1. The tools that are only called share one
+# script, which records the call, fails when it is named in FAIL_TOOL, and prints what the check
+# asks of the few that answer. The client stand-in tells the control stand-in over a FIFO whether
+# it is ready: the first status waits for that word, so that no step waits for time to pass.
+write_user_mode_tools() {
+    cat > "$1/standin" <<'STANDIN'
+#!/bin/sh
+name="$(basename "$0")"
+echo "$name $*" >> "$box/calls"
+case " $FAIL_TOOL " in *" $name "*) exit 1 ;; esac
+case "$name $*" in
+    "sysctl -n vfs.usermount") echo 1 ;;
+    "sysrc -n kld_list") echo fusefs ;;
+    "id -u"*) echo 4242 ;;
+    "id -Gn"*) echo "alice operator" ;;
+    "pw useradd"*) mkdir -p "$box/home/$2" ;;
+    "pw userdel"*) rm -rf "$box/home/alice" ;;
+esac
+STANDIN
+    for tool in pw sysctl sysrc kldload kldstat service id; do ln -s standin "$1/$tool"; done
+    cat > "$1/su" <<'SU'
+#!/bin/sh
+# su -l USER -c COMMAND: the command runs with the home folder a login sets and no XDG settings.
+[ "$1" = -l ] && [ "$3" = -c ] || exit 2
+exec env -u XDG_CONFIG_HOME -u XDG_CACHE_HOME HOME="$box/home/$2" sh -c "$4"
+SU
+    cat > "$1/stat" <<'STAT'
+#!/bin/sh
+for path; do :; done
+case "$path" in
+    */fuse) echo "$FUSE_STAT" ;;
+    *) cat "$box/stat/$(basename "$path")" ;;
+esac
+STAT
+    cat > "$1/pgrep" <<'PGREP'
+#!/bin/sh
+[ -f "$box/client.pid" ] && cat "$box/client.pid"
+PGREP
+    cat > "$1/splicefsctl" <<'CTL'
+#!/bin/sh
+[ -f "$box/state" ] || { read -r word < "$box/state.fifo"; echo "$word" > "$box/state"; }
+[ "$(cat "$box/state")" = ready ]
+CTL
+    cat > "$1/splicefs" <<'CLIENT'
+#!/bin/sh
+if [ "$1" = config ]; then
+    dir="$HOME/.cache/splicefs"
+    [ "$CACHE" != root ] || dir=/var/cache/splicefs
+    printf 'cache:\n  dir: %s\n' "$dir"
+    exit 0
+fi
+echo "$$" > "$box/client.pid"
+echo "$SOCKET_STAT" > "$box/stat/splicefs-4242"
+if [ "$CLIENT" != ready ]; then
+    rm -f "$box/client.pid"
+    echo dead > "$box/state.fifo"
+    exit 1
+fi
+# This process lives until the check ends it with the stop signal.
+sleep 600 &
+sleeper=$!
+trap 'rm -f "$box/client.pid"; echo stopped > "$box/state"; kill "$sleeper"; exit 0' TERM
+echo ready > "$box/state.fifo"
+wait "$sleeper"
+CLIENT
+    chmod 755 "$1/standin" "$1/su" "$1/stat" "$1/pgrep" "$1/splicefsctl" "$1/splicefs"
+}
+
+# Ends the process $1 and returns once it is gone; a process that already ended is fine. Gives up
+# after 100 looks and counts that as a failure.
+end_left_over() {
+    kill "$1" 2>/dev/null || :
+    looks=0
+    while kill -0 "$1" 2>/dev/null; do
+        looks=$((looks + 1))
+        if [ "$looks" -gt 100 ]; then
+            printf 'FAIL the left-over client %s did not end\n' "$1"
+            failed=$((failed + 1))
+            return
+        fi
+        sleep 0.1
+    done
+}
+
+user_mode_machine() {
+    box="$tree/user"
+    rm -rf "$box"
+    mkdir -p "$box/bin" "$box/etc" "$box/dev" "$box/work" "$box/stat"
+    mkfifo "$box/state.fifo"
+    : > "$box/calls"
+    write_user_mode_tools "$box/bin"
+    if [ "$um_fuse" = dir ]; then mkdir "$box/dev/fuse"; else : > "$box/dev/fuse"; fi
+    # The steps append to files of /etc, and the check opens /dev/fuse: both move into the folder.
+    sed -e "s| /etc/| $box/etc/|g" -e "s|/dev/fuse|$box/dev/fuse|g" \
+        "$root/programs/client/freebsd/check-lib.sh" > "$box/check-lib.sh"
+    cat > "$box/run.sh" <<'RUN'
+fail() { echo "FAIL: $1"; exit 1; }
+# The control stand-in waits for the client, so one try is a whole wait.
+wait_for() { shift; wait_status=0; "$@" >/dev/null 2>&1 || wait_status=1; }
+. "$1"
+check_work="$box/work"
+check_user_mode
+RUN
+    # The output goes to a file, not to a pipe of $(...): a check that failed with the client
+    # running leaves the client (and its sleep) holding the output open, and $(...) would wait for
+    # them while they wait to be ended below.
+    status=0
+    env box="$box" PATH="$box/bin:$PATH" FAIL_TOOL="$um_fail" CLIENT="$um_client" \
+        SOCKET_STAT="$um_socket" FUSE_STAT="$um_fuse_stat" CACHE="$um_cache" \
+        sh "$box/run.sh" "$box/check-lib.sh" > "$box/said" 2>&1 < /dev/null || status=$?
+    user_mode_status="$status"
+    # Ending a left-over client is part of the test. It is not a child of this shell, so its end is
+    # seen by asking for the process; the next case starts only after it is gone, because its last
+    # act is a write into the folder that the next case makes again.
+    if [ -f "$box/client.pid" ]; then
+        left_over="$(cat "$box/client.pid")"
+        end_left_over "$left_over"
+    fi
+    user_mode_said="$(cat "$box/said")"
+    um_fail='' um_client=ready um_socket='alice 700' um_fuse_stat='crw-rw---- operator' um_fuse=file um_cache=home
+}
+
+user_mode_machine
+same "the machine accepts a user who runs the client as the README shows" 0 "$user_mode_status"
+holds "the machine says that the user mode works" "user mode:" "$user_mode_said"
+calls="$(cat "$box/calls")"
+holds "the machine removed the user it made" "pw userdel" "$calls"
+if [ -e "$box/client.pid" ]; then
+    printf 'FAIL the machine left the client running\n'
+    failed=$((failed + 1))
+else
+    printf 'ok   the machine stopped the client\n'
+fi
+
+um_fail=sysctl
+user_mode_machine
+holds "the machine refuses a root step that fails" \
+    "FAIL: the documented step failed: sysctl vfs.usermount=1" "$user_mode_said"
+um_fail=kldload
+user_mode_machine
+holds "the machine refuses a root step that fails, whichever it is" \
+    "FAIL: the documented step failed: sysrc kld_list+=fusefs && kldload -n fusefs" "$user_mode_said"
+um_fail=kldstat
+user_mode_machine
+holds "the machine refuses a machine where fusefs is not loaded" "FAIL: fusefs is not loaded" "$user_mode_said"
+um_fuse_stat='crw------- root'
+user_mode_machine
+holds "the machine refuses a /dev/fuse that the devfs rule did not open to the group" \
+    "mode 0660 of group operator" "$user_mode_said"
+um_client=dead
+user_mode_machine
+holds "the machine refuses a client that does not answer the user" "does not answer" "$user_mode_said"
+um_socket='alice 755'
+user_mode_machine
+holds "the machine refuses a socket folder that others may enter" \
+    "is not owned by alice with mode 700" "$user_mode_said"
+um_socket='root 700'
+user_mode_machine
+holds "the machine refuses a socket folder of another owner" \
+    "is not owned by alice with mode 700" "$user_mode_said"
+um_cache=root
+user_mode_machine
+holds "the machine refuses a cache outside the user's home" "the cache is not in" "$user_mode_said"
+um_fuse=dir
+user_mode_machine
+holds "the machine refuses a /dev/fuse that the user cannot open" "cannot open" "$user_mode_said"
+
+# The root steps live only in check-lib.sh (the install page, which shows them, is the website's);
+# the start block is the file steps/user-mode-start.sh.
+check_lib=programs/client/freebsd/check-lib.sh
+# Prints the lines of check-lib.sh inside the here-document that ends in the word $1.
+check_lib_text() {
+    awk -v word="$1" '$0 == word { reading = 0 } reading { print } index($0, "<<\047" word "\047") { reading = 1 }' "$check_lib"
+}
+# An empty list would pass every comparison below.
+root_steps="$(check_lib_text ROOT_STEPS)"
+start_steps="$(check_lib_text START_STEPS)"
+step_count="$(printf '%s\n' "$root_steps" | awk 'END { print NR }')"
+same "check-lib.sh holds the six root steps" 6 "$step_count"
+documented_start="$(cat steps/user-mode-start.sh)"
+same "the start block of check-lib.sh is steps/user-mode-start.sh" "$documented_start" "$start_steps"
 
 # --- the install scripts of the manifests ---------------------------------------------------
 

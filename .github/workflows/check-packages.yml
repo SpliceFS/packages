@@ -1,4 +1,5 @@
 name: Check packages
+# Every job has a time limit: 3 times its longest run, so a hang fails in minutes.
 
 # Tests the packages that build-packages.yml built, in one program's run: the FreeBSD packages are
 # built and checked in a FreeBSD machine of each release of packaging/freebsd/releases, and the
@@ -16,10 +17,6 @@ on:
         description: Artifact of the calling run that holds dist/bin; empty tests the newest release
         type: string
         default: ""
-      packages-ref:
-        description: Commit, branch or tag of SpliceFS/packages to use; keep it the ref of the uses line
-        type: string
-        default: main
       source:
         description: The outputs of the build-packages.yml call that built the packages, as JSON
         type: string
@@ -40,6 +37,7 @@ jobs:
   freebsd:
     name: FreeBSD packages (${{ matrix.release }})
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
@@ -48,8 +46,8 @@ jobs:
       - name: Packages
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          repository: SpliceFS/packages
-          ref: ${{ inputs.packages-ref }}
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
           path: packages
           persist-credentials: false
       - name: Source of the program
@@ -95,4 +93,3 @@ jobs:
     uses: ./.github/workflows/test-packages.yml
     with:
       program: ${{ inputs.program }}
-      packages-ref: ${{ inputs.packages-ref }}
