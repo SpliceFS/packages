@@ -83,12 +83,13 @@ run "deb one
 rpm broken
 apk bad-pull" 2
 [ "$status" -ne 0 ] || fail "a run with a failed system passed"
+# Each failed system is named on a line of its own that says what it is, so the name stays with
+# its line when a CI log merges standard output and standard error line by line.
 expected="passed: 1  failed: 2
-failed systems:
-     rpm broken
-     apk bad-pull"
+failed system: rpm broken
+failed system: apk bad-pull"
 result="$(cat "$t/result")"
-summary="$(tail -n 4 "$t/result")"
+summary="$(tail -n 3 "$t/result")"
 [ "$summary" = "$expected" ] || fail "the counts or the failed systems are wrong:
 $result"
 echo "ok: a failed system fails the run and is named"

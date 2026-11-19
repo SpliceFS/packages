@@ -42,11 +42,13 @@ run_systems() {
 }
 
 # Waits for each system's process in the order of the list and prints its output, then the
-# counts. Usage: report_systems FOLDER COUNT
+# counts, then one line "failed system: FORMAT IMAGE" per failed system: a CI log merges standard
+# output and standard error line by line, so a name on a line of its own under a heading can end
+# up below another program's message. Usage: report_systems FOLDER COUNT
 report_systems() {
     passed=0
     failed=0
-    failed_names=""
+    : >"$1/failed"
     each=0
     while [ "$each" -lt "$2" ]; do
         each=$((each + 1))
@@ -59,13 +61,14 @@ report_systems() {
             passed=$((passed + 1))
         else
             failed=$((failed + 1))
-            failed_names="$failed_names
-     $(cat "$1/$each.name")"
+            read -r name <"$1/$each.name"
+            echo "failed system: $name" >>"$1/failed"
         fi
     done
     system_pids=""
     echo "passed: $passed  failed: $failed"
-    [ "$failed" -eq 0 ] || { echo "failed systems:$failed_names"; return 1; }
+    cat "$1/failed"
+    [ "$failed" -eq 0 ]
 }
 
 # The PREPARE of the tests that boot an image: pulls it for the platform $platform of the caller
