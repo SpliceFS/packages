@@ -10,8 +10,7 @@ repo_refresh() {
         if command -v dnf >/dev/null 2>&1; then dnf makecache -y -q; else zypper --non-interactive refresh; fi' >/dev/null
 }
 
-# The release is part of the name asked for: a later revision of the same version can be in the
-# repository too, and the version alone would take that one.
+# The release is part of the name asked for, as the repository lists the package.
 repo_install() {
     docker exec "$1" sh -c '
         if command -v dnf >/dev/null 2>&1; then
@@ -19,16 +18,6 @@ repo_install() {
         else
             zypper --non-interactive install "$1=$2-$3"
         fi' sh "$name" "$rpmver" "$rpmrel" >/dev/null
-}
-
-# Takes the newest version of the repository, the way a user upgrades.
-repo_upgrade() {
-    docker exec "$1" sh -c '
-        if command -v dnf >/dev/null 2>&1; then
-            dnf upgrade -y -q "$1"
-        else
-            zypper --non-interactive update "$1"
-        fi' sh "$name" >/dev/null
 }
 
 package_installed() {
