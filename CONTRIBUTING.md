@@ -123,11 +123,13 @@ changes. A release of the server or the client also gets a number, even when the
 has one already.
 
 The Publish programs workflow starts on the number tag. For each program in `programs/` it takes
-the latest GitHub release of the program. A release that is not published yet is published as
-revision 0 of its packages. A published release gets the next revision only when the packaging
-differs from the newest published revision; otherwise nothing of that program is published and the
-summary of the run says so. It also runs the checks, signs `setup.sh` with the signing subkey and
-publishes the site. `setup.sh.asc` is `setup.sh` clearsigned: the script and its signature in one
+the latest GitHub release of the program. A release that is not published yet has its packages
+built, tested and published; the version of a package is the version of the release. A release that
+is published already publishes nothing of that program, and the summary of the run says so. So a
+program is published only when a new release of it comes, and a change to the packaging alone
+publishes nothing: it is tested with the programs of the latest release, and the next release of
+the program is published with the new packaging. The workflow also runs the checks, signs
+`setup.sh` with the signing subkey and publishes the site. `setup.sh.asc` is `setup.sh` clearsigned: the script and its signature in one
 file, so no second file has to match it. The GitHub release of the tag is made with the tag, not by
 this workflow. It checks first that the tag is a whole number and its commit is on `main`. The keys
 live in the `publish` environment, which only tags can use. A person can run it by hand, started on

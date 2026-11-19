@@ -85,7 +85,7 @@ e2e-freebsd: freebsd-kvm ## Runs the setup script in a FreeBSD machine of every 
 #             in program.conf go into the packages; they change with every version.
 #   VERSION   the version of the program, as it was released: v1.2.3 or v1.2.3-rc.1.
 #   UPGRADE_FROM  the version of the newest package of the program on the package site, as the apt
-#             index writes it (0.5.34-1; scripts/published-newest.sh prints it), which the upgrade
+#             index writes it (0.5.34; scripts/published-newest.sh prints it), which the upgrade
 #             tests start from. A run reads it once and gives it here, so that every job of the run
 #             upgrades from it, also when a newer package is published meanwhile. The word none says
 #             the site lists no package of the program, so the tests have nothing to start from and
