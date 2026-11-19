@@ -112,10 +112,12 @@ splicefs
 START_STEPS
 }
 
-# Runs the command line $1 as the user, in a login: the group the root steps gave is only there
-# after a new login, as the instructions say.
+# Runs the command line $1 as the user, with the user's home folder. su reads the groups of the user
+# afresh, so the group the root steps gave is there without a login. A login shell is not used: it
+# reads the profile of the user, and the profile of a new FreeBSD user prints a fortune, which
+# would come before the output of the command, and the checks read that output.
 as_user() {
-    su -l "$user_mode_user" -c "$1"
+    su "$user_mode_user" -c "$1"
 }
 
 # Status 0 when the client of the user answers over the socket it finds by itself.

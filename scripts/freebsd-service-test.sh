@@ -250,9 +250,14 @@ STANDIN
     for tool in pw sysctl sysrc kldload kldstat service id; do ln -s standin "$1/$tool"; done
     cat > "$1/su" <<'SU'
 #!/bin/sh
-# su -l USER -c COMMAND: the command runs with the home folder a login sets and no XDG settings.
-[ "$1" = -l ] && [ "$3" = -c ] || exit 2
-exec env -u XDG_CONFIG_HOME -u XDG_CACHE_HOME HOME="$box/home/$2" sh -c "$4"
+# su [-l] USER -c COMMAND: the command runs with the home folder su sets. A login shell reads the
+# profile of the user, and the profile that FreeBSD gives a new user prints a fortune, so the
+# output of a command run in a login starts with a line that is not the command's.
+login=no
+if [ "$1" = -l ]; then login=yes; shift; fi
+[ "$2" = -c ] || exit 2
+[ "$login" = no ] || echo 'If you do not want to get beeps in X11 (X Windows), you can turn them off with'
+exec env HOME="$box/home/$1" sh -c "$3"
 SU
     cat > "$1/stat" <<'STAT'
 #!/bin/sh
@@ -335,7 +340,8 @@ RUN
     # running leaves the client (and its sleep) holding the output open, and $(...) would wait for
     # them while they wait to be ended below.
     status=0
-    env box="$box" PATH="$box/bin:$PATH" FAIL_TOOL="$um_fail" CLIENT="$um_client" \
+    # The root of the machine has no XDG settings, and the stand-in su leaves the environment as it is.
+    env -u XDG_CONFIG_HOME -u XDG_CACHE_HOME box="$box" PATH="$box/bin:$PATH" FAIL_TOOL="$um_fail" CLIENT="$um_client" \
         SOCKET_STAT="$um_socket" FUSE_STAT="$um_fuse_stat" CACHE="$um_cache" \
         sh "$box/run.sh" "$box/check-lib.sh" > "$box/said" 2>&1 < /dev/null || status=$?
     user_mode_status="$status"
