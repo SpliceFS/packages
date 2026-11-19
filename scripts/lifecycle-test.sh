@@ -25,6 +25,8 @@
 #      sh setup.sh --remove, run as they are written; nothing of ours is installed or running;
 #   9. the file list and the checksums of /etc are the same as in step 1, apart from the paths of
 #      scripts/lifecycle-excluded.
+# Before every step, the core dumps that appeared since the step before are printed with the
+# program that dumped them (scripts/core-files.sh), so a crash names its program and its step.
 # The test repository is the newest published packages plus the new ones (scripts/lifecycle-repo.sh,
 # make lifecycle-repo), served from this machine like tests/run.sh serves the end to end site. The
 # checks are those of the other tests: the service checks (scripts/service-check-lib.sh, the
@@ -199,6 +201,22 @@ take_snapshot() {
     docker exec "$1" sh /src/scripts/lifecycle-snapshot.sh >"$2" || fail "the snapshot of the system failed"
 }
 
+# Prints the core dumps that appeared in the system $1 since the last call, with what ran before
+# them ($2), so that a crash in any step names its program and its step (scripts/core-files.sh).
+# The comparison of step 9 finds a core on the root filesystem anyway; this says where it came from.
+note_new_cores() {
+    docker exec "$1" sh /src/scripts/core-files.sh >"$own/cores-now" || fail "looking for core dumps failed"
+    grep -vxFf "$own/cores-seen" "$own/cores-now" | sed "s/^/core dump after $2: /" || true
+    mv "$own/cores-now" "$own/cores-seen"
+}
+
+# Starts the step $1 of the system $c: first the core dumps of the step before it.
+step() {
+    note_new_cores "$c" "$previous_step"
+    previous_step="step $1"
+    echo "step $1"
+}
+
 # One system, in the order of the steps in the header, with its files in the folder $own. The
 # caller runs this in a subshell so that fail, which every check calls, ends only this system.
 run_lifecycle() {
@@ -213,52 +231,54 @@ run_lifecycle() {
     # The administrator opens the port of the server before anything is installed, so it is part
     # of the system as it was before the test.
     as_new server must "opening the port in the firewall failed" open_firewall "$c"
+    : >"$own/cores-seen"
+    previous_step="the boot"
 
-    echo "step 1: the vanilla system is written down"
+    step "1: the vanilla system is written down"
     take_snapshot "$c" "$own/before"
 
-    echo "step 2: sh setup.sh"
+    step "2: sh setup.sh"
     must "setup.sh failed" docker exec "$c" sh /site/setup.sh
     as_new server must "refreshing the package index failed" repo_refresh "$c"
 
-    echo "step 3: the published package is installed from the repository"
+    step "3: the published package is installed from the repository"
     for p in $packaged; do
         as_published "$p" must "installing the published $p failed" repo_install "$c"
         as_published "$p" in_system "$c" check_service_version
         as_published "$p" check_service_after_published_install "$c"
     done
 
-    echo "step 4: the upgrade to the new packages"
+    step "4: the upgrade to the new packages"
     for p in $packaged; do
         as_new "$p" check_upgrade_keeps_running "$c" repo_upgrade
         as_new "$p" in_system "$c" check_versions
         as_new "$p" check_service_after_upgrade "$c"
     done
 
-    echo "step 5: one program is removed, the other still works"
+    step "5: one program is removed, the other still works"
     as_new server check_removal "$c"
     as_new client must "the client stopped working when the server was removed" \
         wait_for 10 active_and_answering "$c"
 
-    echo "step 6: the other program is removed"
+    step "6: the other program is removed"
     as_new client check_removal "$c"
     check_nothing_of_ours "$c"
 
-    echo "step 7: the new version is installed fresh"
+    step "7: the new version is installed fresh"
     for p in $packaged; do
         as_new "$p" must "installing $p failed" repo_install "$c"
         as_new "$p" in_system "$c" check_versions check_links check_config_folders check_extras
         as_new "$p" check_service_after_install "$c"
     done
 
-    echo "step 8: the documented uninstall"
+    step "8: the documented uninstall"
     as_new server documented_uninstall "$c"
     for p in $packaged; do
         as_new "$p" check_stopped_after_removal "$c"
     done
     check_nothing_of_ours "$c"
 
-    echo "step 9: the system is as it was"
+    step "9: the system is as it was"
     take_snapshot "$c" "$own/after"
     if ! diff "$own/before" "$own/after" >"$own/diff"; then
         cat "$own/diff"
