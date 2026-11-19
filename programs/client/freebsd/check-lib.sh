@@ -79,6 +79,9 @@ check_late_line() {
 # steps/user-mode-start.sh. The machine has no cluster, and the cluster of the instructions is only
 # defined: a client with no mounts does not contact it, so the address stays as it is.
 user_mode_user=alice
+# The PATH that the default login class gives an ordinary user in /etc/login.conf. su without -l
+# leaves the PATH of the caller, which may lack /usr/local/bin, where the packages install.
+user_mode_path=/sbin:/bin:/usr/sbin:/usr/bin:/usr/local/sbin:/usr/local/bin
 
 # One command to a line, run one at a time by user_mode_root_steps.
 user_mode_root_text() {
@@ -112,12 +115,12 @@ splicefs
 START_STEPS
 }
 
-# Runs the command line $1 as the user, with the user's home folder. su reads the groups of the user
-# afresh, so the group the root steps gave is there without a login. A login shell is not used: it
-# reads the profile of the user, and the profile of a new FreeBSD user prints a fortune, which
-# would come before the output of the command, and the checks read that output.
+# Runs the command line $1 as the user, with the user's home folder and the PATH of a login. su reads
+# the groups of the user afresh, so the group the root steps gave is there without a login. A login
+# shell is not used: it reads the profile of the user, and the profile of a new FreeBSD user prints a
+# fortune, which would come before the output of the command, and the checks read that output.
 as_user() {
-    su "$user_mode_user" -c "$1"
+    su "$user_mode_user" -c "PATH=$user_mode_path; export PATH; $1"
 }
 
 # Status 0 when the client of the user answers over the socket it finds by itself.
