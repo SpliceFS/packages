@@ -17,6 +17,14 @@ on:
         description: Artifact of the calling run that holds dist/bin; empty tests the newest release
         type: string
         default: ""
+      formats:
+        description: The Linux package formats to test, as a JSON array; empty tests every one, and [] tests none
+        type: string
+        default: ""
+      freebsd:
+        description: Whether to build and check the FreeBSD packages
+        type: boolean
+        default: true
       source:
         description: The outputs of the build-packages.yml call that built the packages, as JSON
         type: string
@@ -36,6 +44,7 @@ jobs:
   # test-packages.yml uses a FreeBSD package.
   freebsd:
     name: FreeBSD packages (${{ matrix.release }})
+    if: ${{ inputs.freebsd }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     strategy:
@@ -90,6 +99,8 @@ jobs:
   # program calls too, so that a release runs the same tests on the packages it publishes.
   tests:
     name: Tests
+    if: ${{ inputs.formats != '[]' }}
     uses: ./.github/workflows/test-packages.yml
     with:
       program: ${{ inputs.program }}
+      formats: ${{ inputs.formats }}

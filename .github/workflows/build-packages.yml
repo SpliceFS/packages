@@ -18,6 +18,10 @@ on:
         description: Artifact of the calling run that holds dist/bin; empty tests the newest release
         type: string
         default: ""
+      formats:
+        description: The Linux package formats to build, as a JSON array; empty builds every one, and [] builds none (only the source is read)
+        type: string
+        default: ""
     outputs:
       repository:
         description: Where the source of the program is
@@ -118,6 +122,7 @@ jobs:
   packages:
     name: Packages (${{ matrix.arch }})
     needs: source
+    if: ${{ inputs.formats != '[]' }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 10
     strategy:

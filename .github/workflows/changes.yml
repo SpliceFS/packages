@@ -2,7 +2,8 @@ name: Changes
 # Every job has a time limit: 3 times its longest run, so a hang fails in minutes.
 
 # Says which test groups a run needs, as a JSON array that the if of each job reads
-# (scripts/changed-groups.sh, .github/test-groups). A pull request needs the groups of the files
+# (scripts/changed-groups.sh, .github/test-groups), and which of the Linux package formats
+# (deb, rpm, apk) are among them, which the matrix of a job reads. A pull request needs the groups of the files
 # its merge commit changes against its first parent, the tip of the branch it merges into: what
 # the merge would change. Every other run (main, a tag, the schedule) tests everything, and so
 # does a commit that is no merge, because its first parent is not the base of the change.
@@ -12,6 +13,9 @@ on:
       groups:
         description: The test groups the run needs, as a JSON array
         value: ${{ jobs.changes.outputs.groups }}
+      formats:
+        description: The Linux package formats among the groups, as a JSON array
+        value: ${{ jobs.changes.outputs.formats }}
 
 permissions:
   contents: read
@@ -23,6 +27,7 @@ jobs:
     timeout-minutes: 10
     outputs:
       groups: ${{ steps.groups.outputs.groups }}
+      formats: ${{ steps.groups.outputs.formats }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -40,4 +45,7 @@ jobs:
             groups="$(scripts/changed-groups.sh all)"
           fi
           echo "groups: $groups"
+          formats="$(printf '%s' "$groups" | jq -c 'map(select(IN("deb", "rpm", "apk")))')"
+          echo "formats: $formats"
           echo "groups=$groups" >> "$GITHUB_OUTPUT"
+          echo "formats=$formats" >> "$GITHUB_OUTPUT"
