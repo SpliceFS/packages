@@ -18,7 +18,11 @@ concurrency:
 
 jobs:
   # Which test groups the run needs (changes.yml): a pull request that cannot affect the install
-  # skips these tests; main and the schedule run them always.
+  # skips these tests; main and the schedule run them always. It also says where they get the
+  # setup script and the packages: a change that touches what is packaged builds the packages
+  # of the branch (as does a run of main or the schedule, which test everything), and any other
+  # change is tested against the published site, with its real keys and its published packages,
+  # and builds nothing.
   changes:
     name: Changes
     uses: ./.github/workflows/changes.yml
@@ -38,29 +42,36 @@ jobs:
           - runner: ubuntu-24.04-arm
             arch: arm64
     steps:
-      # The three repositories sit side by side, as the tests expect them.
+      # The repositories sit side by side, as the tests expect them. The other two are needed
+      # only to build the packages.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           path: packages
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - if: needs.changes.outputs.install_source == 'built'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: SpliceFS/server
           path: server
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - if: needs.changes.outputs.install_source == 'built'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: SpliceFS/client
           path: client
       - name: Build both package repositories with one set of test keys and the test site
+        if: needs.changes.outputs.install_source == 'built'
         working-directory: packages
         run: make e2e-prepare
       - name: Run the setup script on every supported system
         working-directory: packages
+        env:
+          SOURCE: ${{ needs.changes.outputs.install_source }}
         run: make e2e
 
   # The same on FreeBSD, which cannot run in a container: a virtual machine of each release
-  # runs the setup script of this commit, checks what it wrote, and then installs both
-  # packages from the published repositories with the signature check on. The machine is amd64
-  # and needs the hardware virtualization that ubuntu-latest offers; no job needs an arm64 runner.
+  # runs the setup script (the one of this commit, or the published one, as above), checks what
+  # it wrote, and then installs both packages from the published repositories with the signature
+  # check on. The machine is amd64 and needs the hardware virtualization that ubuntu-latest
+  # offers; no job needs an arm64 runner.
   freebsd:
     name: FreeBSD (${{ matrix.release }}, amd64)
     needs: changes
@@ -74,6 +85,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Run the setup script on FreeBSD and install from the published repositories
+        env:
+          SOURCE: ${{ needs.changes.outputs.install_source }}
         run: make e2e-freebsd FREEBSD=${{ matrix.release }}
 
   # A failed run of this workflow opens an issue assigned to the account in the repository

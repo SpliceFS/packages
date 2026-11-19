@@ -3,10 +3,12 @@
 # and then the commands it prints: sh /site/setup.sh must only register the repository, and
 # the printed index refresh and installs must then really install both packages. Then it tests
 # sh /site/setup.sh --remove: it takes the repository and the key away and no package.
-# Usage: in-container.sh deb|rpm|apk. The site is mounted read-only at /site.
+# Usage: in-container.sh deb|rpm|apk SITE_HOST. The site is mounted read-only at /site, and its
+# host name is SITE_HOST, which the package managers print when they read the repository.
 set -eu
 
-format=${1:?usage: in-container.sh deb|rpm|apk}
+format=${1:?usage: in-container.sh deb|rpm|apk SITE_HOST}
+site_host=${2:?usage: in-container.sh deb|rpm|apk SITE_HOST}
 
 fail() {
   echo "FAIL: $*" >&2
@@ -27,9 +29,8 @@ case "$format" in
       dpkg-query -W -f='${Status}' "$1" 2>/dev/null | grep -q '^install ok installed$'
     }
     remove_pkgs() { DEBIAN_FRONTEND=noninteractive apt-get remove -y "$@"; }
-    # apt-get update names every source it reads. The test site is the only source with this
-    # host name.
-    repo_listed() { apt-get update 2>&1 | grep -q host.docker.internal; }
+    # apt-get update names every source it reads. The site is the only source with this host name.
+    repo_listed() { apt-get update 2>&1 | grep -q "$site_host"; }
     ;;
   rpm)
     keyfile=/etc/pki/rpm-gpg/RPM-GPG-KEY-splicefs
@@ -64,7 +65,7 @@ case "$format" in
     remove_pkgs() { apk del "$@"; }
     # apk policy names each repository that holds the package. apk update is no probe: apk 2
     # (Alpine 3.22) prints only the repositories whose index has a description, and ours has none.
-    repo_listed() { apk policy splicefs-server 2>&1 | grep -q host.docker.internal; }
+    repo_listed() { apk policy splicefs-server 2>&1 | grep -q "$site_host"; }
     ;;
   *) fail "unknown format '$format'" ;;
 esac
@@ -164,7 +165,32 @@ run_printed() {
   esac
 }
 
-# a. the script checks itself before it changes anything: a changed copy, a cut copy and a
+# a. apt needs the certificate bundle for https sources, and the script refuses before it
+# writes anything when it is missing. The bundle is moved away on systems that have it, so
+# every apt system proves the refusal. A bare image gets the bundle here, first, because a run
+# against the published site reads the published script over https for the check of the next
+# step, which no apt system can do without it.
+if [ "$format" = deb ]; then
+  bundle=/etc/ssl/certs/ca-certificates.crt
+  moved=0
+  if [ -f "$bundle" ]; then
+    mv "$bundle" "$bundle.aside"
+    moved=1
+  fi
+  try run_script
+  [ "$status" -eq 1 ] || fail "setup.sh without ca-certificates exited $status, expected 1"
+  grep -q 'ca-certificates' "$out" || fail "the refusal does not name ca-certificates"
+  [ ! -e "$keyfile" ] && [ ! -e "$srcfile" ] || fail "the refusal wrote a file"
+  if [ "$moved" -eq 1 ]; then
+    mv "$bundle.aside" "$bundle"
+  else
+    # A bare image has no bundle. This is the step the refusal tells a person to take.
+    apt-get update
+    apt-get install -y --no-install-recommends ca-certificates
+  fi
+fi
+
+# b. the script checks itself before it changes anything: a changed copy, a cut copy and a
 # script piped into a shell are refused, and none of them writes a file. Debian and Ubuntu
 # images have neither curl nor wget, and the unchanged copy passes in the runs below through
 # apt-helper there.
@@ -189,29 +215,6 @@ try sh </site/setup.sh >"$out" 2>&1
 [ "$status" -eq 1 ] || fail "a script piped into a shell exited $status, expected 1"
 grep -q 'run from a file' "$out" || fail "a piped script did not say it must be run from a file"
 expect_untouched "a piped script"
-
-# b. apt needs the certificate bundle for https sources, and the script refuses before it
-# writes anything when it is missing. The bundle is moved away on systems that have it, so
-# every apt system proves the refusal.
-if [ "$format" = deb ]; then
-  bundle=/etc/ssl/certs/ca-certificates.crt
-  moved=0
-  if [ -f "$bundle" ]; then
-    mv "$bundle" "$bundle.aside"
-    moved=1
-  fi
-  try run_script
-  [ "$status" -eq 1 ] || fail "setup.sh without ca-certificates exited $status, expected 1"
-  grep -q 'ca-certificates' "$out" || fail "the refusal does not name ca-certificates"
-  [ ! -e "$keyfile" ] && [ ! -e "$srcfile" ] || fail "the refusal wrote a file"
-  if [ "$moved" -eq 1 ]; then
-    mv "$bundle.aside" "$bundle"
-  else
-    # A bare image has no bundle. This is the step the refusal tells a person to take.
-    apt-get update
-    apt-get install -y --no-install-recommends ca-certificates
-  fi
-fi
 
 # c. argument errors exit 2 and touch nothing, before the first setup and after it
 for arg in both nonsense; do

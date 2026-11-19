@@ -23,7 +23,8 @@ choice() {
 
 # $1 case name, $2 the changed paths, one per line, $3 the word wanted.
 from_paths() {
-    choice "$1" "$3" "$(printf '%s' "$2" | sh "$root/scripts/changed-groups.sh")"
+    groups="$(printf '%s' "$2" | sh "$root/scripts/changed-groups.sh")"
+    choice "$1" "$3" "$groups"
 }
 
 choice "the install tests alone" published '["install"]'
@@ -45,13 +46,13 @@ from_paths "a change to the setup script template is packaging" 'setup.sh.in
 from_paths "a change to the install tests and a package definition" 'tests/run.sh
 packaging/test-systems
 ' built
-choice "a run that tests everything (main, the schedule)" built "$(sh "$root/scripts/changed-groups.sh" all)"
+everything="$(sh "$root/scripts/changed-groups.sh" all)"
+choice "a run that tests everything (main, the schedule)" built "$everything"
 
 # The words the script prints are the words the tests that read SOURCE accept.
-# shellcheck source=published-site-lib.sh
-. "$root/scripts/published-site-lib.sh"
 for word in built published; do
-    if (SOURCE="$word" check_install_source) >/dev/null 2>&1; then
+    # shellcheck disable=SC2016 # the shell that runs the text expands the variables
+    if env SOURCE="$word" sh -c '. "$1" && check_install_source' sh "$root/scripts/published-site-lib.sh" >/dev/null 2>&1; then
         printf 'ok   check_install_source accepts %s\n' "$word"
     else
         printf 'FAIL check_install_source refuses %s, which install-source.sh prints\n' "$word"

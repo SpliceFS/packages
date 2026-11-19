@@ -26,34 +26,41 @@ same() {
     fi
 }
 
-# --- SOURCE ---------------------------------------------------------------------------------
-# $1 case name, $2 the value of SOURCE ("unset" for none), $3 the word wanted or "refused".
-source_word() {
-    if [ "$2" = unset ]; then
-        got="$(unset SOURCE; check_install_source 2>/dev/null && echo "$install_source")" || got=refused
-    else
-        got="$(SOURCE="$2"; export SOURCE; check_install_source 2>/dev/null && echo "$install_source")" || got=refused
-    fi
-    same "$1" "$3" "$got"
+# $1 what is tested, $2 the text wanted, then a command whose output (standard error too) is the
+# text got.
+output_is() {
+    oi_name="$1"
+    oi_want="$2"
+    shift 2
+    oi_got="$("$@" 2>&1)" || true
+    same "$oi_name" "$oi_want" "$oi_got"
 }
-source_word "no SOURCE is the built packages" unset built
-source_word "an empty SOURCE is the built packages" '' built
-source_word "SOURCE built" built built
-source_word "SOURCE published" published published
-source_word "another word is refused" published-site refused
-source_word "a capital letter is another word" Published refused
 
-message="$(SOURCE=nonsense check_install_source 2>&1 >/dev/null)" || true
-case "$message" in
-    *"SOURCE must be built or published, not 'nonsense'"*) printf 'ok   the refusal names the word\n' ;;
-    *) printf 'FAIL the refusal does not name the word: %s\n' "$message"; failed=$((failed + 1)) ;;
-esac
+# Says whether the path $1 exists, in words that no system words differently.
+exists() {
+    if [ -e "$1" ]; then echo present; else echo absent; fi
+}
+
+# Runs check_install_source in a shell of its own, as the scripts that use it do, with the
+# environment given as arguments (NAME=value, or -u NAME). Prints the word it chose.
+# shellcheck disable=SC2016 # the shell that runs the text expands the variables
+chosen() {
+    env "$@" sh -c '. "$1" && check_install_source && echo "$install_source"' sh "$root/scripts/published-site-lib.sh"
+}
+
+# --- SOURCE ---------------------------------------------------------------------------------
+output_is "no SOURCE is the built packages" built chosen -u SOURCE
+output_is "an empty SOURCE is the built packages" built chosen SOURCE=
+output_is "SOURCE built" built chosen SOURCE=built
+output_is "SOURCE published" published chosen SOURCE=published
+output_is "another word is refused, and named" "SOURCE must be built or published, not 'nonsense'" chosen SOURCE=nonsense
+output_is "a capital letter is another word" "SOURCE must be built or published, not 'Published'" chosen SOURCE=Published
 
 # --- the published site ---------------------------------------------------------------------
-# A stand-in curl: it writes the file named by the argument of -o from $work/served, or fails when
+# A stand-in curl: it writes the file named by the argument of -o from $STUB_SERVED, or fails when
 # there is none, and records the address it was asked for.
 mkdir "$work/bin"
-cat > "$work/bin/curl" <<'EOF'
+cat > "$work/bin/curl" <<'STUB'
 #!/bin/sh
 while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -65,7 +72,7 @@ done
 echo "$url" >> "$STUB_REQUESTS"
 [ -f "$STUB_SERVED" ] || exit 22
 cp "$STUB_SERVED" "$out"
-EOF
+STUB
 chmod 755 "$work/bin/curl"
 STUB_REQUESTS="$work/requests"
 STUB_SERVED="$work/served"
@@ -82,22 +89,28 @@ site="$work/site"
 mkdir -p "$site/old"
 echo stale > "$site/old/file"
 fetch_published_site "$site" "$work/repo"
-same "the setup script is the published one" "published setup script" "$(cat "$site/setup.sh")"
-same "the keys are those of the repository" "openpgp key alpine key" \
-    "$(cat "$site/keys/splicefs.asc" "$site/keys/splicefs.rsa.pub" | tr '\n' ' ' | sed 's/ $//')"
-same "nothing of an earlier site is left" "" "$(ls "$site/old" 2>/dev/null || true)"
-same "only the setup script is downloaded, from the published site" "https://packages.splicefs.org/setup.sh" "$(cat "$work/requests")"
+output_is "the setup script is the published one" "published setup script" cat "$site/setup.sh"
+output_is "the key files are those of the repository" "openpgp key
+alpine key" cat "$site/keys/splicefs.asc" "$site/keys/splicefs.rsa.pub"
+output_is "nothing of an earlier site is left" absent exists "$site/old"
+output_is "only the setup script is downloaded, from the published site" "https://packages.splicefs.org/setup.sh" cat "$work/requests"
 
 : > "$work/requests"
 PACKAGE_SITE=https://packages.example.test
+# The address is read when the library is sourced, so the library is sourced again.
+# shellcheck disable=SC1090,SC1091
 (. "$root/scripts/published-site-lib.sh"; fetch_published_site "$work/other" "$work/repo")
-same "PACKAGE_SITE names another site" "https://packages.example.test/setup.sh" "$(cat "$work/requests")"
+output_is "PACKAGE_SITE names another site" "https://packages.example.test/setup.sh" cat "$work/requests"
+PACKAGE_SITE=
 
 rm "$work/served"
-status=0
-(fetch_published_site "$work/failed" "$work/repo") >/dev/null 2>&1 || status=$?
-same "a download that fails fails the call" 1 "$status"
-same "a download that fails leaves no setup script" "" "$(ls "$work/failed/setup.sh" 2>/dev/null || true)"
+set +e
+(fetch_published_site "$work/failed" "$work/repo") >"$work/failed.out" 2>&1
+status=$?
+set -e
+same "a download that fails ends the caller" 1 "$status"
+output_is "a download that fails says what it could not get" "could not download https://packages.splicefs.org/setup.sh" cat "$work/failed.out"
+output_is "a download that fails leaves no setup script" absent exists "$work/failed/setup.sh"
 
 [ "$failed" -eq 0 ] || { echo "$failed check(s) failed"; exit 1; }
 echo "published-site checks done"
