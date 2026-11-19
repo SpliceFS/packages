@@ -37,7 +37,7 @@ cd "$root"
 releases="${RELEASES_FILE:-packaging/freebsd/releases}"
 
 pack() {
-    # package-lib.sh reads PROGRAM, VERSION, PACKAGE_DATE and REVISION and says what the package is called.
+    # package-lib.sh reads PROGRAM, VERSION and PACKAGE_DATE and says what the package is called.
     # shellcheck source=package-lib.sh
     . scripts/package-lib.sh
     major="${freebsd_release%%.*}"

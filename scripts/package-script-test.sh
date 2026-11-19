@@ -30,7 +30,7 @@ printf 'first line of @SERVICE@\nsecond line\n\nafter a blank\n' > "$tree/packag
 filled() {
     # The inner shell expands $1 to $4, which are the arguments above.
     # shellcheck disable=SC2016
-    (cd "$2" && PROGRAM="$3" VERSION=v1.2.3 PACKAGE_DATE=20261112 REVISION=0 sh -c \
+    (cd "$2" && PROGRAM="$3" VERSION=v1.2.3 PACKAGE_DATE=20261112 sh -c \
         '. "$1/scripts/package-lib.sh"; package_script "$2" "$3"' sh "$root" "$4" "$1" 2>&1) || true
 }
 

@@ -84,11 +84,6 @@ e2e-freebsd: freebsd-kvm ## Runs the setup script in a FreeBSD machine of every 
 #   SRC       the source tree of the program at this version. Its LICENSE and the documents named
 #             in program.conf go into the packages; they change with every version.
 #   VERSION   the version of the program, as it was released: v1.2.3 or v1.2.3-rc.1.
-#   REVISION  the revision of the packages, 0 (the default) or more. A change to the packaging
-#             alone, with the same release of the program, is packaged as the next revision of
-#             that release: the way distributions number it (deb 1.2.3-1, rpm release 2, Alpine
-#             -r1, FreeBSD 1.2.3_1). Revision 0 is named as the packages published before
-#             revisions existed. scripts/package-lib.sh says how each format writes it.
 #   UPGRADE_FROM  the version of the newest package of the program on the package site, as the apt
 #             index writes it (0.5.34-1; scripts/published-newest.sh prints it), which the upgrade
 #             tests start from. A run reads it once and gives it here, so that every job of the run
@@ -119,16 +114,15 @@ PROGRAM ?=
 BIN ?=
 SRC ?=
 VERSION ?=
-REVISION ?= 0
 UPGRADE_FROM ?=
 # Alpine versions cannot carry a commit, so a build with uncommitted changes carries the date of
 # its commit: here, of the commit of SRC.
 PACKAGE_DATE ?= $(shell git -C "$(SRC)" log -1 --format=%cd --date=format:%Y%m%d 2>/dev/null || date +%Y%m%d)
 PACKAGE_OUT = dist/$(PROGRAM)
 # What the package scripts read, with the folders where the image sees BIN and SRC.
-PACKAGE_VARS = PROGRAM=$(PROGRAM) VERSION=$(VERSION) PACKAGE_DATE=$(PACKAGE_DATE) REVISION=$(REVISION) BIN=/in/bin SRC=/in/src
+PACKAGE_VARS = PROGRAM=$(PROGRAM) VERSION=$(VERSION) PACKAGE_DATE=$(PACKAGE_DATE) BIN=/in/bin SRC=/in/src
 # What the version record is written from.
-RECORD_VARS = PROGRAM=$(PROGRAM) VERSION=$(VERSION) PACKAGE_DATE=$(PACKAGE_DATE) REVISION=$(REVISION) UPGRADE_FROM=$(UPGRADE_FROM)
+RECORD_VARS = PROGRAM=$(PROGRAM) VERSION=$(VERSION) PACKAGE_DATE=$(PACKAGE_DATE) UPGRADE_FROM=$(UPGRADE_FROM)
 # The signing keys, read only, for the steps that sign or check with them.
 KEYS_MOUNT := -v "$(CURDIR)/dist/keys":/keys:ro
 RUN_OPTS :=
@@ -177,7 +171,7 @@ package-apk: package-inputs keys ## Builds the Alpine packages (same variables)
 # release: FreeBSD packages hold no documents) and VERSION, and it records the version the way
 # make packages does.
 package-freebsd: freebsd-kvm package-inputs keys ## Builds and checks the FreeBSD packages in a FreeBSD machine (needs Docker and KVM)
-	scripts/part.sh package-freebsd env PROGRAM=$(PROGRAM) VERSION=$(VERSION) PACKAGE_DATE=$(PACKAGE_DATE) REVISION=$(REVISION) \
+	scripts/part.sh package-freebsd env PROGRAM=$(PROGRAM) VERSION=$(VERSION) PACKAGE_DATE=$(PACKAGE_DATE) \
 		BIN="$(abspath $(BIN))" KEYS_DIR="$(CURDIR)/dist/keys" LINUX_IMAGE=$(GO_IMAGE) FREEBSD_IMAGE=$(FREEBSD_IMAGE) FREEBSD=$(FREEBSD) \
 		sh scripts/package-freebsd.sh $(PACKAGE_OUT)
 	$(RECORD_VARS) sh -c '. scripts/package-record.sh && write_package_record'
@@ -286,9 +280,8 @@ upgrade-diff-test: ## Checks, without Docker, how the upgrade test decides that 
 # exists, the new version is installed and every file the new package lists is there. It runs only
 # for a format whose packaging changed since that package: a version that differs only in the
 # programs and the changelog cannot break an upgrade. When the packaging changed and the version is
-# the published one, the packages must be a later revision (make packages REVISION=N): the test says
-# so when they are not. scripts/next-revision.sh prints the revision that follows the highest one
-# published. It needs Docker and the network.
+# the published one, the new package is reinstalled over the old one (scripts/upgrade-package-lib.sh).
+# It needs Docker and the network.
 upgrade-test: built-packages ## Upgrades from the newest published package to dist/PROGRAM, when the packaging changed
 	$(TEST_VARS) scripts/upgrade-test.sh
 
