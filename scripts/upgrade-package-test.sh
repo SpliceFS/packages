@@ -13,6 +13,8 @@ failed=0
 
 mkdir "$work/bin" "$work/bin-dnf"
 for manager in apt-get rpm zypper apk; do
+    # The stand-in expands its own variables when it runs.
+    # shellcheck disable=SC2016
     printf '#!/bin/sh\necho "%s $*" >> "$CALLS"\n' "$manager" > "$work/bin/$manager"
     chmod 755 "$work/bin/$manager"
 done

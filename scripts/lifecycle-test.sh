@@ -77,6 +77,8 @@ trap 'exit 143' TERM
 # package format. PUBLISHED_VERSION is the version of the published package of the program, which
 # decides how the new one is put over it. The shell ends this system's run when the command fails,
 # because every check reports with fail. Usage: as_program PROGRAM VERSION COMMAND [ARGUMENT...].
+# The subshell is what keeps one program's words from the next one's.
+# shellcheck disable=SC2030
 as_program() {
     (
         PROGRAM="$1"
@@ -115,7 +117,9 @@ as_published() {
 
 # Puts the new package over the published one in the container $1, the way a user upgrades from
 # the repository: an upgrade when the new version is higher, a reinstall when it is the same (a
-# change to the packaging alone), as scripts/upgrade-package-lib.sh says.
+# change to the packaging alone), as scripts/upgrade-package-lib.sh says. It runs inside
+# as_program, which sets the words it reads.
+# shellcheck disable=SC2031
 repo_upgrade() {
     docker exec -e DEBIAN_FRONTEND=noninteractive -w /src "$1" sh -c \
         '. scripts/upgrade-package-lib.sh; upgrade_package "$@"' sh "$format" "$PUBLISHED_VERSION" "$VERSION" repo "$name"
