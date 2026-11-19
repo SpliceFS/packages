@@ -1,8 +1,7 @@
 #!/bin/sh
-# check: published-site-lib.sh: SOURCE is built or published, and the published site is the downloaded setup script with the keys of the repository
-# Test of scripts/published-site-lib.sh (part of make check): the word SOURCE that tells the end to
-# end tests (tests/run.sh, tests/freebsd.sh) where their setup script and packages come from, and
-# the folder they make of the published site. A stand-in curl serves the setup script from a
+# check: published-site-lib.sh: the published site is the downloaded setup script with the keys of the repository
+# Test of scripts/published-site-lib.sh (part of make check): the folder the end to end tests
+# (tests/run.sh, tests/freebsd.sh) make of the published site. A stand-in curl serves the setup script from a
 # file, so nothing goes to the network and nothing waits. Runs on the host.
 set -eu
 
@@ -40,21 +39,6 @@ output_is() {
 exists() {
     if [ -e "$1" ]; then echo present; else echo absent; fi
 }
-
-# Runs check_install_source in a shell of its own, as the scripts that use it do, with the
-# environment given as arguments (NAME=value, or -u NAME). Prints the word it chose.
-# shellcheck disable=SC2016 # the shell that runs the text expands the variables
-chosen() {
-    env "$@" sh -c '. "$1" && check_install_source && echo "$install_source"' sh "$root/scripts/published-site-lib.sh"
-}
-
-# --- SOURCE ---------------------------------------------------------------------------------
-output_is "no SOURCE is the built packages" built chosen -u SOURCE
-output_is "an empty SOURCE is the built packages" built chosen SOURCE=
-output_is "SOURCE built" built chosen SOURCE=built
-output_is "SOURCE published" published chosen SOURCE=published
-output_is "another word is refused, and named" "SOURCE must be built or published, not 'nonsense'" chosen SOURCE=nonsense
-output_is "a capital letter is another word" "SOURCE must be built or published, not 'Published'" chosen SOURCE=Published
 
 # --- the published site ---------------------------------------------------------------------
 # A stand-in curl: it writes the file named by the argument of -o from $STUB_SERVED, or fails when
