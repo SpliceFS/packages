@@ -245,7 +245,7 @@ fi
 # An upgrade leaves a running service running and never changes rc.conf. The package cannot
 # restart the service, because pkg ends every process a package script starts, so the running
 # program keeps its old version until the administrator restarts it, and the upgrade message
-# says so. The new package is the next revision of the same version (the host writes its version,
+# says so. The new package is the same version with port revision 1 (the host writes its version,
 # argument 7), in a repository of its own so that the published one stays as it is; pkg takes it
 # as an upgrade of the installed one.
 upgrade_folder=/tmp/upgrade-repo

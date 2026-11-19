@@ -60,7 +60,7 @@ test_system() {
     # one before it worked; the conditions are tests whose status is the answer.
     # shellcheck disable=SC2086,SC2310
     if boot_system --name "$container" --platform "$platform" \
-        -e PROGRAM -e VERSION -e PACKAGE_DATE -e REVISION -v "$root":/src:ro $mounts -w /src "$2" >"$log" 2>&1 &&
+        -e PROGRAM -e VERSION -e PACKAGE_DATE -v "$root":/src:ro $mounts -w /src "$2" >"$log" 2>&1 &&
         wait_booted "$1" "$container" >>"$log" 2>&1 &&
         docker exec "$container" sh "scripts/$kind-test-$1.sh" /out >>"$log" 2>&1; then
         echo "ok   $1 $2"
