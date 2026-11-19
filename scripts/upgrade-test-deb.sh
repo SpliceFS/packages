@@ -40,7 +40,7 @@ case "$mode" in
         apt-get update -qq >/dev/null || fail "deb upgrade: apt-get update failed"
         apt-get install -y -qq "$old" >/dev/null || fail "deb upgrade: installing the old package failed"
         write_markers deb
-        apt-get install -y -qq "$new" >/dev/null || fail "deb upgrade: installing the new package over the old one failed"
+        upgrade_package deb "$PUBLISHED_VERSION" "$VERSION" file "$new" || fail "deb upgrade: installing the new package over the old one failed"
         unit="/usr/lib/systemd/system/$program.service"
         # The files the new package lists must all be there after the upgrade.
         listing="$(mktemp)"

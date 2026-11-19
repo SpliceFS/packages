@@ -47,7 +47,7 @@ case "$mode" in
         apk add -q "$old" || fail "apk upgrade: installing the old package failed (is it signed with the repository key?)"
         write_markers apk
         rm -f /etc/apk/keys/splicefs.rsa.pub
-        apk add -q --allow-untrusted "$new" || fail "apk upgrade: installing the new package over the old one failed"
+        upgrade_package apk "$PUBLISHED_VERSION" "$VERSION" file "$new" || fail "apk upgrade: installing the new package over the old one failed"
         init="/etc/init.d/$program"
         # The files the new package lists must all be there after the upgrade.
         listing="$(mktemp)"
