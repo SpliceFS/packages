@@ -64,6 +64,26 @@ jobs:
       - name: Run the setup script on FreeBSD and install from the published repositories
         run: make e2e-freebsd FREEBSD=${{ matrix.release }}
 
+  # The one check of this workflow that branch protection requires. A matrix job that is skipped
+  # reports under its unexpanded name ("Install tests (${{ matrix.arch }})"), so its own names
+  # cannot be required; this job always runs and passes when every test passed or was not needed.
+  result:
+    name: Install tests result
+    needs: [changes, install, freebsd]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Every test passed or was not needed
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          printf '%s\n' "$NEEDS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
+          if printf '%s\n' "$NEEDS" | jq -e 'any(.[]; .result != "success" and .result != "skipped")' >/dev/null; then
+            echo "::error::At least one job did not succeed."
+            exit 1
+          fi
+
   # A failed run of this workflow opens an issue assigned to the account in the repository
   # variable ALERT_ASSIGNEE, so that someone gets an email; GitHub sends none for runs the
   # bots start. Pull requests are left out: their author sees the failed check there.
