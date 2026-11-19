@@ -1,4 +1,5 @@
 #!/bin/sh
+# check-not-run: needs Docker and the Alpine packages in dist/PROGRAM (make apk-resign-test)
 # Checks scripts/apk-resign.sh on the Alpine packages in dist/PROGRAM: signed again with a key the
 # package was not made with, apk accepts every package when it trusts that key and refuses it
 # when it does not, the content is the one it was, and a file that is not a signed Alpine package

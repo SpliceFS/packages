@@ -1,4 +1,5 @@
 #!/bin/sh
+# check: freebsd-releases.sh: the FreeBSD releases as a JSON array for a workflow matrix
 # Test of scripts/freebsd-releases.sh (part of make check): the FreeBSD releases of a list file
 # come out as a JSON array on one line, in file order, with comments and blank lines left out,
 # and a list that holds no release or a name that is not a release stops. Runs on the host, on

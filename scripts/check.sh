@@ -603,64 +603,23 @@ setup.sh.asc"
   fi
 fi
 
-# 9. The scripts that build the packages of a program. They need no Docker and no root.
-run "9. package-lib.sh: program.conf, versions, documents, unit, system selection" \
-  sh scripts/package-lib-test.sh
-run "9. package-script.sh: the service steps filled into the install scripts of each program" \
-  sh scripts/package-script-test.sh
-run "9. package-test-lib.sh: the version checks, also for a package published before a program was added" \
-  sh scripts/package-test-lib-test.sh
-run "9. setup.sh --remove: setup, removal and a changed file, for every family, in a fake root" \
-  sh scripts/setup-remove-test.sh
-run "9. part.sh: the timer every package target runs through" sh scripts/part-test.sh
-run "9. package-record.sh: the version make packages built, read by the tests" sh scripts/package-record-test.sh
-run "9. upgrade-from: the upgrade and lifecycle tests start from the newest package of the site the build recorded" sh scripts/upgrade-from-test.sh
-run "9. published-newest.sh: the newest package a program has on the package site" sh scripts/published-newest-test.sh
-run "9. published-verify.sh: a package of the site is proven by the signed index of the site" sh scripts/published-verify-test.sh
-run "9. short-tmp-lib.sh: the short folder the tests keep their gpg homes in" sh scripts/short-tmp-lib-test.sh
-run "9. upgrade-diff.sh: when the packaging of two versions differs" sh scripts/upgrade-diff-test.sh
-run "9. next-revision.sh: the revision a build needs to upgrade what is published" sh scripts/next-revision-test.sh
-run "9. revision-decide.sh: when the packages of a release are published, as revision 0 or a later one" sh scripts/revision-decide-test.sh
-run "9. freebsd-lib.sh: the FreeBSD machines, their device, job folder and package check" \
-  sh scripts/freebsd-lib-test.sh
-run "9. freebsd-job.sh retry: a failing command is tried up to three times, stops at the first success, and says what failed" \
-  sh scripts/freebsd-retry-test.sh
-run "9. freebsd-repo-files.sh: the input archive of a FreeBSD machine holds the key and is removed" \
-  sh scripts/freebsd-repo-files-test.sh
-run "9. freebsd-service-test.sh: the FreeBSD packages leave the service off, and tell how to turn it on" \
-  sh scripts/freebsd-service-test.sh
-run "9. freebsd-parts.sh: the FreeBSD repository folders of a release packed and unpacked, nothing rolled back" \
-  sh scripts/freebsd-parts-test.sh
-run "9. published-repo.sh: the published repository of a program carried from the job that fetches it to the others" \
-  sh scripts/published-repo-test.sh
-run "9. site-order: the run of a tag reads the package site in one job and writes it in one, ordered with every other job" \
-  sh scripts/site-order-test.sh
-run "9. release-bin.sh: release archives proven and unpacked to the layout of dist/bin" sh scripts/release-bin-test.sh
-run "9. publish-program.sh: the repositories of a program uploaded in order, nothing published lost" sh scripts/publish-program-test.sh
-run "9. require-env.sh: a release that lacks a secret stops and names it" sh scripts/require-env-test.sh
-run "9. tracked-files.sh: a program, a file over 1 MiB and a private name are refused" sh scripts/tracked-files-test.sh
+# 9. The tests of the scripts that build the packages of a program and of the rest of the
+# repository. They need no Docker and no root. Each *-test.sh says on its second line whether
+# this runs it, and what its result is called (scripts/list-checked-tests.sh), so a new test needs
+# no edit here, and a test that says nothing fails the check instead of being left out.
+if sh scripts/list-checked-tests.sh > "$TMP/tests" 2> "$TMP/out"; then
+  pass "9. every *-test.sh says on line 2 whether make check runs it"
+else
+  fail "9. every *-test.sh says on line 2 whether make check runs it"
+  sed 's/^/        /' "$TMP/out"
+fi
+# The list is read on file descriptor 3 and closed for the test, so a test that reads its
+# standard input cannot take the rest of the list.
+while read -r file description <&3; do
+  run "9. $description" sh "$file" 3<&-
+done 3< "$TMP/tests"
+# Not a test: it checks the text of the repository.
 run "9. sourced-files.sh: every file a script sources exists" sh scripts/sourced-files.sh
-run "9. sourced-files-test.sh: a library that is removed or renamed is refused, and each way to write a path" \
-    sh scripts/sourced-files-test.sh
-run "9. number-tags.sh: which tag names are versions of this repository" sh scripts/number-tags-test.sh
-run "9. change-log-entry.sh: the entry of a pull request, with a default for the dependency bot only" sh scripts/change-log-entry-test.sh
-run "9. release-notes.sh: the notes of a release are the entries of the pull requests merged since the last tag" sh scripts/release-notes-test.sh
-run "9. tag-release.sh: the next number tag on a commit of main, and its release" sh scripts/tag-release-test.sh
-run "9. service-test-host.sh: refuses to run outside CI, and each program asks its service on the machine itself" \
-  sh scripts/service-test-host-test.sh
-run "9. service-systemd-lib.sh: the systemd commands of the service test, and which of them run as root" \
-  sh scripts/service-systemd-lib-test.sh
-run "9. scripts/*-lib.sh: no function is defined in two libraries" sh scripts/lib-functions-test.sh
-run "9. Makefile: a package test asks only for the packages it uses" sh scripts/built-packages-test.sh
-run "9. user-mode-packaging-test.sh: the packages leave the system to the administrator, the commands of a user need no settings of ours" \
-  sh scripts/user-mode-packaging-test.sh
-run "9. changed-groups.sh: the test groups the changed files of a pull request need, and the groups the workflows ask for" sh scripts/changed-groups-test.sh
-run "9. list-programs.sh: the programs of the repository as a JSON array for a workflow matrix" sh scripts/list-programs-test.sh
-run "9. freebsd-releases.sh: the FreeBSD releases as a JSON array for a workflow matrix" sh scripts/freebsd-releases-test.sh
-run "9. release-tag-check.sh: only a number tag on a commit of main may use the keys" sh scripts/release-tag-check-test.sh
-run "9. workflows: a called workflow runs the code of its own commit, never a ref the caller names" sh scripts/workflow-checkout-test.sh
-run "9. workflows: every job that runs on a runner has a time limit, so a hang fails in minutes" sh scripts/workflow-timeout-test.sh
-run "9. make help: every target with a comment is listed, and every target the README names exists" sh scripts/make-help-test.sh
 
 if [ "$FAILS" -eq 0 ]; then
   echo "all checks passed"

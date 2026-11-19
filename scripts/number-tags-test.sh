@@ -1,4 +1,5 @@
 #!/bin/sh
+# check: number-tags.sh: which tag names are versions of this repository
 # Test of scripts/number-tags.sh: which tag names are version tags, and in what order. Runs on
 # the host, no network (part of make check).
 set -eu

@@ -1,4 +1,5 @@
 #!/bin/sh
+# check-not-run: needs Docker and the packages in dist/PROGRAM (make service-test)
 # Proves the service, not only the files: on every system in packaging/test-systems it boots
 # one container of the server image (scripts/package-lib.sh, boot_system), whose process 1 is
 # that system's own service manager, and installs the package of the program PROGRAM from

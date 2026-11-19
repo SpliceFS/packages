@@ -1,4 +1,5 @@
 #!/bin/sh
+# check: workflows: a called workflow runs the code of its own commit, never a ref the caller names
 # Test of the checkouts of the workflows (part of make check). A workflow that another
 # repository calls must run the code of its own commit, never the code a caller names: an input
 # that chooses the ref of a checkout lets a caller choose what runs here, with this repository's

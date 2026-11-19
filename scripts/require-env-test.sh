@@ -1,4 +1,5 @@
 #!/bin/sh
+# check: require-env.sh: a release that lacks a secret stops and names it
 # Test of scripts/require-env.sh (part of make check): it passes when every variable has a value,
 # and otherwise fails and names each one that lacks it, without ever printing a value.
 set -eu

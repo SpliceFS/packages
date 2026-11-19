@@ -1,4 +1,5 @@
 #!/bin/sh
+# check: service-test-host.sh: refuses to run outside CI, and each program asks its service on the machine itself
 # Test of the parts of scripts/service-test-host.sh that run on any computer (part of make check):
 # the script refuses to run anywhere but in CI, before it touches anything, and the way each program
 # asks "does the service work" on the machine itself (answers_here of programs/*/service-check.sh)

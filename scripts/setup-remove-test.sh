@@ -1,4 +1,5 @@
 #!/bin/sh
+# check: setup.sh --remove: setup, removal and a changed file, for every family, in a fake root
 # Tests of "setup.sh --remove" for every package family, against a fake root. Runs on the host,
 # needs no root and no container (part of make check).
 # The built script cannot run as a whole here: it needs root and the real package manager. So its

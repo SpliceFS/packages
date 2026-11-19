@@ -1,4 +1,5 @@
 #!/bin/sh
+# check-not-run: needs Docker, the network and the packages of both programs (make lifecycle-test)
 # Tests the whole life of the packages on every system in packaging/test-systems, in ONE boot of
 # the server image per system, the way a person would use them: set up our repository, install
 # the newest published packages of both programs, upgrade to the new packages, remove them, install the

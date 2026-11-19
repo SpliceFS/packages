@@ -1,4 +1,5 @@
 #!/bin/sh
+# check-not-run: needs Docker, the Alpine packages in dist/PROGRAM and SERVER_BIN (make fstab-test)
 # Proves that a SpliceFS mount can come from the boot mounts of the system: on every Alpine image
 # of packaging/test-systems, in a booted container, it installs the client package, runs a real
 # server, writes an fstab line for it, and checks that OpenRC's netmount service (which mounts the

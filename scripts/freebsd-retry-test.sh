@@ -1,4 +1,5 @@
 #!/bin/sh
+# check: freebsd-job.sh retry: a failing command is tried up to three times, stops at the first success, and says what failed
 # Host test of the retry helper of the FreeBSD install job (tests/freebsd-job.sh): no machine,
 # no pkg, no network, no waiting. A stand-in command fails a chosen number of times, and a
 # stand-in for sleep records the pauses instead of waiting.

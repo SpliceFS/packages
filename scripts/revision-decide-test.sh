@@ -1,4 +1,5 @@
 #!/bin/sh
+# check: revision-decide.sh: when the packages of a release are published, as revision 0 or a later one
 # Test of scripts/revision-decide.sh: when the packages of the current release of a program are
 # published, as revision 0 or as a later revision. Runs on the host, no Docker and no network
 # (part of make check): the published index and the package listings are files of the test.

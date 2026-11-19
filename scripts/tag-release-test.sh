@@ -1,4 +1,5 @@
 #!/bin/sh
+# check: tag-release.sh: the next number tag on a commit of main, and its release
 # Test of scripts/tag-release.sh: the next version tag is put on a commit of main and a GitHub
 # release is made for it, whose notes end with the cut time of the version. Runs on the host, no
 # network (part of make check): the repository is a throwaway one, gh is a stand-in that records

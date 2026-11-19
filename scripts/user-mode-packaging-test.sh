@@ -1,4 +1,5 @@
 #!/bin/sh
+# check: user-mode-packaging-test.sh: the packages leave the system to the administrator, the commands of a user need no settings of ours
 # Tests, on the host and without Docker, what "Run as yourself" needs from the packaging (part of
 # make check). A user can only run the client if the system's own FUSE helper is there, so the
 # client packages must depend on fuse3; and what the user needs from the system (the FreeBSD

@@ -1,4 +1,5 @@
 #!/bin/sh
+# check: short-tmp-lib.sh: the short folder the tests keep their gpg homes in
 # Test of scripts/short-tmp-lib.sh (part of make check): the folder for gpg homes has a short path
 # whatever TMPDIR says, and removing it stops the agent of every home in it first. Runs on the
 # host, no Docker, no gpg: a stand-in gpgconf at the front of PATH records what it is asked.

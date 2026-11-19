@@ -1,4 +1,5 @@
 #!/bin/sh
+# check: freebsd-parts.sh: the FreeBSD repository folders of a release packed and unpacked, nothing rolled back
 # Tests scripts/freebsd-parts.sh, which carries the FreeBSD part of the package repository of a
 # program from the FreeBSD jobs of a release to the job that publishes. Runs on the host, no
 # Docker, no rsync (part of make check). The repository is a small hand-made folder.

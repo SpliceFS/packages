@@ -1,4 +1,5 @@
 #!/bin/sh
+# check: part.sh: the timer every package target runs through
 # Test of scripts/part.sh, the helper every part target of the Makefile runs through. Runs on
 # the host, no Docker (make part-test, part of make unit). The clock is a fake date program
 # that answers from a prepared list, so the test does not depend on how long anything takes.

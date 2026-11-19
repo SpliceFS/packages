@@ -79,6 +79,11 @@ A pull request merges with one merge commit. Squash and fast-forward merges are 
 
 - Every change to the script or the steps comes with a check in `scripts/check.sh` or in the
   install tests that would fail without it.
+- A test of the scripts is a file `scripts/NAME-test.sh` whose second line is
+  `# check: DESCRIPTION`, the name its result has in `make check`, which finds and runs it:
+  `scripts/check.sh` holds no list of tests to edit. A test that needs Docker, the network or built
+  packages says `# check-not-run: REASON` there instead. A `*-test.sh` file with neither line fails
+  the check (`scripts/list-checked-tests.sh`).
 
 ### Commits and pull requests
 

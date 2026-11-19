@@ -1,4 +1,5 @@
 #!/bin/sh
+# check: package-test-lib.sh: the version checks, also for a package published before a program was added
 # Test of the version checks of scripts/package-test-lib.sh. They run inside a system a package is
 # installed in; here the system is a folder of fake programs on the PATH, so the test needs no
 # Docker (part of make check).

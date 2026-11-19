@@ -1,4 +1,5 @@
 #!/bin/sh
+# check: package-script.sh: the service steps filled into the install scripts of each program
 # Tests the install scripts that the packages get from the shared service steps in
 # packaging/service: how scripts/package-lib.sh fills them in (package_script), and what the
 # filled steps do, with stand-ins for systemctl and the OpenRC commands. Runs on the host, no

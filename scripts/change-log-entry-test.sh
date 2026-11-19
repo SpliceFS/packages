@@ -1,4 +1,5 @@
 #!/bin/sh
+# check: change-log-entry.sh: the entry of a pull request, with a default for the dependency bot only
 # Test of scripts/change-log-entry.sh: the change log entry of a pull request, with the default
 # entry for the dependency bot only. Runs on the host, no network (part of make check). The reader
 # of a description is a stand-in with the same contract as the shared one: entries on standard

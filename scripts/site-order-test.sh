@@ -1,4 +1,5 @@
 #!/bin/sh
+# check: site-order: the run of a tag reads the package site in one job and writes it in one, ordered with every other job
 # Proves from the text of the workflows that the run of a number tag talks to the package site
 # exactly twice, and never in two jobs at once. The upload key of this repository reaches the
 # whole site under one lock, so a second rsync session fails with "Another instance of rrsync

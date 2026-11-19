@@ -1,4 +1,5 @@
 #!/bin/sh
+# check: sourced-files-test.sh: a library that is removed or renamed is refused, and each way to write a path
 # Test of scripts/sourced-files.sh (part of make check): a copy of this repository passes, and
 # the same copy with libraries removed or renamed is refused, naming every script that sources
 # them. Small folders of their own cover each form of path the check resolves, so the test does
