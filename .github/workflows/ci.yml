@@ -35,7 +35,7 @@ jobs:
   version-order:
     name: Version order
     needs: changes
-    if: contains(fromJSON(needs.changes.outputs.groups), 'packages')
+    if: needs.changes.outputs.formats != '[]'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -54,33 +54,39 @@ jobs:
   packages-server:
     name: Packages server
     needs: changes
-    if: contains(fromJSON(needs.changes.outputs.groups), 'packages')
+    if: needs.changes.outputs.formats != '[]' || contains(fromJSON(needs.changes.outputs.groups), 'freebsd')
     uses: ./.github/workflows/build-packages.yml
     with:
       program: server
+      formats: ${{ needs.changes.outputs.formats }}
 
   packages-client:
     name: Packages client
     needs: changes
-    if: contains(fromJSON(needs.changes.outputs.groups), 'packages')
+    if: needs.changes.outputs.formats != '[]' || contains(fromJSON(needs.changes.outputs.groups), 'freebsd')
     uses: ./.github/workflows/build-packages.yml
     with:
       program: client
+      formats: ${{ needs.changes.outputs.formats }}
 
   released-server:
     name: Released server
-    needs: packages-server
+    needs: [changes, packages-server]
     uses: ./.github/workflows/check-packages.yml
     with:
       program: server
+      formats: ${{ needs.changes.outputs.formats }}
+      freebsd: ${{ contains(fromJSON(needs.changes.outputs.groups), 'freebsd') }}
       source: ${{ toJSON(needs.packages-server.outputs) }}
 
   released-client:
     name: Released client
-    needs: packages-client
+    needs: [changes, packages-client]
     uses: ./.github/workflows/check-packages.yml
     with:
       program: client
+      formats: ${{ needs.changes.outputs.formats }}
+      freebsd: ${{ contains(fromJSON(needs.changes.outputs.groups), 'freebsd') }}
       source: ${{ toJSON(needs.packages-client.outputs) }}
 
   # The whole life of the packages: set up the repository, install the published release of both
@@ -92,13 +98,14 @@ jobs:
   # repository takes care of by signing again.
   lifecycle:
     name: Lifecycle (${{ matrix.format }}, ${{ matrix.arch }})
-    needs: [packages-server, packages-client]
+    needs: [changes, packages-server, packages-client]
+    if: needs.changes.outputs.formats != '[]'
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
-        format: [deb, rpm, apk]
+        format: ${{ fromJSON(needs.changes.outputs.formats) }}
         arch: [amd64, arm64]
         include:
           - arch: amd64

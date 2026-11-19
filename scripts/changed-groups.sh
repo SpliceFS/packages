@@ -1,6 +1,6 @@
 #!/bin/sh
 # Prints the test groups that the changed paths read from standard input need, one path a line,
-# as a JSON array on one line, for example ["install","packages"]: for each path the groups of
+# as a JSON array on one line, for example ["deb","install"]: for each path the groups of
 # the first line of .github/test-groups that matches it, and every group for a path that no line
 # matches, so that a new file is tested in full until it is named there. The CI of a pull request
 # runs a job only when its group is in the array. "all" prints every group, for the runs that

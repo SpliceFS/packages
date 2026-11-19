@@ -24,6 +24,10 @@ on:
         description: Artifact that holds the dist folder; empty means packages-<program>-<arch>, one for each CPU type
         type: string
         default: ""
+      formats:
+        description: The Linux package formats to test, as a JSON array, for example ["deb","rpm"]; empty tests every one
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -38,7 +42,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        format: [deb, rpm, apk]
+        format: ${{ fromJSON(inputs.formats || '["deb","rpm","apk"]') }}
         arch: [amd64, arm64]
         include:
           - arch: amd64
@@ -85,6 +89,7 @@ jobs:
   # and removes it again. It refuses to run anywhere but in CI.
   service-test-host:
     name: Service on the runner (${{ matrix.arch }})
+    if: ${{ inputs.formats == '' || contains(fromJSON(inputs.formats), 'deb') }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 10
     strategy:

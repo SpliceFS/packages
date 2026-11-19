@@ -9,7 +9,8 @@ set -eu
 root="$(cd "$(dirname "$0")/.." && pwd)"
 script="$root/scripts/changed-groups.sh"
 failed=0
-everything='["install","packages"]'
+everything='["apk","deb","freebsd","install","rpm"]'
+formats='["apk","deb","freebsd","rpm"]'
 
 # $1 case name, $2 the output wanted, $3 the changed paths, one per line.
 groups() {
@@ -44,25 +45,45 @@ groups "the install tests only" '["install"]' 'tests/run.sh
 groups "the install tests and a document" '["install"]' 'tests/systems
 README.md
 '
-groups "a document of a program is packaged" "$everything" 'programs/server/README.md
+groups "the setup script is tested by the install tests alone, which build no package" '["install"]' 'setup.sh.in
 '
-groups "a script" "$everything" 'scripts/package-lib.sh
+groups "the workflow of the install tests" '["install"]' '.github/workflows/install-tests.yml
 '
-groups "the Makefile" "$everything" 'Makefile
+groups "a deb only change" '["deb"]' 'programs/server/deb/control
+scripts/package-deb.sh
+scripts/repo-test-deb.sh
 '
-groups "a workflow" "$everything" '.github/workflows/ci.yml
+groups "an rpm only change" '["rpm"]' 'programs/client/rpm/splicefs-client.spec
+scripts/repo-rpm.sh
 '
-groups "an action" "$everything" '.github/actions/release-keys/action.yml
+groups "an Alpine only change" '["apk"]' 'programs/server/alpine/APKBUILD
+scripts/apk-resign.sh
 '
-groups "the list of test groups itself" "$everything" '.github/test-groups
+groups "a FreeBSD only change" '["freebsd"]' 'programs/server/freebsd/manifest.in
+packaging/freebsd/releases
 '
-groups "the test systems" "$everything" 'packaging/test-systems
+groups "a unit of systemd is in the deb and rpm packages" '["deb","rpm"]' 'programs/server/systemd/splicefsd.service
 '
-groups "a manual step, which the lifecycle and user mode tests run" "$everything" 'steps/apt.sh
+groups "a deb change and an rpm change" '["deb","rpm"]' 'scripts/package-deb.sh
+scripts/package-rpm.sh
 '
-groups "the setup script, which the lifecycle test runs" "$everything" 'setup.sh.in
+groups "the test systems are the ones of the Linux formats" '["apk","deb","rpm"]' 'packaging/test-systems
 '
-groups "a published key, which proves the release archives" "$everything" 'keys/splicefs.asc
+groups "a document of a program is packaged" "$formats" 'programs/server/README.md
+'
+groups "a script every format uses" "$formats" 'scripts/package-lib.sh
+'
+groups "the Makefile" "$formats" 'Makefile
+'
+groups "a workflow" "$formats" '.github/workflows/ci.yml
+'
+groups "an action" "$formats" '.github/actions/release-keys/action.yml
+'
+groups "the list of test groups itself" "$formats" '.github/test-groups
+'
+groups "a manual step every format runs" "$formats" 'steps/apt.sh
+'
+groups "a published key, which proves the release archives" "$formats" 'keys/splicefs.asc
 '
 groups "an unknown top level file needs everything" "$everything" 'notes.txt
 '
@@ -71,7 +92,7 @@ groups "an unknown folder needs everything" "$everything" 'newdir/file.sh
 groups "an unknown path next to a document still needs everything" "$everything" 'README.md
 newdir/file
 '
-groups "a last line without a newline is read" "$everything" 'README.md
+groups "a last line without a newline is read" "$formats" 'README.md
 Makefile'
 
 got="$(sh "$script" all)" || got="exit status $?"
@@ -90,8 +111,11 @@ else
 fi
 
 # The groups the workflows ask for, from the if of each job, against the groups of the file.
-asked="$(grep -ho "outputs.groups), '[^']*')" "$root"/.github/workflows/*.yml |
-    sed "s/.*'\(.*\)'.*/\1/" | LC_ALL=C sort -u | tr '\n' ' ')"
+# The Linux formats are read through the formats output of changes.yml, which names them in a jq filter.
+asked="$({
+    grep -ho "outputs.groups), '[^']*')" "$root"/.github/workflows/*.yml | sed "s/.*'\(.*\)'.*/\1/"
+    sed -n 's/.*select(IN(\([^)]*\))).*/\1/p' "$root/.github/workflows/changes.yml" | tr -d '" ' | tr ',' '\n'
+} | LC_ALL=C sort -u | tr '\n' ' ')"
 known="$(sh "$script" all | tr -d '[]"' | tr ',' ' ') "
 if [ "$asked" = "$known" ]; then
     printf 'ok   the workflows ask for exactly the groups of .github/test-groups\n'
