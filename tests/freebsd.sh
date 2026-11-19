@@ -5,12 +5,16 @@
 # hardware virtualization (KVM). FreeBSD cannot run in a container, so the machine runs under
 # QEMU inside the prepared image of the release (scripts/freebsd-lib.sh).
 #
-# No web server is needed. The test site is built for the base address
-# file:///tmp/input/site and travels into the machine as its input archive, so the setup
-# script's self-check (fetch of the published setup.sh) reads the site folder inside the
-# machine.
+# No web server is needed. SOURCE says where the setup script comes from
+# (scripts/published-site-lib.sh), and either way the site travels into the machine as its
+# input archive:
+# - built (the default): the site is built from this commit for the base address
+#   file:///tmp/input/site, so the setup script's self-check (fetch of the published setup.sh)
+#   reads the site folder inside the machine.
+# - published: the site is the published setup script and the keys of the repository, so the
+#   self-check reads the published site on the web, as people's machines do.
 #
-# Environment: FREEBSD limits the run to one release (for example 15.1), empty means every
+# Environment: SOURCE; FREEBSD limits the run to one release (for example 15.1), empty means every
 # release in the list; FREEBSD_IMAGE is the image of a release, with @RELEASE@ where the
 # release goes; LINUX_IMAGE is the image that removes what the machine left, which belongs to
 # root; VM_TIMEOUT is the most seconds one machine may run.
@@ -28,6 +32,11 @@ mkdir -p dist/freebsd-e2e
 out="$(cd dist/freebsd-e2e && pwd)"
 # shellcheck source=scripts/freebsd-lib.sh
 . scripts/freebsd-lib.sh
+# shellcheck source=scripts/fetch-lib.sh
+. scripts/fetch-lib.sh
+# shellcheck source=scripts/published-site-lib.sh
+. scripts/published-site-lib.sh
+check_install_source
 
 log="$(mktemp)"
 trap 'rm -f "$log"' EXIT
@@ -36,13 +45,25 @@ trap 'rm -f "$log"' EXIT
 # removed by the host user. The old results are removed in a container for that reason.
 docker run --rm -v "$out":/out "$image" rm -rf /out/results
 
+# Puts the site of the machine in $out/site. A built site has a base address that is a folder of
+# the machine: see the top of this file. It is built on the host, where scripts/build-site.sh
+# has its tools.
+prepare_site() {
+    case "$install_source" in
+        built)
+            KEYS_DIR=keys BASE_URL=file:///tmp/input/site ALLOW_FILE_BASE_URL=1 SITE_DIR="$out/site" \
+                sh scripts/build-site.sh
+            ;;
+        *)
+            fetch_published_site "$out/site" "$root"
+            ;;
+    esac
+}
+
 test_release() {
     release="$1"
-    echo "FreeBSD $release: testing the setup script"
-    # The base address is a folder of the machine: see the top of this file. The site is
-    # built on the host, where scripts/build-site.sh has its tools.
-    KEYS_DIR=keys BASE_URL=file:///tmp/input/site ALLOW_FILE_BASE_URL=1 SITE_DIR="$out/site" \
-        sh scripts/build-site.sh
+    echo "FreeBSD $release: testing the setup script ($install_source)"
+    prepare_site
     mkdir -p "$out/input"
     archive="$out/input/$release.tar"
     # The machine unpacks the archive to /tmp/input, so the site folder is at its top. On

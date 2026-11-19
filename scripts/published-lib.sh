@@ -5,25 +5,17 @@
 # they are, and how they are downloaded and proven. What people have installed is what the site serves, so
 # nothing here asks GitHub. Sourced after scripts/package-lib.sh (or scripts/program-conf.sh for the
 # scripts that only read the index), which says what the program and its versions are called. The
-# downloads insist on HTTPS, also after a redirect, so that a redirect can never hand over a package
-# from a plain address. name, deb_arch, rpm_arch, apk_arch and PACKAGE_DATE are set by the files
-# this one is sourced after.
+# downloads are those of scripts/fetch-lib.sh, which insists on HTTPS. name, deb_arch, rpm_arch,
+# apk_arch and PACKAGE_DATE are set by the files this one is sourced after.
 # The words use_published_version sets are read by the scripts that source this file.
 # shellcheck disable=SC2154,SC2034
+
+# shellcheck source=fetch-lib.sh
+. scripts/fetch-lib.sh
 
 # The address of the folder of the program PROGRAM on the package site. PACKAGE_SITE
 # (https://packages.splicefs.org) is the site.
 site_url="${PACKAGE_SITE:-https://packages.splicefs.org}/$PROGRAM"
-
-# Downloads the address $1 into the file $2. It is written under another name first, so an
-# interrupted download is never mistaken for the file. Status 1 when the download failed.
-fetch_site_file() {
-    if ! curl -fsSL --proto =https --proto-redir =https --retry 3 -o "$2.part" "$1" ||
-        ! mv "$2.part" "$2"; then
-        rm -f "$2.part"
-        return 1
-    fi
-}
 
 # What scripts/published-newest.sh prints, and the version record keeps (UPGRADE_FROM), when the
 # site was read and lists no package of the program. A record that is empty says the site was not
