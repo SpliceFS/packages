@@ -1,4 +1,4 @@
-# Remove the packages, and the packages they needed that nothing else needs now:
+# Remove the packages, and the packages they needed that nothing else needs now. Leave out the one you did not install:
 apk del splicefs-server splicefs-client
 
 # Delete the data, the logs and the configuration folder, then the user and its group:

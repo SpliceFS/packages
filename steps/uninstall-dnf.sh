@@ -1,4 +1,4 @@
-# Remove the packages:
+# Remove the packages. Leave out the one you did not install:
 sudo dnf remove splicefs-server splicefs-client
 
 # Remove the packages they needed that nothing else needs now:

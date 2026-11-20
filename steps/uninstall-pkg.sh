@@ -1,4 +1,4 @@
-# Remove the packages:
+# Remove the packages. Leave out the one you did not install:
 pkg delete splicefs-server splicefs-client
 
 # Delete the settings of the services from /etc/rc.conf, which removing a package leaves alone:
