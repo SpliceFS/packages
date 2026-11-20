@@ -13,6 +13,11 @@
 
 unit="$program.service"
 
+# The file that defines the service: the package puts it there.
+service_file() {
+    echo "/usr/lib/systemd/system/$unit"
+}
+
 service_active() {
     on_system "$1" systemctl is-active --quiet "$unit"
 }

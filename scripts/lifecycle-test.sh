@@ -50,6 +50,7 @@ use_recorded_version
 . scripts/package-lib.sh
 . scripts/service-check-lib.sh
 . scripts/site-server-lib.sh
+. scripts/system-state-lib.sh
 
 platform="${PLATFORM:-$(docker version --format '{{.Server.Os}}/{{.Server.Arch}}')}"
 for p in $packaged; do
@@ -125,16 +126,6 @@ repo_upgrade() {
         '. scripts/upgrade-package-lib.sh; upgrade_package "$@"' sh "$format" "$PUBLISHED_VERSION" "$VERSION" repo "$name"
 }
 
-# Runs the package checks of scripts/package-test-lib.sh, which look at the system they run in,
-# inside the container $1: the checks named by the other arguments, for the program and version
-# of the caller. The repository is mounted at /src, where those scripts read their definitions.
-in_system() {
-    container_name="$1"
-    shift
-    docker exec -e PROGRAM -e VERSION -e PACKAGE_DATE -w /src "$container_name" sh -c \
-        '. scripts/package-lib.sh; . scripts/package-test-lib.sh; for check in "$@"; do "$check"; done' sh "$@"
-}
-
 # What a fresh install does to the service: the package is installed and the service is idle.
 # Starting it is the administrator's decision, so the documented command does it, and the
 # service then runs as its own user and does its job.
@@ -165,18 +156,6 @@ check_service_after_upgrade() {
     check_reboot "$1"
 }
 
-# Nothing of our programs runs: no process has one of their files as its program, also not one
-# that was started from a file that is gone now. /proc is what every system has.
-no_process_of_ours() {
-    docker exec "$1" sh -c '
-        for dir in /proc/[0-9]*; do
-            case "$(readlink "$dir/exe" 2>/dev/null)" in
-                */splicefs*) exit 1 ;;
-                *) ;;
-            esac
-        done'
-}
-
 # Both programs are removed, which means: not installed according to the package manager, no
 # program file left in /usr/bin, nothing running.
 check_nothing_of_ours() {
@@ -204,20 +183,6 @@ documented_uninstall() {
     echo "ok: the commands of $file ran"
     # The copy stands in for the download of the person, who deletes it themselves.
     must "removing the copy of the setup script failed" docker exec "$1" sh -c 'rm ~/splicefs-setup.sh'
-}
-
-# Writes the snapshot of the system into the file $2 on the host.
-take_snapshot() {
-    docker exec "$1" sh /src/scripts/lifecycle-snapshot.sh >"$2" || fail "the snapshot of the system failed"
-}
-
-# Prints the core dumps that appeared in the system $1 since the last call, with what ran before
-# them ($2), so that a crash in any step names its program and its step (scripts/core-files.sh).
-# The comparison of step 9 finds a core on the root filesystem anyway; this says where it came from.
-note_new_cores() {
-    docker exec "$1" sh /src/scripts/core-files.sh >"$own/cores-now" || fail "looking for core dumps failed"
-    grep -vxFf "$own/cores-seen" "$own/cores-now" | sed "s/^/core dump after $2: /" || true
-    mv "$own/cores-now" "$own/cores-seen"
 }
 
 # Starts the step $1 of the system $c: first the core dumps of the step before it.

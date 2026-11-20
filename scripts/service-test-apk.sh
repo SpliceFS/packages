@@ -38,6 +38,11 @@ remove_package() {
     docker exec "$1" apk del -q "$name" >/dev/null
 }
 
+# The file that defines the service: the package puts it there.
+service_file() {
+    echo "/etc/init.d/$program"
+}
+
 service_active() {
     docker exec "$1" rc-service "$program" status >/dev/null 2>&1
 }

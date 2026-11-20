@@ -212,9 +212,10 @@ package-order-test: ## Checks that package versions sort right in dpkg, rpm and 
 apk-resign-test: built-apk-packages ## Checks that Alpine packages signed again are trusted with the new key only
 	PROGRAM=$(PROGRAM) APK_IMAGE=$(APK_IMAGE) scripts/apk-resign-test.sh
 
-# Installs and removes the package in a clean, booted server of every system listed in
-# packaging/test-systems and reports each system's result.
-package-test: built-packages ## Installs and removes the package on every server image (ONLY=deb or an image for one)
+# One boot of a clean server of every system listed in packaging/test-systems, all at the same
+# time: the package file is installed with the system's package manager and checked, then removed as
+# the documentation says, and the system must be as it was (scripts/package-test.sh lists the steps).
+package-test: built-packages ## Installs the package file and removes it again on every server image (ONLY=deb or an image for one)
 	$(TEST_VARS) scripts/package-test.sh
 
 # Proves the service, not only the files: in a container per system that is booted as a server,
@@ -314,7 +315,7 @@ repo: built-packages keys ## Builds the signed apt, rpm and Alpine repositories 
 # on, and checks that a damaged repository is refused.
 repo-test: built-packages ## Installs from the repositories with signature checks on
 	@[ -d "dist/$(PROGRAM)/repo" ] || { echo "FAIL: no repository in dist/$(PROGRAM)/repo: run make repo first"; exit 1; }
-	$(TEST_VARS) scripts/package-test.sh repo
+	$(TEST_VARS) scripts/repo-test.sh
 
 # --- Publishing the repositories of a program ---------------------------------------------------
 # The publish job of the publish-program workflow publishes what make repo made in
