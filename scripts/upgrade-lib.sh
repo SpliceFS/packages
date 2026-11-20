@@ -29,7 +29,7 @@ datadir="/var/lib/splicefs/${name#splicefs-}"
 # (programs/PROGRAM/config-folders), so the file an administrator would write there is the one the
 # upgrade must leave alone. The package tests use the same name.
 keptdir="$confdir/$(printf '%s\n' "$confsubdirs" | head -n 1)"
-kept="$keptdir/local.yaml"
+kept="$keptdir/$administrator_file"
 marker="# upgrade-test marker: an upgrade must keep this line"
 datafile="$datadir/upgrade-test-marker"
 
@@ -61,6 +61,13 @@ script_line() {
     printf 'script %s %s\n' "$1" "${sum%% *}"
 }
 
+# Ends the caller unless the line and the file that write_markers wrote are still there. $1 names
+# what was done to the system, for the message.
+verify_markers_kept() {
+    grep -qxF "$marker" "$kept" || fail "$1: the marker line is gone from $kept"
+    [ -f "$datafile" ] || fail "$1: the marker file $datafile is gone"
+}
+
 # The checks after the new package was installed over the old one, which also had its
 # configuration file and data written by the administrator. $1 is the package format, only
 # for the messages, $2 the user the service runs as, $3 the listing of the new package, $4 the
@@ -71,8 +78,7 @@ verify_upgrade() {
     [ "$4" = "$5" ] || fail "$1 upgrade: the installed package is $4, not the new package $5"
     "$program" --version | grep -qF "$VERSION" ||
         fail "$1 upgrade: $program --version does not report $VERSION"
-    grep -qxF "$marker" "$kept" || fail "$1 upgrade: the marker line is gone from $kept"
-    [ -f "$datafile" ] || fail "$1 upgrade: the marker file $datafile is gone"
+    verify_markers_kept "$1 upgrade"
     if [ -n "$2" ]; then
         grep -q "^$2:" /etc/passwd || fail "$1 upgrade: the user $2 does not exist"
     fi

@@ -42,3 +42,14 @@ note_new_cores() {
     grep -vxFf "$own/cores-seen" "$own/cores-now" | sed "s/^/core dump after $2: /" || true
     mv "$own/cores-now" "$own/cores-seen"
 }
+
+# Runs the functions of scripts/upgrade-lib.sh (write_markers, verify_markers_kept) inside the
+# container $1 with the arguments after it, for the program, version and published version of the
+# caller. The configuration file and the data file they write are what a removal or an upgrade
+# must leave alone.
+in_upgrade_lib() {
+    container_name="$1"
+    shift
+    docker exec -e PROGRAM -e VERSION -e PACKAGE_DATE -e PUBLISHED_VERSION -w /src "$container_name" sh -c \
+        '. scripts/upgrade-lib.sh; "$@"' sh "$@"
+}

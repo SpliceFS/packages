@@ -5,13 +5,21 @@
 # a person installs a package file: no repository and no setup script. Each system runs these steps in
 # order, each printed as "step N: ...", and stops at the first wrong result:
 #   0. the file list and the checksums of /etc are written down (scripts/lifecycle-snapshot.sh);
-#   2. the package FILE is installed with the system's package manager, which fetches what it
-#      depends on from the distribution's own mirror; every file the package promises is in its place
-#      (scripts/package-test-lib.sh); installing enabled and started nothing;
-#   9. the documented removal (the file of steps/ for this system, without the setup script's
-#      --remove, which belongs to the setup script test): the package, the data, the configuration,
-#      the user and the group; nothing of ours is installed or running, and the snapshot equals the
-#      one of step 0, apart from the paths of scripts/lifecycle-excluded.
+#   1. the baseline: the previous published package FILE, fetched once for the whole run from the
+#      package site and proven by its signed index (scripts/published-verify.sh), is installed with
+#      the system's package manager, and a configuration file and a data file are written. When
+#      nothing is published, the step says so and installs nothing;
+#   2. the new package FILE is put over it the way scripts/upgrade-package-lib.sh says (an upgrade,
+#      or a reinstall when the version is the same); with no baseline it is installed. Every file the
+#      package promises is in its place (scripts/package-test-lib.sh), installing enabled and
+#      started nothing, and the configuration and data of step 1 are kept. Then the file is put
+#      over itself once more: the files, the configuration and the state of the service stay as
+#      they were;
+#   9. the package manager's plain removal: the programs are gone, the configuration and the data
+#      remain. Then the documented removal (the file of steps/ for this system, without the setup
+#      script's --remove, which belongs to the setup script test): the package, the data, the
+#      configuration, the user and the group; nothing of ours is installed or running, and the
+#      snapshot equals the one of step 0, apart from the paths of scripts/lifecycle-excluded.
 # The numbers are those of the design of the test; the steps that are not built yet are not run.
 # Before every step, the core dumps that appeared since the step before are printed with the program
 # that dumped them (scripts/core-files.sh), and beside a difference in step 9 all of them are.
@@ -35,6 +43,7 @@ cd "$root"
 . scripts/package-record.sh
 use_recorded_version
 . scripts/package-lib.sh
+. scripts/published-lib.sh
 # shellcheck source=/dev/null
 . "$defs/service-check.sh"
 . scripts/service-check-lib.sh
@@ -43,6 +52,7 @@ use_recorded_version
 # Named explicitly because after a run with another platform the local image tag can point
 # at the other CPU type, and an empty setting would then silently test the wrong one.
 platform="${PLATFORM:-$(docker version --format '{{.Server.Os}}/{{.Server.Arch}}')}"
+package_arches "$platform"
 work="$(mktemp -d)"
 # Every container of this run carries the process id of this run in its name, so the cleanup finds
 # all of them and no other run's.
@@ -55,10 +65,9 @@ cleanup() {
 trap cleanup EXIT
 trap 'exit 130' INT TERM
 
-# The package file is installed by the system's package manager. It runs in the booted system, so
-# the dependencies come from the distribution's mirror, as for a person.
+# The package files are installed by the system's package manager. It runs in the booted system,
+# so the dependencies come from the distribution's mirror, as for a person.
 check_installed_files() {
-    must "installing the package failed" install_package "$1"
     must "the package manager does not list the package as installed" package_installed "$1"
     must "a file check of the package failed: see the line above" \
         in_system "$1" check_versions check_links check_config_folders check_extras
@@ -68,6 +77,75 @@ check_installed_files() {
     must "the user $expected_user was not created" docker exec "$1" grep -q "^$expected_user:" /etc/passwd
     echo "ok: the package is installed, its files are in place and the user exists"
     check_idle_after_install "$1"
+}
+
+# Step 1. The published package is what people have installed. It is the one the record of the
+# build names, or the newest on the site; nothing is installed when none is published.
+install_baseline() {
+    if [ -z "$from" ]; then
+        echo "nothing is published for $PROGRAM: there is no baseline, and nothing is installed in this step"
+        return 0
+    fi
+    published_file="$(published_package_file)"
+    must "installing the published package failed" install_published_package "$1" "$published_file"
+    must "the package manager does not list the published package as installed" package_installed "$1"
+    # The quotes are single on purpose: the variables are those of the shell inside the system.
+    # shellcheck disable=SC2016
+    must "the installed program does not report the published version $old_tag" \
+        docker exec "$1" sh -c '"$1" --version | grep -qF "$2"' sh "$program" "$old_tag"
+    must "writing the configuration file and the data file failed" in_upgrade_lib "$1" write_markers "$format"
+    echo "ok: the published $old_tag is installed, with a configuration file and a data file"
+}
+
+# The new package file over what step 1 installed: scripts/upgrade-package-lib.sh is the one place
+# that says how (an upgrade, or a reinstall when the version is the same). It runs in the booted
+# system. Usage: put_new_package_over CONTAINER INSTALLED_VERSION.
+put_new_package_over() {
+    new_file="$(package_file)"
+    docker exec -e DEBIAN_FRONTEND=noninteractive -w /src "$1" sh -c \
+        '. scripts/upgrade-package-lib.sh; upgrade_package "$@"' sh "$format" "$2" "$VERSION" file "$new_file"
+}
+
+# Step 2, first part. With no baseline the package is installed, and the files that an upgrade
+# must keep are written.
+install_new_package() {
+    if [ -n "$from" ]; then
+        must "putting the new package over the published one failed" put_new_package_over "$1" "$old_tag"
+        must "the upgrade did not keep the configuration file and the data file" \
+            in_upgrade_lib "$1" verify_markers_kept "upgrade"
+        return 0
+    fi
+    must "installing the package failed" install_package "$1"
+    must "writing the configuration file and the data file failed" in_upgrade_lib "$1" write_markers "$format"
+}
+
+# Whether the services of the program are enabled and running, one line each.
+service_state() {
+    for state_check in service_enabled service_active; do
+        if "$state_check" "$1"; then echo "$state_check: yes"; else echo "$state_check: no"; fi
+    done
+}
+
+# Step 2, second part: the new file over itself. Nothing must change: the files and the checksums
+# of /etc as the snapshots list them, what the package promises, the configuration file and the
+# data file of step 1, and what the services are doing.
+check_reinstall_changes_nothing() {
+    take_snapshot "$1" "$own/before-reinstall"
+    service_state "$1" >"$own/state-before"
+    must "installing the new package file over itself failed" put_new_package_over "$1" "$VERSION"
+    take_snapshot "$1" "$own/after-reinstall"
+    service_state "$1" >"$own/state-after"
+    if ! diff "$own/before-reinstall" "$own/after-reinstall" >"$own/diff"; then
+        cat "$own/diff"
+        fail "installing the package file over itself changed the system: the lines above differ"
+    fi
+    must "installing the package file over itself changed the state of a service" \
+        cmp -s "$own/state-before" "$own/state-after"
+    must "a file check of the package failed after it was installed over itself: see the line above" \
+        in_system "$1" check_versions check_links check_config_folders check_extras
+    must "installing the package file over itself did not keep the configuration file and the data file" \
+        in_upgrade_lib "$1" verify_markers_kept "reinstall"
+    echo "ok: installing the package file over itself changed no file, no configuration and no service"
 }
 
 # The documented removal reads as the install page shows it, for both programs. A program that is
@@ -102,6 +180,18 @@ documented_removal() {
         eval "$1"' sh "$text" ||
         fail "the commands of $file failed"
     echo "ok: the commands of $file ran"
+}
+
+# The package manager's plain removal takes the programs and leaves what the administrator and the
+# running server wrote, which only a purge or a person deletes.
+check_plain_removal() {
+    must "the plain removal failed" remove_package "$1"
+    refuse "the package is still installed after the plain removal" package_installed "$1"
+    must "the plain removal left a program of the package behind" in_system "$1" check_programs_removed
+    must "a process of ours is still running after the plain removal" no_process_of_ours "$1"
+    must "the plain removal took away the configuration file or the data file" \
+        in_upgrade_lib "$1" verify_markers_kept "plain removal"
+    echo "ok: the programs are gone, the configuration and the data remain"
 }
 
 check_nothing_of_ours() {
@@ -149,10 +239,20 @@ run_steps() {
     step "0: the vanilla system is written down"
     take_snapshot "$c" "$own/before"
 
-    step "2: the new package file is installed"
-    check_installed_files "$c"
+    step "1: the published package file is installed"
+    install_baseline "$c"
 
-    step "9: the documented removal, and the system is as it was"
+    step "2: the new package file is installed over it, and over itself"
+    install_new_package "$c"
+    check_installed_files "$c"
+    check_reinstall_changes_nothing "$c"
+
+    step "9: the plain removal, the documented removal, and the system is as it was"
+    check_plain_removal "$c"
+    # The documented removal is for a person whose packages are installed: after the plain removal
+    # some package managers refuse its package names (apk does), so the package file is installed
+    # once more, as step 2 does with no baseline.
+    must "installing the package again failed" install_package "$c"
     documented_removal "$c"
     check_nothing_of_ours "$c"
     check_system_as_it_was "$c"
@@ -218,6 +318,45 @@ while read -r format image; do
 done <<LIST
 $systems
 LIST
+
+# What step 1 installs and step 2 upgrades: the published version the record of the build names (the
+# newest on the site when it names none), as scripts/upgrade-test.sh reads it. $from is empty when
+# nothing is published. PUBLISHED_VERSION is what the scripts that run in the systems read.
+# upgrade_from_version is a test whose status is the answer, so set -e being off inside it changes nothing.
+# shellcheck disable=SC2310
+from="$(upgrade_from_version)" ||
+    fail "could not read the newest published package of $PROGRAM from $site_url"
+published_dir="$root/dist/$PROGRAM/published"
+PUBLISHED_VERSION="$VERSION"
+if [ -n "$from" ]; then
+    # A version that package_release_of_debver refuses ends the script here, with its message.
+    use_published_version "$from"
+    PUBLISHED_VERSION="$old_tag"
+fi
+export PUBLISHED_VERSION
+
+# The path of the published package file of the system's format as the systems see it: the dist
+# folder of the program is mounted at /pkg.
+published_package_file() {
+    published_site_path="$(published_path "$format" "$old_debver" "$old_rpmver" "$old_rpmrel" "$old_apkver" "$old_apkrel")"
+    echo "/pkg/published/$(basename "$published_site_path")"
+}
+
+# Downloads the published package file of every format that is tested, once for all the systems of
+# the format, and proves it by the signed index of the site. A download that fails ends the run
+# before any system starts: it is not a failure of the package.
+fetch_baselines() {
+    [ -n "$from" ] || return 0
+    for baseline_format in $(printf '%s\n' "$selected" | awk 'NF { print $1 }' | LC_ALL=C sort -u); do
+        baseline_path="$(published_path "$baseline_format" "$old_debver" "$old_rpmver" "$old_rpmrel" "$old_apkver" "$old_apkrel")"
+        # download_published_file is a test whose status is the answer, so set -e being off inside it
+        # changes nothing.
+        # shellcheck disable=SC2310
+        download_published_file "$baseline_path" "$published_dir" ||
+            fail "could not download and verify $site_url/$baseline_path"
+    done
+}
+fetch_baselines
 
 run_systems "$work" pull_system test_system <<LIST
 $selected

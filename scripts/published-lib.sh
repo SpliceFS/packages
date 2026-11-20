@@ -109,6 +109,17 @@ $up_names
 LIST
 }
 
+# Sets deb_arch, rpm_arch and apk_arch, the CPU type in the spelling of each format, for the
+# platform $1 (linux/amd64 or linux/arm64). Ends the caller with a message for another platform:
+# call it as a simple command.
+package_arches() {
+    case "$1" in
+        linux/amd64) deb_arch=amd64; rpm_arch=x86_64; apk_arch=x86_64 ;;
+        linux/arm64) deb_arch=arm64; rpm_arch=aarch64; apk_arch=aarch64 ;;
+        *) fail "no package CPU type for $1" ;;
+    esac
+}
+
 # Prints the path on the site, from the folder of the program, of the published file of the format
 # $1 for the words of use_published_version: $2 (deb), $3 and $4 (rpm, and its release), $5 and $6
 # (apk, and its release), for the CPU types deb_arch, rpm_arch and apk_arch of the caller. An

@@ -20,18 +20,28 @@ package_file() {
     echo "/pkg/$name-$rpmver-$rpmrel.$arch.rpm"
 }
 
-install_package() {
-    pkg="$(package_file)"
-    docker exec "$1" test -f "$pkg" || fail "$pkg does not exist; run make packages first"
-    # The system's package manager resolves the dependencies of a local file; rpm -i alone
-    # would not. The build key is a throwaway, so zypper must be told to accept an unsigned
-    # file.
+# Installs the package file $2 in the container $1. The system's package manager resolves the
+# dependencies of a local file; rpm -i alone would not. The build key is a throwaway, so zypper
+# must be told to accept an unsigned file.
+install_file() {
     docker exec "$1" sh -c '
         if command -v dnf >/dev/null 2>&1; then
             dnf install -y -q "$1"
         else
             zypper --non-interactive install --allow-unsigned-rpm "$1"
-        fi' sh "$pkg" >/dev/null
+        fi' sh "$2" >/dev/null
+}
+
+install_package() {
+    pkg="$(package_file)"
+    docker exec "$1" test -f "$pkg" || fail "$pkg does not exist; run make packages first"
+    install_file "$1" "$pkg"
+}
+
+# The published package file $2 is signed by the release key, which this system does not hold;
+# dnf does not check a local file, and zypper is told as for the unsigned one.
+install_published_package() {
+    install_file "$1" "$2"
 }
 
 # The same file over the installed one: rpm runs the upgrade path, with the new version's post

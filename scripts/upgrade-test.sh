@@ -40,11 +40,7 @@ use_recorded_version
 . scripts/published-lib.sh
 
 platform="${PLATFORM:-$(docker version --format '{{.Server.Os}}/{{.Server.Arch}}')}"
-case "$platform" in
-    linux/amd64) deb_arch=amd64; rpm_arch=x86_64; apk_arch=x86_64 ;;
-    linux/arm64) deb_arch=arm64; rpm_arch=aarch64; apk_arch=aarch64 ;;
-    *) fail "no package CPU type for $platform" ;;
-esac
+package_arches "$platform"
 
 # The published version to start from, the one the build recorded; the newest on the site when the
 # record is empty. Empty when nothing is published. The functions of published-lib.sh are tests

@@ -13,12 +13,22 @@ package_file() {
     echo "/pkg/${name}_${debver}_${platform#linux/}.deb"
 }
 
+# Installs the package file $2 in the container $1. apt resolves the dependencies of a local file;
+# dpkg -i alone would not.
+install_file() {
+    docker exec -e DEBIAN_FRONTEND=noninteractive "$1" sh -c \
+        "apt-get update -qq && apt-get install -y -qq $2" >/dev/null
+}
+
 install_package() {
     pkg="$(package_file)"
     docker exec "$1" test -f "$pkg" || fail "$pkg does not exist; run make packages first"
-    # apt resolves the dependencies of a local file; dpkg -i alone would not.
-    docker exec -e DEBIAN_FRONTEND=noninteractive "$1" sh -c \
-        "apt-get update -qq && apt-get install -y -qq $pkg" >/dev/null
+    install_file "$1" "$pkg"
+}
+
+# The published package file $2 is signed by the release key, which apt does not check for a file.
+install_published_package() {
+    install_file "$1" "$2"
 }
 
 # The same file over the installed one: dpkg runs the upgrade path, with the old version's prerm
