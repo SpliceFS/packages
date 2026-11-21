@@ -11,7 +11,7 @@
 
 share_name=media
 # The folder the share serves is the test's own, outside what the package owns, so
-# remove_test_data takes it away again.
+# remove_test_data takes it away again, with the folders above it that the test had to make.
 share_dir=/srv/media
 share_file=hello.txt
 share_text=hello
@@ -47,10 +47,29 @@ find_test_user_file() {
     fi
 }
 
+# The file that lists the folders write_test_config made above the share folder. It is in the folder
+# the package test keeps its own files in, which the removal of the package leaves alone and the
+# comparison of the snapshots leaves out.
+made_folders_file() {
+    echo "${PACKAGE_TEST_OUT:?PACKAGE_TEST_OUT is not set}/made-folders"
+}
+
+# Prints the folder $1 and every folder above it that does not exist yet, the deepest first, which is
+# the order they are taken away in.
+missing_folders() {
+    folder="$1"
+    while [ ! -d "$folder" ]; do
+        echo "$folder"
+        folder="$(dirname "$folder")"
+    done
+}
+
 # Writes the share, its folder with one file, and the user. The service must be able to write
 # below shared/ (its keys and its node file) and to read the user file, and it is not running yet,
 # so nothing has given the folders made here to it.
 write_test_config() {
+    # Appended, so that a second call, which finds the folders there, does not forget what the first one made.
+    missing_folders "$share_dir" >>"$(made_folders_file)"
     mkdir -p "$share_dir" "$confdir/shares.d" "$datadir/shared/users"
     printf '%s\n' "$share_text" >"$share_dir/$share_file"
     printf 'path: %s\n' "$share_dir" >"$confdir/shares.d/$share_name.yaml"
@@ -73,7 +92,14 @@ check_test_config() {
     [ -f "$share_dir/$share_file" ] || fail "$share_dir/$share_file is missing"
 }
 
-# What the test made outside the folders the documented removal deletes.
+# What the test made outside the folders the documented removal deletes: the share folder, and the
+# folders above it that were not there before the test. A folder that was there stays, and so does
+# anything in a folder above that the test did not put there: rmdir refuses a folder that is not empty.
 remove_test_data() {
     rm -rf "$share_dir"
+    made_file="$(made_folders_file)"
+    [ -f "$made_file" ] || return 0
+    while IFS= read -r made; do
+        [ ! -d "$made" ] || rmdir "$made" || return 1
+    done <"$made_file"
 }

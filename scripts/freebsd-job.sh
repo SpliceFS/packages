@@ -276,6 +276,8 @@ pkg_run delete -y "$name"
 # answers is one command whose status is the answer, so running it without set -e changes nothing.
 # shellcheck disable=SC2310
 if answers; then fail "the service still answers after the package was removed"; fi
+# The stop of the removal runs the stop_postcmd of the rc script, which takes the run folder away.
+[ ! -e "/var/run/$program" ] || { show; fail "stopping the service left /var/run/$program behind"; }
 for each in $programs; do
     [ ! -e "/usr/local/bin/$each" ] || fail "remove left $each behind"
 done

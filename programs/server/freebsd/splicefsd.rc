@@ -10,7 +10,7 @@
 #                      it. The default is "NO": installing the package starts nothing and
 #                      turns nothing on, and pkg would end a process its scripts started.
 
-# rc.subr reads rcvar, command, command_args, extra_commands, start_precmd and reload_cmd.
+# rc.subr reads rcvar, command, command_args, extra_commands, start_precmd, stop_postcmd and reload_cmd.
 # shellcheck disable=SC2034
 # shellcheck source=/dev/null
 . /etc/rc.subr
@@ -24,10 +24,12 @@ load_rc_config "$name"
 program=/usr/local/bin/splicefsd
 statedir=/var/db/splicefs/server
 logfile=/var/log/splicefsd.log
-# daemon(8) writes two pid files: its own, which stop and status use, and the server's,
-# which reload needs because the signal must reach the server and not its supervisor.
-pidfile=/var/run/splicefsd/daemon.pid
-childpidfile=/var/run/splicefsd/splicefsd.pid
+# The pid files belong to root: daemon(8) writes them before it drops privileges. daemon(8) writes
+# two: its own, which stop and status use, and the server's, which reload needs because the
+# signal must reach the server and not its supervisor.
+rundir=/var/run/splicefsd
+pidfile="${rundir}/daemon.pid"
+childpidfile="${rundir}/splicefsd.pid"
 
 # daemon(8) drops to the service user itself (-u), so rc.subr must not wrap it in su.
 command=/usr/sbin/daemon
@@ -37,14 +39,20 @@ command_args="-f -r -R 5 -P ${pidfile} -p ${childpidfile} -u splicefs -o ${logfi
 
 extra_commands=reload
 start_precmd=splicefsd_prestart
+stop_postcmd=splicefsd_cleanup
 reload_cmd=splicefsd_reload
 
 splicefsd_prestart() {
     # The server keeps its data here and creates local/ and shared/ inside on first start.
     install -d -o root -g wheel -m 0755 /var/db/splicefs
     install -d -o splicefs -g splicefs -m 0750 "${statedir}"
-    # The pid files belong to root: daemon(8) writes them before it drops privileges.
-    install -d -o root -g wheel -m 0755 /var/run/splicefsd
+    install -d -o root -g wheel -m 0755 "${rundir}"
+}
+
+# rc.subr runs this once the service has stopped. The start made the folder, so the stop takes it
+# away and a stopped service leaves nothing in /var/run.
+splicefsd_cleanup() {
+    rm -rf "${rundir}"
 }
 
 splicefsd_reload() {

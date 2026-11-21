@@ -9,8 +9,8 @@ sysrc -x splicefs_enable
 # Remove the packages they needed that nothing else needs now:
 pkg autoremove
 
-# Delete the data and the configuration folder, then the user and its group:
-rm -rf /var/db/splicefs /usr/local/etc/splicefs
+# Delete the data, the logs and the configuration folder, then the user and its group:
+rm -rf /var/db/splicefs /usr/local/etc/splicefs /var/log/splicefsd.log /var/log/splicefs.log
 pw userdel splicefs
 
 # Remove the repository and the signing key, with the setup script from step 1:

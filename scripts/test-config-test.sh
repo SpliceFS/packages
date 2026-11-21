@@ -53,7 +53,7 @@ chmod 755 "$work/bin/splicefsdctl" "$work/bin/chown"
 # folders of the system moved under $system, for the release $release. Prints what they print.
 in_fake_system() {
     PATH="$work/bin:$PATH" STAND_IN_DIR="$system" STAND_IN_RELEASE="$release" PROGRAM=server \
-        VERSION=v1.2.3 PACKAGE_DATE=20261112 SYSTEM="$system" sh -c '
+        VERSION=v1.2.3 PACKAGE_DATE=20261112 SYSTEM="$system" PACKAGE_TEST_OUT="$system/out" sh -c '
         . scripts/package-lib.sh
         . programs/server/test-config.sh
         confdir="$SYSTEM/etc/splicefs/server"
@@ -102,7 +102,8 @@ cases_of_every_release() {
     expect "a missing user file is found and named" fails_saying check_test_config "is the user alice"
 
     in_fake_system remove_test_data >/dev/null
-    expect "the test data it made outside the package's folders is removed" sh -c "[ ! -e '$system/srv/media' ]"
+    expect "the share folder it made outside the package's folders is removed" sh -c "[ ! -e '$system/srv/media' ]"
+    expect "the folder above it, which the test made too, is removed" sh -c "[ ! -e '$system/srv' ]"
 }
 
 # The user of a release that has no user add: a file named by the user name, with the hash.
@@ -133,13 +134,26 @@ cases_broken_user_add() {
     expect "a failed user add is found and named" fails_saying write_test_config "splicefsdctl user add failed"
 }
 
+# A folder above the share that was there before the test is not the test's to remove, with what it holds.
+cases_folder_above_was_there() {
+    release=with-user-add
+    system="$work/folder-above"
+    conf="$system/etc/splicefs/server"
+    mkdir -p "$conf/conf.d" "$conf/shares.d" "$system/out" "$system/srv"
+    : >"$system/srv/other"
+    in_fake_system write_test_config >/dev/null
+    in_fake_system remove_test_data >/dev/null
+    expect "a folder above the share that was there before is kept with what it holds" test -f "$system/srv/other"
+    expect "the share folder is removed" sh -c "[ ! -e '$system/srv/media' ]"
+}
+
 # Writes the configuration in the system of the release $1, then runs the cases of that release.
 run_release() {
     release="$1"
     system="$work/$release"
     conf="$system/etc/splicefs/server"
     state="$system/var/lib/splicefs/server"
-    mkdir -p "$conf/conf.d" "$conf/shares.d"
+    mkdir -p "$conf/conf.d" "$conf/shares.d" "$system/out"
     case "$release" in
         broken-user-add) cases_broken_user_add ;;
         *)
@@ -155,6 +169,7 @@ run_release() {
 run_release before-user-add
 run_release with-user-add
 run_release broken-user-add
+cases_folder_above_was_there
 
 if [ "$failed" -ne 0 ]; then
     echo "$failed test-config case(s) failed"
