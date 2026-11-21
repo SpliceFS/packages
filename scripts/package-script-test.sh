@@ -4,7 +4,7 @@
 # packaging/service: how scripts/package-lib.sh fills them in (package_script), and what the
 # filled steps do, with stand-ins for systemctl and the OpenRC commands. Runs on the host, no
 # Docker and no root (part of make check). What the steps do in a real system is proved by
-# scripts/service-test.sh.
+# scripts/package-test.sh.
 set -eu
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -73,7 +73,7 @@ same 'a step that does not exist is refused' 'FAIL: packaging/service/mgr/nothin
 # followed by a semicolon.
 # The steps look for the running service manager at fixed paths, which a test host does not have,
 # so the paths are moved into a folder of the test. That the real paths are the right ones is
-# proved by scripts/service-test.sh.
+# proved by scripts/package-test.sh.
 behaves() {
     box="$tree/box"
     rm -rf "$box"

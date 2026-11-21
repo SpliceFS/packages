@@ -25,6 +25,10 @@ on:
         description: Whether to build and check the FreeBSD packages
         type: boolean
         default: true
+      package-test:
+        description: Whether to run the package test in the tests; false when the caller runs it for both programs in one boot
+        type: boolean
+        default: true
       source:
         description: The outputs of the build-packages.yml call that built the packages, as JSON
         type: string
@@ -93,8 +97,8 @@ jobs:
           make package-freebsd PROGRAM="$PROGRAM" BIN="$GITHUB_WORKSPACE/bin" SRC="$GITHUB_WORKSPACE/src" \
             VERSION="$VERSION" FREEBSD="$RELEASE"
 
-  # Installs, starts, upgrades and installs from the repository, on every system of
-  # packaging/test-systems. The jobs are in a workflow of their own, which the release of a
+  # Installs, upgrades, starts and removes the package, and installs from the repository, on every
+  # system of packaging/test-systems. The jobs are in a workflow of their own, which the release of a
   # program calls too, so that a release runs the same tests on the packages it publishes.
   tests:
     name: Tests
@@ -103,3 +107,4 @@ jobs:
     with:
       program: ${{ inputs.program }}
       formats: ${{ inputs.formats }}
+      package-test: ${{ inputs.package-test }}

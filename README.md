@@ -54,7 +54,7 @@ for a change and the second in the Alpine jobs.
 
 The workflow `package-and-test.yml` does all of the above for one program, from the CI run of the
 repository that releases it: it builds the packages and the signed repositories on amd64 and
-arm64 runners, runs the package, service, repository and upgrade tests of every format, builds
+arm64 runners, runs the package test (install, upgrade, service and removal) and the repository test of every format, builds
 the FreeBSD packages in a FreeBSD machine of each release in `packaging/freebsd/releases`
 (`make package-freebsd`, which needs the hardware virtualization of an amd64 runner), and ends
 in one job, `Result`, that fails unless all passed. The caller builds its programs, uploads its
@@ -77,7 +77,7 @@ the CI of this repository does that for both programs, so a packaging change is 
 That publishes nothing: a package is published only for a new release of its program, and that
 release is published with the packaging as it is by then.
 The workflow calls its two halves itself, `build-packages.yml` and then `check-packages.yml`, so
-that the lifecycle test starts when both programs are built and does not wait for their tests.
+that the package test of both programs together starts when both are built and does not wait for the tests of each.
 The jobs run the scripts of this repository at the commit of the `uses` line, never at a ref the
 caller chooses: the workflows check this repository out at `job.workflow_sha`, and
 `scripts/workflow-checkout-test.sh` (part of `make check`) fails when a checkout takes its repository
@@ -85,12 +85,12 @@ or ref from an input.
 
 A run reads the newest package of a program on the package site once (`scripts/published-newest.sh`,
 which prints a version such as `0.5.34`) and gives it to `make packages` as `UPGRADE_FROM`. The
-version record in `dist/<program>/version` keeps it, and the upgrade and lifecycle tests download that
+version record in `dist/<program>/version` keeps it, and the package test downloads that
 package from the site and start from it, so a package published while the run is going never turns
 the upgrade into a downgrade. A release on GitHub carries no packages: what people have installed is
 what the site serves. Without `UPGRADE_FROM` (a build by hand) the tests ask the site when they run,
-and a program with no package on the site yet has nothing to upgrade from, so the upgrade test says so
-and skips.
+and a program with no package on the site yet has nothing to upgrade from, so the package test says so
+and installs only the new package.
 
 ### What runs when
 
@@ -100,8 +100,8 @@ A pull request runs `make check` and then only the tests of what its files chang
 - `deb`, `rpm`, `apk` and `freebsd`: the build and the tests of that package format. A file that
   one format uses (a package definition, a format's script) needs that group alone; a file that every
   format uses (`programs/`, `scripts/package-lib.sh`, the `Makefile`) needs all four. The version
-  order test and the lifecycle test run when any of deb, rpm and apk is needed, the lifecycle test
-  for those formats only.
+  order test runs when any of deb, rpm and apk is needed, and the package test of both programs
+  together for those formats only.
 - `install`: the setup script run against the published site, on every system and on FreeBSD
   (`install-tests.yml`). It builds no package, so it runs when `setup.sh.in`, `tests/` or its own
   workflow changes, on its schedule, and on main, never for a change to a package.
@@ -115,12 +115,12 @@ named there. Runs of main, of a tag and of the schedule test everything.
 
 - `site/`: the page that sends a person to the install instructions of the website (`index.html`).
 - `steps/`: the uninstall commands (`uninstall-<family>.sh`) and the commands of a user who runs the
-  client as themselves (`user-mode-*.sh`). The lifecycle test and the user mode test run them.
+  client as themselves (`user-mode-*.sh`). The package test and the user mode test run them.
 - `keys/`: the public signing keys.
 - `scripts/`: `build-site.sh`, `sign-site.sh`, `publish.sh` and `check.sh`, `setup-remove-test.sh`
   (setup and removal in a fake root, for every family), and the scripts that
   build, test and publish packages (`package-*.sh`, `service-test*.sh`, `repo-*.sh`,
-  `signing-keys.sh`, `upgrade-test*.sh`, `upgrade-diff.sh`), and `release-bin.sh`, which proves and
+  `signing-keys.sh`), and `release-bin.sh`, which proves and
   unpacks the release archives of a program.
 - `programs/<program>/`: the package definitions of one program (deb, rpm, Alpine, systemd, OpenRC)
   and its `program.conf`, which says what the program is: package name, service program,

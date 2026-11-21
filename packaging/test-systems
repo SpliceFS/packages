@@ -1,6 +1,6 @@
 # The systems every package is tested on: one line per system, "<format> <image>".
 # Both make package-test and CI read this file; it is the only place test images are named.
-# The format picks the package and the script that tests it (scripts/package-test-<format>.sh).
+# The format picks the package and the script that tests it (scripts/service-test-<format>.sh and scripts/package-test-<format>.sh).
 # Every image is a server image of ghcr.io/splicefs: the vendor's own minimal server install
 # with its service manager as process 1 and nothing of ours in it, so a test runs on a system
 # as a user deploys it. A server image is named by major and minor version, so fixes reach

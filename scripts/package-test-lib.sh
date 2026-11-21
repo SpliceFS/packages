@@ -41,7 +41,8 @@ check_config_folders() {
     [ -d "$confdir" ] || fail "$confdir is missing"
     for folder in $confsubdirs; do
         [ -d "$confdir/$folder" ] || fail "$confdir/$folder is missing"
-        contents="$(ls -A "$confdir/$folder")"
+        # The file the tests write as an administrator is not the package's.
+        contents="$(find "$confdir/$folder" -mindepth 1 -maxdepth 1 ! -name "$administrator_file")"
         [ -z "$contents" ] || fail "$confdir/$folder must be empty after an install"
     done
     # ls -A is used because it lists hidden entries too; the folder holds no names that need care.

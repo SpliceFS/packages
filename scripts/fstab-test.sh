@@ -9,7 +9,7 @@
 # Environment: the version comes from dist/client/version (scripts/package-record.sh);
 # SERVER_BIN is the folder that holds the programs of the server (splicefsd and splicefsdctl)
 # built for the CPU type of the container (the dist/bin/linux-<arch> folder of the server);
-# PLATFORM and ONLY as for scripts/service-test.sh.
+# PLATFORM and ONLY as for scripts/package-test.sh.
 #
 # The client opens its control socket late in this test (CLIENT_DELAY seconds, a wrapper that
 # only the test installs), as it does at boot while it connects to its clusters. netmount starts
@@ -126,7 +126,7 @@ while read -r format image; do
     count=$((count + 1))
     container="splicefs-fstab-test-$$-$count"
     boot_system --name "$container" --platform "$platform" \
-        -v "$root/dist/$PROGRAM":/pkg:ro -v "$SERVER_BIN":/srvbin:ro "$image"
+        -v "$root/dist/$PROGRAM":"/pkg/$PROGRAM":ro -v "$SERVER_BIN":/srvbin:ro "$image"
     # Errexit is off here on purpose: every command of run_checks is guarded with fail.
     set +e
     (run_checks "$container")

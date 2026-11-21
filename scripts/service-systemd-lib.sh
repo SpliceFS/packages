@@ -1,5 +1,5 @@
 # shellcheck shell=sh
-# The service functions of scripts/service-test.sh (see the list there) for a system whose
+# The service functions of scripts/package-test.sh (see the steps there) for a system whose
 # service manager is systemd: the containers of the deb and rpm formats and the machine of CI.
 # Sourced by the adapters of those (scripts/service-test-<format>.sh and
 # scripts/service-test-host-deb.sh) after scripts/package-lib.sh, which says what $program is,
@@ -13,6 +13,11 @@
 
 unit="$program.service"
 
+# The file that defines the service: the package puts it there.
+service_file() {
+    echo "/usr/lib/systemd/system/$unit"
+}
+
 service_active() {
     on_system "$1" systemctl is-active --quiet "$unit"
 }
@@ -24,6 +29,19 @@ service_enabled() {
 # The commands of the install page, which is also where they are written down.
 service_start_enable() {
     on_system_as_root "$1" systemctl enable --now "$unit"
+}
+
+# The same in two commands, for a person who enables the service first and starts it later.
+service_enable() {
+    on_system_as_root "$1" systemctl enable "$unit"
+}
+
+service_start() {
+    on_system_as_root "$1" systemctl start "$unit"
+}
+
+service_disable() {
+    on_system_as_root "$1" systemctl disable "$unit"
 }
 
 service_stop() {

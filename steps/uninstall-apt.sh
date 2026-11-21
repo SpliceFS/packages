@@ -1,4 +1,4 @@
-# Remove the packages and their configuration files:
+# Remove the packages and their configuration files. Leave out the one you did not install:
 sudo apt-get purge splicefs-server splicefs-client
 
 # Remove the packages they needed that nothing else needs now:

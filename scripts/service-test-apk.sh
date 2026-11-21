@@ -1,5 +1,5 @@
 #!/bin/sh
-# Alpine (OpenRC) functions of scripts/service-test.sh; the file is sourced, so it runs
+# Alpine (OpenRC) functions of scripts/package-test.sh; the file is sourced, so it runs
 # nothing itself. $name, $apkver and $program come from scripts/package-lib.sh and $platform
 # from the harness.
 # shellcheck disable=SC2154 # those variables are set by the file that sources this one
@@ -9,7 +9,7 @@ package_file() {
         linux/arm64) arch=aarch64 ;;
         *) arch=x86_64 ;;
     esac
-    echo "/pkg/alpine/$arch/$name-$apkver-r$apkrel.apk"
+    echo "/pkg/$PROGRAM/alpine/$arch/$name-$apkver-r$apkrel.apk"
 }
 
 install_package() {
@@ -34,8 +34,24 @@ upgrade_package() {
             -X "$repo" -q "$2"' sh "$pkg" "$name" >/dev/null
 }
 
+# The published package file $2 is signed by the release key, which apk checks when it installs a
+# file: the key of the site is put in place for the install only. The new package is signed with the
+# key of its own build, which has the same name, so the release key must be gone before it is installed.
+install_published_package() {
+    docker exec "$1" cp /keys/splicefs.rsa.pub /etc/apk/keys/ || return 1
+    install_status=0
+    docker exec "$1" apk add -q "$2" >/dev/null || install_status=$?
+    docker exec "$1" rm -f /etc/apk/keys/splicefs.rsa.pub || return 1
+    return "$install_status"
+}
+
 remove_package() {
     docker exec "$1" apk del -q "$name" >/dev/null
+}
+
+# The file that defines the service: the package puts it there.
+service_file() {
+    echo "/etc/init.d/$program"
 }
 
 service_active() {
@@ -47,9 +63,20 @@ service_enabled() {
 }
 
 # The commands of the install page, which is also where they are written down.
+service_enable() {
+    docker exec "$1" rc-update add "$program" default >/dev/null
+}
+
+service_start() {
+    docker exec "$1" rc-service "$program" start >/dev/null
+}
+
 service_start_enable() {
-    docker exec "$1" rc-update add "$program" default >/dev/null &&
-        docker exec "$1" rc-service "$program" start >/dev/null
+    service_enable "$1" && service_start "$1"
+}
+
+service_disable() {
+    docker exec "$1" rc-update del "$program" default >/dev/null
 }
 
 service_stop() {

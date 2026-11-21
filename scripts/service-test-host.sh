@@ -1,6 +1,6 @@
 #!/bin/sh
 # Installs the Debian package of the program PROGRAM on the machine this runs on and proves the
-# service there. The containers of scripts/service-test.sh run the real service manager, but they
+# service there. The containers of scripts/package-test.sh run the real service manager, but they
 # share the kernel of their host and start from a bare image; a CI runner is a whole machine that
 # booted the normal way, with its own firewall, users and running services, so this is the
 # closest a check gets to a real install. It checks what the other service test checks, with

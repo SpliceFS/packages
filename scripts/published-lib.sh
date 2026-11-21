@@ -1,6 +1,6 @@
 # shellcheck shell=sh
 # What the scripts that read the package site have in common (scripts/published-newest.sh,
-# scripts/upgrade-test.sh, scripts/lifecycle-repo.sh): where the site is, what the published files are called and where
+# scripts/package-test.sh): where the site is, what the published files are called and where
 # they are, and how they are downloaded and proven. What people have installed is what the site serves, so
 # nothing here asks GitHub. Sourced after scripts/package-lib.sh (or scripts/program-conf.sh for the
 # scripts that only read the index), which says what the program and its versions are called. The
@@ -12,9 +12,10 @@
 # shellcheck source=fetch-lib.sh
 . scripts/fetch-lib.sh
 
-# The address of the folder of the program PROGRAM on the package site. PACKAGE_SITE
-# (https://packages.splicefs.org) is the site.
-site_url="${PACKAGE_SITE:-https://packages.splicefs.org}/$PROGRAM"
+# The address of the package site, PACKAGE_SITE (https://packages.splicefs.org), and of the folder of
+# the program PROGRAM on it.
+site_root="${PACKAGE_SITE:-https://packages.splicefs.org}"
+site_url="$site_root/$PROGRAM"
 
 # What scripts/published-newest.sh prints, and the version record keeps (UPGRADE_FROM), when the
 # site was read and lists no package of the program. A record that is empty says the site was not
@@ -109,6 +110,17 @@ $up_names
 LIST
 }
 
+# Sets deb_arch, rpm_arch and apk_arch, the CPU type in the spelling of each format, for the
+# platform $1 (linux/amd64 or linux/arm64). Ends the caller with a message for another platform:
+# call it as a simple command.
+package_arches() {
+    case "$1" in
+        linux/amd64) deb_arch=amd64; rpm_arch=x86_64; apk_arch=x86_64 ;;
+        linux/arm64) deb_arch=arm64; rpm_arch=aarch64; apk_arch=aarch64 ;;
+        *) fail "no package CPU type for $1" ;;
+    esac
+}
+
 # Prints the path on the site, from the folder of the program, of the published file of the format
 # $1 for the words of use_published_version: $2 (deb), $3 and $4 (rpm, and its release), $5 and $6
 # (apk, and its release), for the CPU types deb_arch, rpm_arch and apk_arch of the caller. An
@@ -133,4 +145,22 @@ download_published_file() {
         rm -f "$dl_file"
         return 1
     }
+}
+
+# Downloads the public signing keys of the site into the folder $1 and proves that they are the keys of
+# this repository (keys/), the ones scripts/published-verify.sh proves the signed index with: a
+# package manager that trusts the key from the site then trusts the key that proves the index. The
+# files are the OpenPGP key (splicefs.asc: apt, dnf, zypper) and the RSA key (splicefs.rsa.pub: apk).
+# A key that does not prove is removed. Status 1 when a download failed or a key does not prove, with
+# the reason on the standard error.
+download_published_keys() {
+    mkdir -p "$1"
+    for dk_name in splicefs.asc splicefs.rsa.pub; do
+        fetch_site_file "$site_root/keys/$dk_name" "$1/$dk_name" || return 1
+        cmp -s "keys/$dk_name" "$1/$dk_name" || {
+            echo "$site_root/keys/$dk_name is not keys/$dk_name of this repository" >&2
+            rm -f "$1/$dk_name"
+            return 1
+        }
+    done
 }

@@ -11,8 +11,14 @@
 # What program.conf sets is unknown to ShellCheck, which cannot follow it.
 # shellcheck disable=SC2154
 confdir="/etc/splicefs/${name#splicefs-}"
+# Where the program keeps what it makes and what the administrator adds to it (the state folder).
+datadir="/var/lib/splicefs/${name#splicefs-}"
 # One folder name per line; see the file for why the package ships them empty.
 confsubdirs="$(grep -v -e '^#' -e '^$' "$defs/config-folders")"
+# The name of the file the package tests write into the first of those folders, as an administrator
+# would: the package ships nothing there, and an upgrade, a reinstall and a plain removal must
+# leave the file alone.
+administrator_file=local.yaml
 
 # Prints the links the program installs, "<link> <target>" a line. They are named in the links
 # file of the program, and a program without the file has none. The links are made and the

@@ -12,12 +12,20 @@ trap 'rm -rf "$work"' EXIT
 failed=0
 
 mkdir "$work/bin" "$work/bin-dnf" "$work/bin-repo" "$work/bin-fix-fails"
-for manager in apt-get rpm zypper apk; do
+for manager in apt-get zypper apk; do
     # The stand-in expands its own variables when it runs. apk also says its CPU type, which the
     # repository of a package file is named by.
     # shellcheck disable=SC2016
     printf '#!/bin/sh\necho "%s $*" >> "$CALLS"\n[ "$1" != --print-arch ] || echo testarch\n' "$manager" > "$work/bin/$manager"
     chmod 755 "$work/bin/$manager"
+done
+# rpm and dpkg ignore the settings of the package manager of the system (dnf.conf adds the
+# documentation that the system leaves out), so a package is never put in place through them: their
+# stand-ins fail when they are called, and the call is written down.
+for program in rpm dpkg; do
+    # shellcheck disable=SC2016
+    printf '#!/bin/sh\necho "%s $*" >> "$CALLS"\nexit 1\n' "$program" > "$work/bin/$program"
+    chmod 755 "$work/bin/$program"
 done
 # The system that has dnf has it first, as the rpm systems of the test do.
 cp "$work/bin/apt-get" "$work/bin-dnf/dnf"
@@ -26,16 +34,17 @@ rm "$work/bin-dnf/dnf.bak"
 
 # $1 case name, $2 the folder of stand-ins that goes first on the PATH, $3 format, $4 the
 # version installed, $5 the new version, $6 file or repo, $7 the one line the package manager must
-# be called with.
+# be called with. Nothing else may be called, and the status must be 0.
 calls() {
     : > "$work/calls"
+    status=0
     CALLS="$work/calls" PATH="$2:$work/bin:/usr/bin:/bin" sh -c \
-        '. scripts/upgrade-package-lib.sh; upgrade_package "$@"' sh "$3" "$4" "$5" "$6" pkg-or-file
+        '. scripts/upgrade-package-lib.sh; upgrade_package "$@"' sh "$3" "$4" "$5" "$6" pkg-or-file || status=$?
     got="$(cat "$work/calls")"
-    if [ "$got" = "$7" ]; then
+    if [ "$got" = "$7" ] && [ "$status" -eq 0 ]; then
         printf 'ok   %s\n' "$1"
     else
-        printf 'FAIL %s: want "%s" got "%s"\n' "$1" "$7" "$got"
+        printf 'FAIL %s: want "%s" got "%s", status %s\n' "$1" "$7" "$got" "$status"
         failed=$((failed + 1))
     fi
 }
@@ -49,8 +58,10 @@ calls "deb, newer version: the file is installed over the old one" "$work/bin" d
 calls "deb, newer version: the repository package is upgraded" "$work/bin" deb v1.2.3 v1.2.4 repo \
     "apt-get install -y -qq --only-upgrade pkg-or-file"
 
-calls "rpm, same version: the file is replaced by rpm itself" "$work/bin-dnf" rpm v1.2.3 v1.2.3 file \
-    "rpm -U --replacepkgs --nosignature pkg-or-file"
+calls "rpm with dnf, same version: the file is reinstalled" "$work/bin-dnf" rpm v1.2.3 v1.2.3 file \
+    "dnf reinstall -y -q --nogpgcheck pkg-or-file"
+calls "rpm with zypper, same version: the file is reinstalled" "$work/bin" rpm v1.2.3 v1.2.3 file \
+    "zypper --non-interactive --quiet install --force --allow-unsigned-rpm pkg-or-file"
 calls "rpm with dnf, same version: the repository package is reinstalled" "$work/bin-dnf" rpm v1.2.3 v1.2.3 repo \
     "dnf reinstall -y -q pkg-or-file"
 calls "rpm with zypper, same version: the repository package is reinstalled" "$work/bin" rpm v1.2.3 v1.2.3 repo \

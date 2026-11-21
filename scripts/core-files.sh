@@ -1,7 +1,7 @@
 #!/bin/sh
 # Prints the core dumps on the root filesystem of the system it runs in, one a line: the path, the
 # pid, the program name and the command line of the process that dumped it, read from the
-# NT_PRPSINFO note of the core. The lifecycle test runs it after every step, so a crash names its
+# NT_PRPSINFO note of the core. The package test runs it after every step, so a crash names its
 # program and the step it happened in. The kernel writes a core where the host's core_pattern says,
 # which in a container is the file core or core.PID in the folder the process was in, so files
 # whose name starts with core are looked at, and only 64-bit ELF cores (amd64, arm64) are reported.

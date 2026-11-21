@@ -1,5 +1,5 @@
 #!/bin/sh
-# Prints the state of the system it runs in, for the lifecycle test to compare before and after:
+# Prints the state of the system it runs in, for the package test to compare before and after:
 # every path of the root filesystem, then the checksum of every regular file under /etc. The
 # paths named in scripts/lifecycle-excluded are left out, except that a log file of SpliceFS is
 # listed although /var/log is left out. Other filesystems (the mounts of the test, /proc, the

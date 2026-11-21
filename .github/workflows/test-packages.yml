@@ -2,9 +2,10 @@ name: Test packages
 # Every job has a time limit: 3 times its longest run, so a hang fails in minutes.
 
 # Tests the packages of a SpliceFS program on the server images of packaging/test-systems: the
-# package, the service under the real service manager, the repository with signature checks on,
-# the upgrade from the last published version and, for the client, the mount from fstab. The
-# service is also tested on the runner itself, a whole machine that booted the normal way.
+# package test (scripts/package-test.sh: install, upgrade from the last published version, the
+# service under the real service manager, removal), the repository with signature checks on and,
+# for the client, the mount from fstab. The service is also tested on the runner itself, a whole
+# machine that booted the normal way.
 # package-and-test.yml calls it for the packages it builds with throwaway keys, and
 # publish-one-program.yml for the packages a tag signs with the real keys, so both run the same
 # tests. Every job here is part of the result of the call, which both callers wait for before
@@ -28,6 +29,10 @@ on:
         description: The Linux package formats to test, as a JSON array, for example ["deb","rpm"]; empty tests every one
         type: string
         default: ""
+      package-test:
+        description: Whether to run the package test here; false when the caller runs it for both programs in one boot
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -63,22 +68,18 @@ jobs:
         with:
           name: ${{ inputs.artifact || format('packages-{0}-{1}', inputs.program, matrix.arch) }}
           path: packages/dist
-      - name: Install and remove the package in a clean system of every release
+      # One boot of a clean system of every release: install, upgrade from the last published
+      # version, start the service, restart it, reboot, stop, remove, and find the system as it was.
+      - name: Install, upgrade, run and remove the package in a clean system of every release
+        if: ${{ inputs.package-test }}
         working-directory: packages
         run: make package-test PROGRAM="$PROGRAM" ONLY="$FORMAT"
-      # scripts/apk-resign.sh signs Alpine packages again for the lifecycle test; this proves what
-      # it makes. Only the Alpine jobs have Alpine packages to test it on.
+      # scripts/apk-resign.sh signs Alpine packages again; this proves what it makes. Only the
+      # Alpine jobs have Alpine packages to test it on.
       - name: Sign the Alpine packages again
         if: ${{ matrix.format == 'apk' && !cancelled() }}
         working-directory: packages
         run: make apk-resign-test PROGRAM="$PROGRAM"
-      # The containers above have no service manager running. These do: process 1 is
-      # systemd or OpenRC, and the service must start by itself, come back after a reboot
-      # and stop when the package is removed.
-      - name: Start the service under the real service manager of every release
-        if: ${{ !cancelled() }}
-        working-directory: packages
-        run: make service-test PROGRAM="$PROGRAM" ONLY="$FORMAT"
       - name: Install from the repository with signature checks on
         if: ${{ !cancelled() }}
         working-directory: packages
@@ -116,35 +117,6 @@ jobs:
         env:
           PROGRAM: ${{ inputs.program }}
         run: make service-test-host PROGRAM="$PROGRAM"
-
-  upgrade-test:
-    name: Upgrade (${{ matrix.arch }})
-    runs-on: ${{ matrix.runner }}
-    timeout-minutes: 10
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - runner: ubuntu-latest
-            arch: amd64
-          - runner: ubuntu-24.04-arm
-            arch: arm64
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: ${{ job.workflow_repository }}
-          ref: ${{ job.workflow_sha }}
-          path: packages
-          persist-credentials: false
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: ${{ inputs.artifact || format('packages-{0}-{1}', inputs.program, matrix.arch) }}
-          path: packages/dist
-      - name: Upgrade from the last published version, when the packaging changed
-        working-directory: packages
-        env:
-          PROGRAM: ${{ inputs.program }}
-        run: make upgrade-test PROGRAM="$PROGRAM"
 
   # The client mounts from the boot mounts of the system (OpenRC's netmount on Alpine). That
   # needs a real server to mount from: the newest release of the server, proven by its

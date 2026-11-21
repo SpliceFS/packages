@@ -1,7 +1,7 @@
 # shellcheck shell=sh
-# answers_text is read by scripts/service-test.sh, which sources this file.
+# answers_text is read by scripts/package-test.sh, which sources this file.
 # shellcheck disable=SC2034
-# Sourced by scripts/service-test.sh and scripts/service-test-host.sh. It says what "the service
+# Sourced by scripts/package-test.sh and scripts/service-test-host.sh. It says what "the service
 # works" means for this program; everything else in the service test is the same for every program.
 
 # The client listens on no network port. A person asks it for its state with the status
