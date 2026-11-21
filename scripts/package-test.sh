@@ -220,7 +220,8 @@ test_system() {
     set -- --name "$container" --platform "$platform" -v "$repository_copy":/src:ro -v "$keys_dir":/keys:ro \
         -v "$baselines":/baselines:ro
     for system_program in $present $fixtures; do
-        set -- "$@" -v "$(package_folder "$system_program")":"/pkg/$system_program":ro
+        mounted_folder="$(package_folder "$system_program")"
+        set -- "$@" -v "$mounted_folder":"/pkg/$system_program":ro
     done
     # boot_system is one test whose status is the answer, so set -e being off inside it changes nothing.
     # shellcheck disable=SC2310
