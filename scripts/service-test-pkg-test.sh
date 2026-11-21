@@ -35,6 +35,7 @@ case "$1" in
         cp "$PKG_CONFIG_DIR/repos/splicefs.conf" "$CALLS.repo"
         ;;
     info) [ -f "$INSTALLED" ] ;;
+    add) echo "Installing $2" ;;
     *) ;;
 esac
 STAND_IN
@@ -70,6 +71,17 @@ runs() {
     fi
 }
 
+# The output of the last runs, both streams, holds the text $2: what pkg add says is in the log of the
+# steps, so that a failure of a later step can be read against it.
+said() {
+    if grep -qF "$2" "$work/out"; then
+        printf 'ok   %s\n' "$1"
+    else
+        printf 'FAIL %s: "%s" is not in "%s"\n' "$1" "$2" "$(cat "$work/out")"
+        failed=$((failed + 1))
+    fi
+}
+
 # The text is for the shell that sh -c starts, which expands it.
 # shellcheck disable=SC2016
 runs "the package file is where the machine's input puts it, by the name and version of the package" "" 0 \
@@ -80,6 +92,7 @@ mkdir -p "$work/pkgdir/server"
 runs "a package file is installed with pkg add, which resolves what it needs from the system's repository" \
     "pkg add $work/pkgdir/server/splicefs-server-1.2.3.pkg" 0 \
     "PACKAGE_FILES=$work/pkgdir; install_package system"
+said "what pkg add says about a new package is shown" "Installing $work/pkgdir/server/splicefs-server-1.2.3.pkg"
 runs "an install of a file that is not there says to build the packages first" "" 1 \
     "PACKAGE_FILES=$work/nowhere; install_package system"
 runs "a file that pkg add refuses fails the install" \
@@ -87,6 +100,7 @@ runs "a file that pkg add refuses fails the install" \
     "PACKAGE_FILES=$work/pkgdir; FAIL_TOOL=pkg install_package system"
 runs "a published file is installed with pkg add too: pkg fetch proved it" "pkg add /x/published.pkg" 0 \
     "install_published_package system /x/published.pkg"
+said "what pkg add says about the published package is shown" "Installing /x/published.pkg"
 runs "the plain removal is pkg delete" "pkg delete -y splicefs-server" 0 "remove_package system"
 
 : >"$work/installed"

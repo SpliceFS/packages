@@ -14,9 +14,10 @@ package_file() {
 
 # pkg add installs a package file and gets what it needs from the repositories of the system, as a
 # person's install of a file does. The file carries no signature of its own: the new file is the
-# build's, and a published file was proven by pkg fetch.
+# build's, and a published file was proven by pkg fetch. What pkg says stays in the log: the machine
+# has no other record of what an install did.
 install_file() {
-    on_system "$1" pkg add "$2" >/dev/null
+    on_system "$1" pkg add "$2"
 }
 
 install_package() {
