@@ -31,13 +31,6 @@ install_published_package() {
     install_file "$1" "$2"
 }
 
-# The same file over the installed one: dpkg runs the upgrade path, with the old version's prerm
-# and the new version's postinst.
-upgrade_package() {
-    pkg="$(package_file)"
-    docker exec -e DEBIAN_FRONTEND=noninteractive "$1" dpkg -i "$pkg" >/dev/null
-}
-
 remove_package() {
     docker exec -e DEBIAN_FRONTEND=noninteractive "$1" apt-get remove -y -qq "$name" >/dev/null
 }

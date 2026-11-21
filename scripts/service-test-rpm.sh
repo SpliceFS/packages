@@ -44,13 +44,6 @@ install_published_package() {
     install_file "$1" "$2"
 }
 
-# The same file over the installed one: rpm runs the upgrade path, with the new version's post
-# and the old version's preun and postun.
-upgrade_package() {
-    pkg="$(package_file)"
-    docker exec "$1" rpm -U --replacepkgs "$pkg" >/dev/null
-}
-
 remove_package() {
     docker exec "$1" sh -c '
         if command -v dnf >/dev/null 2>&1; then

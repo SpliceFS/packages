@@ -19,7 +19,7 @@
 # file sources and which defines these functions (the first argument is the container):
 #   install_package C        installs the package from /pkg with the native package manager
 #   upgrade_package C        installs the same package again over the installed one, which is
-#                            the package manager's upgrade path
+#                            the package manager's reinstall path (the repository is at /src)
 #   remove_package C         removes it again
 #   service_active C         status 0 when the service manager says the service is running
 #   service_enabled C        status 0 when the service starts at boot
@@ -130,7 +130,7 @@ test_system() {
     # run_options prints whole options and nothing else, so it is left unquoted on purpose.
     # boot_system is one test whose status is the answer, so set -e being off inside it changes nothing.
     # shellcheck disable=SC2086,SC2310
-    if boot_system --name "$container" --platform "$platform" \
+    if boot_system --name "$container" --platform "$platform" -v "$root":/src:ro \
         -v "$root/dist/$PROGRAM":"/pkg/$PROGRAM":ro $options "$2" 2>"$log"; then
         started=1
     fi
