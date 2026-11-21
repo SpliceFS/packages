@@ -18,13 +18,11 @@ failed=0
 # The repository as the script sees it, made once: the real scripts and definitions, apart from the
 # commands of the system, which the stand-in on_system answers. Every case gets its own folder of
 # links to it and its own record of a build, so that the cases run at the same time.
-mkdir -p "$t/farm/scripts" "$t/bin"
+mkdir -p "$t/farm/scripts"
 ln -s "$root/programs" "$t/farm/programs"
 ln -s "$root/steps" "$t/farm/steps"
 ln -s "$root/keys" "$t/farm/keys"
-for each in "$root"/scripts/*; do
-    ln -s "$each" "$t/farm/${each#"$root"/}"
-done
+ln -s "$root"/scripts/* "$t/farm/scripts/"
 rm "$t/farm/scripts/service-run-local.sh"
 cat >"$t/farm/scripts/service-run-local.sh" <<'STAND_IN'
 # Stand-in for the commands of the system. STAND_IN_DIR holds: log, installed.PROGRAM (exists while
@@ -61,26 +59,47 @@ if [ -n "${STAND_IN_FETCH:-}" ]; then
     }
 fi
 
-# The programs a call names by their package, as words: the install, removal and query commands.
-named_programs() {
-    case "$call" in *splicefs-server*) echo server ;; *) ;; esac
-    case "$call" in *splicefs-client*) echo client ;; *) ;; esac
+# Nothing the stand-in does starts a process unless a command of a system does (cp, mv, rm): its
+# answers are made of builtins, because a call that runs in a few milliseconds is a stand-in worth
+# having and a process for each of hundreds of calls is not. So no function here prints a value for
+# a command substitution to read; each sets a variable, and a file is read with read.
+
+# Sets $named to the programs a call names by their package, as words: the install, removal and
+# query commands.
+name_programs() {
+    named=
+    case "$call" in *splicefs-server*) named=server ;; *) ;; esac
+    case "$call" in *splicefs-client*) named="$named${named:+ }client" ;; *) ;; esac
 }
+# Sets $number to the next value of the counter $1, which the phases keep in a file (each phase is a
+# shell of its own, as it is on the host).
 next_number() {
-    n=$(($(cat "$STAND_IN_DIR/$1.count" 2>/dev/null || echo 0) + 1))
-    echo "$n" >"$STAND_IN_DIR/$1.count"
-    echo "$n"
+    number=0
+    [ ! -f "$STAND_IN_DIR/$1.count" ] || read -r number <"$STAND_IN_DIR/$1.count"
+    number=$((number + 1))
+    echo "$number" >"$STAND_IN_DIR/$1.count"
+}
+# Prints the file $1, which is a set of whole lines, or nothing when there is no such file.
+print_file() {
+    [ -f "$1" ] || return 0
+    while IFS= read -r line; do
+        printf '%s\n' "$line"
+    done <"$1"
 }
 # The zone files of the system, made when a call first asks for them.
-zone_folder() {
+make_zone_folder() {
     [ -d "$STAND_IN_DIR/zones" ] || cp -R "$STAND_IN_DIR/zones-initial" "$STAND_IN_DIR/zones"
-    echo "$STAND_IN_DIR/zones"
+    zone_folder="$STAND_IN_DIR/zones"
 }
-# The path on this machine of a path of the system: a zone file is in the folder.
+# Sets $host_file to the path on this machine of a path of the system: a zone file is in the folder.
 host_path() {
+    host_file="$1"
     case "$1" in
-        /etc/firewalld/zones/*) echo "$(zone_folder)/${1##*/}" ;;
-        *) echo "$1" ;;
+        /etc/firewalld/zones/*)
+            make_zone_folder
+            host_file="$zone_folder/${1##*/}"
+            ;;
+        *) ;;
     esac
 }
 stand_in_answer() {
@@ -88,16 +107,29 @@ stand_in_answer() {
         case "$call" in *"$STAND_IN_FAIL"*) return 1 ;; *) ;; esac
     fi
     case "$call" in
-        "cp "*"/etc/firewalld/zones/"*) cp "$(host_path "$2")" "$(host_path "$3")" ;;
+        "cp "*"/etc/firewalld/zones/"*)
+            host_path "$2"
+            from_file="$host_file"
+            host_path "$3"
+            cp "$from_file" "$host_file"
+            ;;
         *"firewall-cmd --state") [ -n "${STAND_IN_FIREWALLD:-}" ] ;;
-        *"test -f /etc/firewalld/zones/"*) [ -f "$(zone_folder)/${call##*/}" ] ;;
-        *"rm -f /etc/firewalld/zones/"*) rm -f "$(zone_folder)/${call##*/}" ;;
+        *"test -f /etc/firewalld/zones/"*)
+            make_zone_folder
+            [ -f "$zone_folder/${call##*/}" ]
+            ;;
+        *"rm -f /etc/firewalld/zones/"*)
+            make_zone_folder
+            rm -f "$zone_folder/${call##*/}"
+            ;;
         *"firewall-cmd --permanent --add-port="*)
-            echo "zone before the last change" >"$(zone_folder)/public.xml.old"
-            echo "zone with the port ${call##*=}" >"$(zone_folder)/public.xml"
+            make_zone_folder
+            echo "zone before the last change" >"$zone_folder/public.xml.old"
+            echo "zone with the port ${call##*=}" >"$zone_folder/public.xml"
             ;;
         *"firewall-cmd --query-port="*)
-            if [ -n "${STAND_IN_PORT_OPEN:-}" ] || grep -q "with the port ${call##*=}" "$(zone_folder)/public.xml" 2>/dev/null; then
+            make_zone_folder
+            if [ -n "${STAND_IN_PORT_OPEN:-}" ] || grep -q "with the port ${call##*=}" "$zone_folder/public.xml" 2>/dev/null; then
                 echo yes
             else
                 echo no
@@ -117,55 +149,70 @@ stand_in_answer() {
         *"systemctl show"* | *'= "/usr/bin/$1"'*) [ -f "$STAND_IN_DIR/active" ] && echo 4242 ;;
         *getent*) echo "${STAND_IN_USER:-splicefs}" ;;
         *"grep -q /usr/local/bin"*) return 1 ;;
-        *lifecycle-snapshot.sh*) cat "$STAND_IN_DIR/snapshot.$(next_number snapshot)" ;;
+        *lifecycle-snapshot.sh*)
+            next_number snapshot
+            print_file "$STAND_IN_DIR/snapshot.$number"
+            ;;
         *"core-files.sh /"*)
             for asked in ${call#*core-files.sh }; do
                 echo "$asked: not a 64-bit ELF core with a process note: 40 bytes, starting 177 E L F"
             done
             ;;
         *core-files.sh*)
-            look="cores.$(next_number cores)"
-            if [ "$(cat "$STAND_IN_DIR/snapshot.count" 2>/dev/null)" = "$(cat "$STAND_IN_DIR/last-snapshot")" ]; then
+            next_number cores
+            look="cores.$number"
+            snapshots_taken=
+            [ ! -f "$STAND_IN_DIR/snapshot.count" ] || read -r snapshots_taken <"$STAND_IN_DIR/snapshot.count"
+            read -r last_snapshot <"$STAND_IN_DIR/last-snapshot"
+            if [ "$snapshots_taken" = "$last_snapshot" ]; then
                 look=cores.after-snapshot
             fi
-            cat "$STAND_IN_DIR/$look" 2>/dev/null || true
+            print_file "$STAND_IN_DIR/$look"
             ;;
         *package_held*splicefs-server*) [ -f "$STAND_IN_DIR/installed.server" ] || [ -f "$STAND_IN_DIR/config.server" ] ;;
         *package_held*splicefs-client*) [ -f "$STAND_IN_DIR/installed.client" ] || [ -f "$STAND_IN_DIR/config.client" ] ;;
         *package_held*) return 1 ;;
         *"then echo steps/uninstall-dnf.sh"*) echo steps/uninstall-dnf.sh ;;
-        *dpkg-query* | *"rpm -q"* | *"apk info -e"*) [ -f "$STAND_IN_DIR/installed.$(named_programs)" ] ;;
+        *dpkg-query* | *"rpm -q"* | *"apk info -e"*)
+            name_programs
+            [ -f "$STAND_IN_DIR/installed.$named" ]
+            ;;
         *"apt-get purge"*)
-            for named in $(named_programs); do rm -f "$STAND_IN_DIR/installed.$named" "$STAND_IN_DIR/config.$named"; done
+            name_programs
+            for each in $named; do rm -f "$STAND_IN_DIR/installed.$each" "$STAND_IN_DIR/config.$each"; done
             ;;
         *"apt-get remove"*)
-            for named in $(named_programs); do mv "$STAND_IN_DIR/installed.$named" "$STAND_IN_DIR/config.$named"; done
+            name_programs
+            for each in $named; do mv "$STAND_IN_DIR/installed.$each" "$STAND_IN_DIR/config.$each"; done
             ;;
         *"dnf remove"* | *"apk del"*)
-            for named in $(named_programs); do rm -f "$STAND_IN_DIR/installed.$named"; done
+            name_programs
+            for each in $named; do rm -f "$STAND_IN_DIR/installed.$each"; done
             ;;
         *"apt-get install"* | *"dnf install"* | *"apk add"*)
-            for named in $(named_programs); do
-                rm -f "$STAND_IN_DIR/config.$named"
-                : >"$STAND_IN_DIR/installed.$named"
+            name_programs
+            for each in $named; do
+                rm -f "$STAND_IN_DIR/config.$each"
+                : >"$STAND_IN_DIR/installed.$each"
             done
             ;;
         *) ;;
     esac
 }
-STAND_IN
-# The two commands the checks of the server run in the shell of the steps itself: the address of the
-# system and the answer of its health endpoint, which is 200 while the service is active.
-cat >"$t/bin/getent" <<'STAND_IN'
-#!/bin/sh
-echo "172.17.0.2        STREAM stand-in"
-STAND_IN
-cat >"$t/bin/curl" <<'STAND_IN'
-#!/bin/sh
-if [ -f "$STAND_IN_DIR/active" ]; then printf 200; else printf 000; fi
-STAND_IN
-chmod 755 "$t/bin/getent" "$t/bin/curl"
 
+# The commands the checks of the server run in the shell of the steps itself, not through on_system:
+# the name and the address of the system, and the answer of its health endpoint, which is 200 while
+# the service is active. They are functions, so a call starts no process.
+uname() {
+    echo stand-in
+}
+getent() {
+    echo "172.17.0.2        STREAM stand-in"
+}
+curl() {
+    if [ -f "$STAND_IN_DIR/active" ]; then printf 200; else printf 000; fi
+}
+STAND_IN
 # What every case starts from: only the server is built (v1.2.3, and its record names 1.2.2 as the
 # published version; the client is v1.4.0 and its record names 1.3.9), no call fails, no file
 # changes, and the system is of the format deb.
@@ -203,9 +250,7 @@ scenario() {
 launch() {
     case_dir="$t/cases/$1"
     mkdir -p "$case_dir/dir" "$case_dir/root/dist" "$case_dir/baselines"
-    for each in scripts packaging programs steps keys; do
-        [ ! -e "$t/farm/$each" ] || ln -s "$t/farm/$each" "$case_dir/root/$each"
-    done
+    ln -s "$t/farm/scripts" "$t/farm/programs" "$t/farm/steps" "$t/farm/keys" "$case_dir/root/"
     # The snapshots are taken in step 0, twice around the reinstall of each program built, and in step 9.
     printf '%s\n' "$first" >"$case_dir/dir/snapshot.1"
     taken=1
@@ -233,7 +278,7 @@ launch() {
     for zone in $zones; do printf 'zone %s\r\nas shipped' "$zone" >"$case_dir/dir/zones-initial/$zone"; done
     (
         status=0
-        export STAND_IN_FAIL="$fail_on" STAND_IN_DIR="$case_dir/dir" PATH="$t/bin:$PATH" STAND_IN_USER="$user" \
+        export STAND_IN_FAIL="$fail_on" STAND_IN_DIR="$case_dir/dir" STAND_IN_USER="$user" \
             STAND_IN_FIREWALLD="$firewalld" STAND_IN_PORT_OPEN="$port_open" STAND_IN_FETCH="$fetch_hook" \
             FORMAT="$format" PLATFORM=linux/amd64 PROGRAMS="$built" PACKAGE_TEST_OUT="$case_dir/out" BASELINES="$case_dir/baselines"
         steps="$case_dir/root/scripts/package-test-steps.sh"
