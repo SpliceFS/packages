@@ -121,13 +121,16 @@ trap finish EXIT
 service_step_programs="server"
 
 # use_program for the format of this system: the functions of the format are sourced again, because
-# the service manager adapters name the service of the program when they are sourced.
+# the service manager adapters name the service of the program when they are sourced (only when another
+# program was chosen, as in use_program).
 use_program_in_system() {
+    [ "${chosen_in_system:-}" != "$1" ] || return 0
     use_program "$1"
     # shellcheck source=/dev/null
     . "scripts/service-test-$format.sh"
     # shellcheck source=/dev/null
     . "scripts/package-test-$format.sh"
+    chosen_in_system="$1"
 }
 
 # The path of the published package file of the system's format: the folder of the program is at

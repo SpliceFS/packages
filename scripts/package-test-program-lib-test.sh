@@ -60,6 +60,9 @@ holds "the hook of the caller runs before the baseline is read: it can make the 
 got="$(choose 1.2.2 'prepare_baseline() { echo "hook sees $PROGRAM $VERSION $deb_arch"; }; use_program server')"
 holds "the hook runs after the version and the words of the program are set" "$got" "hook sees server v1.2.3 amd64"
 
+got="$(choose 1.2.2 'n=0; prepare_baseline() { n=$((n + 1)); }; use_program server; use_program server; use_program client; use_program server; echo "hook ran $n times"')"
+holds "choosing the program that is chosen already does nothing, another program is chosen again" "$got" "hook ran 3 times"
+
 got="$(choose 1.2.2 'given_version=v9.9.9; use_program server')"
 holds "a version given by the caller must be the recorded one" "$got" "is not the recorded v1.2.3"
 

@@ -27,8 +27,11 @@ set_baseline() {
 }
 
 # Chooses the program $1. What the service check of the program before it set and the next does not
-# is unset first, so that it is not taken for the next program's.
+# is unset first, so that it is not taken for the next program's. The words of a program do not change
+# during a run, so choosing the program that is chosen already does nothing: the steps choose a program
+# at the start of every step, and every choice costs a few dozen processes.
 use_program() {
+    [ "${chosen_program:-}" != "$1" ] || return 0
     PROGRAM="$1"
     export PROGRAM
     VERSION="${given_version:-}"
@@ -43,4 +46,5 @@ use_program() {
     package_arches "$platform"
     if command -v prepare_baseline >/dev/null 2>&1; then prepare_baseline; fi
     set_baseline
+    chosen_program="$1"
 }
