@@ -29,6 +29,7 @@ site=/tmp/input/site
 setup=$site/setup.sh
 keyfile=/usr/local/etc/pkg/keys/splicefs.rsa.pub
 repofile=/usr/local/etc/pkg/repos/splicefs.conf
+setup_dirs="/usr/local/etc/pkg/keys /usr/local/etc/pkg/repos /usr/local/etc/pkg"
 published_url=https://packages.splicefs.org
 failed=0
 status=0
@@ -96,6 +97,76 @@ expect_no_files() {
   done
 }
 
+# The folders the setup writes into (the keys and the repository files of pkg), as they are now:
+# one line each, with the names in it or "missing". A folder the setup made is missing again
+# after --remove, and a folder the system ships keeps what it held.
+layout() {
+  for d in $setup_dirs; do
+    if [ -d "$d" ]; then
+      lay_names=$(find "$d" -maxdepth 1 ! -path "$d" | sed "s|^$d/||" | sort | tr '\n' ' ')
+      echo "$d: $lay_names"
+    else
+      echo "$d: missing"
+    fi
+  done
+}
+
+# Whether pkg reads the repository of the setup: "pkg -vv" prints every repository it knows.
+repo_listed() {
+  pkg -vv 2>/dev/null | grep -q -F -e splicefs-server
+}
+
+# On a system the script has not touched, --remove has nothing to do and says nothing is wrong.
+check_remove_clean() {
+  run_sh "$setup" --remove
+  expect_status 0 "--remove on a clean system"
+  if grep -q -e '^removed ' -e '^warning:' "$out"; then note_fail "--remove on a clean system removed or warned"; fi
+  expect_no_files "--remove on a clean system"
+}
+
+# --remove takes the repository file and the key away and no package, and leaves the folders as they
+# were before the setup. $1 is the layout then, $2 a changed copy of the script, which is refused
+# for --remove as for the setup. pkg must list the repository before, which proves the check, and
+# not after.
+check_remove() {
+  cr_layout="$1"
+  run_sh "$2" --remove
+  expect_status 1 "a changed copy with --remove"
+  expect_output 'does not match the published one' "a changed copy with --remove"
+  for f in "$keyfile" "$repofile"; do
+    [ -f "$f" ] || note_fail "a changed copy with --remove removed $f"
+  done
+  repo_listed || note_fail "pkg does not list the repository before --remove"
+  cp "$keyfile" "$work/key.before"
+  cp "$repofile" "$work/repo.before"
+  run_sh "$setup" --remove
+  expect_status 0 "--remove"
+  for f in "$keyfile" "$repofile"; do
+    [ ! -e "$f" ] || note_fail "--remove left $f"
+    grep -q -x -F -e "removed $f" "$out" || note_fail "--remove did not report $f"
+  done
+  if repo_listed; then note_fail "pkg still lists the repository after --remove"; fi
+  cr_after="$(layout)"
+  [ "$cr_after" = "$cr_layout" ] || note_fail "after --remove the folders are not as they were before the setup. Before:
+$cr_layout
+After:
+$cr_after"
+  # The packages are still installed, and the script says how to remove them.
+  for p in splicefs-server splicefs-client; do
+    pkg info -e "$p" || note_fail "--remove removed $p"
+    expect_output "pkg delete $p" "--remove (the command that removes $p)"
+  done
+  # A second run has nothing left to do and is quiet.
+  run_sh "$setup" --remove
+  expect_status 0 "a second --remove"
+  if grep -q -e '^removed ' -e '^warning:' "$out"; then note_fail "second --remove removed or warned"; fi
+  # The setup after a removal gives back the same files.
+  run_sh "$setup"
+  expect_status 0 "the setup after --remove"
+  cmp -s "$work/key.before" "$keyfile" || note_fail "the setup after --remove did not restore $keyfile"
+  cmp -s "$work/repo.before" "$repofile" || note_fail "the setup after --remove did not restore $repofile"
+}
+
 # The first pkg command on a new machine finds pkg itself old, upgrades it and refreshes the
 # catalogs of FreeBSD, all from FreeBSD's own server, which is sometimes slow. That says
 # nothing about the setup script, so the machine is prepared here, with tries, before the setup
@@ -137,7 +208,11 @@ expect_status 2 "an argument"
 expect_output 'usage' "an argument"
 expect_no_files "an argument"
 
-heading "e. the real run"
+heading "e. --remove on a system the script has not touched"
+check_remove_clean
+layout_before="$(layout)"
+
+heading "f. the real run"
 run_sh "$setup"
 expect_status 0 "the real run"
 cmp -s "$site/keys/splicefs.rsa.pub" "$keyfile" || note_fail "$keyfile is not the published key"
@@ -151,7 +226,7 @@ expect_output 'pkg update' "the real run"
 expect_output 'pkg install splicefs-server' "the real run"
 expect_output 'pkg install splicefs-client' "the real run"
 
-heading "f. a second run rewrites nothing"
+heading "g. a second run rewrites nothing"
 run_sh "$setup"
 expect_status 0 "the second run"
 if grep -q '^updated' "$out"; then
@@ -159,7 +234,7 @@ if grep -q '^updated' "$out"; then
 fi
 
 # The published repositories must verify with the key the script installed.
-heading "g. install both packages from the published repositories"
+heading "h. install both packages from the published repositories"
 # Without this pkg asks before it sets itself up on a new system.
 ASSUME_ALWAYS_YES=yes
 export ASSUME_ALWAYS_YES
@@ -174,7 +249,7 @@ for prog in splicefsd splicefs; do
   fi
 done
 
-heading "h. installed packages"
+heading "i. installed packages"
 # pkg info prints the name and version fields only for a single package, so the two are
 # asked for with pkg query, one line each.
 installed="$(pkg query '%n %v' splicefs-server splicefs-client 2>&1)"
@@ -183,6 +258,15 @@ case "$installed" in
   *splicefs-server*splicefs-client* | *splicefs-client*splicefs-server*) ;;
   *) note_fail "pkg query does not list both SpliceFS packages" ;;
 esac
+
+heading "j. --remove takes the repository and the key away and no package"
+check_remove "$layout_before" "$work/changed.sh"
+
+heading "k. the package manager removes what the printed commands installed"
+pkg delete -y splicefs-server splicefs-client || note_fail "pkg delete failed"
+for p in splicefs-server splicefs-client; do
+  if pkg info -e "$p"; then note_fail "$p is still installed after pkg delete"; fi
+done
 
 if [ "$failed" -ne 0 ]; then
   echo FREEBSD-SETUP-FAILED
