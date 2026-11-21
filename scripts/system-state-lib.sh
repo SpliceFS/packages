@@ -11,30 +11,35 @@
 # in the system $1: the checks named by the other arguments, for the program and version of the
 # caller, in a shell of their own, so that the fail of a check ends the checks and not the steps. A
 # program that has a test configuration (programs/PROGRAM/test-config.sh) gets its functions too,
-# so that the same call writes it, checks it and removes what it made.
+# so that the same call writes it, checks it and removes what it made. The address of the system, which
+# the adapter of the package format knows, goes with it in OWN_ADDRESS, for the test configuration that
+# names the server of the system by it.
 in_system() {
     system_name="$1"
     shift
+    system_address="$(own_address)"
     # The script is for the shell that sh -c starts, which reads its own variables.
     # shellcheck disable=SC2016
-    on_system "$system_name" sh -c \
+    on_system "$system_name" env OWN_ADDRESS="$system_address" sh -c \
         '. scripts/package-lib.sh; . scripts/package-test-lib.sh
         if [ -f "$defs/test-config.sh" ]; then . "$defs/test-config.sh"; fi
         for check in "$@"; do "$check"; done' sh "$@"
 }
 
-# Nothing of our programs runs: no process has one of their files as its program, also not one
-# that was started from a file that is gone now. /proc is what every system has.
+# Nothing of ours runs: no process has one of our files as its program, also not one that was started from a
+# file that is gone now. The pattern $2 (a path with a glob, the program of the service by default every
+# program of ours) says whose; a service that stopped leaves the other programs running. /proc is what
+# every system has.
 no_process_of_ours() {
     # The script is for the shell that sh -c starts, which reads its own variables.
     # shellcheck disable=SC2016
     on_system "$1" sh -c '
         for dir in /proc/[0-9]*; do
             case "$(readlink "$dir/exe" 2>/dev/null)" in
-                */splicefs*) exit 1 ;;
+                $1) exit 1 ;;
                 *) ;;
             esac
-        done'
+        done' sh "${2:-*/splicefs*}"
 }
 
 # Prints the package names of our programs that the package manager of the system $1 still holds

@@ -10,6 +10,9 @@ share_file=hello.txt
 share_text=hello
 user_name=alice
 user_password=secret
+# The folder the documentation mounts a share at (mount -t splicefs east:/media /mnt/media): the test's own,
+# so the test configuration of the client takes it away again.
+mount_target=/mnt/media
 # The default listener of the server, which a cluster url of the client names (docs/configuration.md).
 server_port=8480
 server_api_path=/api

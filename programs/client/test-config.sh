@@ -12,21 +12,18 @@
 # shellcheck source=../../scripts/test-config-lib.sh
 . scripts/test-config-lib.sh
 
-cluster_name=test
+cluster_name="test"
 # The one file name the test writes in clusters.d and in mounts.d, which the file checks of the package
 # leave out: a cluster and a mount share a name, as the documentation's examples do.
 test_config_file=$cluster_name.yaml
-# The folder the documentation mounts a share at (mount -t splicefs east:/media /mnt/media), which is
-# the test's own, so remove_test_data takes it away again, with the folders above it that the test made.
-mount_target=/mnt/media
-# The password is in the state folder, which holds what the administrator adds to it, so that the
-# configuration folder holds nothing but its own folders.
-password_file() {
-    echo "$datadir/password"
-}
 
-cluster_conf() {
-    echo "$confdir/clusters.d/$test_config_file"
+# The files of the test configuration, from the folders as they are when a function runs. The password is in
+# the state folder, which holds what the administrator adds to it, so that the configuration folder holds
+# nothing but its own folders.
+set_paths() {
+    cluster_conf="$confdir/clusters.d/$test_config_file"
+    mount_conf="$confdir/mounts.d/$test_config_file"
+    password_path="$datadir/password"
 }
 
 # Prints the cluster key of the server: the key line of splicefsdctl cluster show without its name.
@@ -44,25 +41,25 @@ make_cluster_key() {
 # system, by its address, trusted by the cluster key.
 write_test_config() {
     : "${OWN_ADDRESS:?OWN_ADDRESS is not set: the system has no address of its own}"
+    set_paths
     key="$(make_cluster_key)" || exit 1
     make_test_folder "$mount_target"
     make_test_folder "$datadir"
-    (umask 077 && printf '%s\n' "$user_password" >"$(password_file)")
+    (umask 077 && printf '%s\n' "$user_password" >"$password_path")
     printf 'url: https://%s:%s%s\nuser: %s\npassword_file: %s\ncluster_key: %s\n' \
-        "$OWN_ADDRESS" "$server_port" "$server_api_path" "$user_name" "$(password_file)" "$key" >"$(cluster_conf)"
-    printf 'cluster: %s\npath: /%s\ntarget: %s\n' "$cluster_name" "$share_name" "$mount_target" \
-        >"$confdir/mounts.d/$test_config_file"
+        "$OWN_ADDRESS" "$server_port" "$server_api_path" "$user_name" "$password_path" "$key" >"$cluster_conf"
+    printf 'cluster: %s\npath: /%s\ntarget: %s\n' "$cluster_name" "$share_name" "$mount_target" >"$mount_conf"
 }
 
 # The files are where the documentation says they are, with what the documentation says they hold, and the
 # client's own check of its configuration accepts them.
 check_test_config() {
-    mount_conf="$confdir/mounts.d/$test_config_file"
-    [ -f "$(cluster_conf)" ] || fail "$(cluster_conf) is missing"
+    set_paths
+    [ -f "$cluster_conf" ] || fail "$cluster_conf is missing"
     [ -f "$mount_conf" ] || fail "$mount_conf is missing"
-    [ -f "$(password_file)" ] || fail "$(password_file) is missing"
-    grep -q '^cluster_key: ..' "$(cluster_conf)" || fail "$(cluster_conf) holds no cluster_key"
-    grep -qxF "user: $user_name" "$(cluster_conf)" || fail "$(cluster_conf) does not name the user $user_name"
+    [ -f "$password_path" ] || fail "$password_path is missing"
+    grep -q '^cluster_key: ..' "$cluster_conf" || fail "$cluster_conf holds no cluster_key"
+    grep -qxF "user: $user_name" "$cluster_conf" || fail "$cluster_conf does not name the user $user_name"
     grep -qxF "target: $mount_target" "$mount_conf" || fail "$mount_conf does not name the folder $mount_target"
     [ -d "$mount_target" ] || fail "$mount_target is missing"
     splicefs config check >/dev/null || fail "splicefs config check does not accept the test configuration"
@@ -70,7 +67,8 @@ check_test_config() {
 
 # The cluster key of the written configuration.
 configured_cluster_key() {
-    sed -n 's/^cluster_key: //p' "$(cluster_conf)"
+    set_paths
+    sed -n 's/^cluster_key: //p' "$cluster_conf"
 }
 
 # Whether the system can ask the server which certificate it serves: the TLS tool of the systems that have it.
@@ -99,9 +97,10 @@ take_served_certificate() {
 # an Ed25519 public key, which is the form the TLS tool reads.
 served_certificate_is_signed_by_cluster_key() {
     verify_dir="$(mktemp -d)" || return 1
+    key_text="$(configured_cluster_key)"
     if take_served_certificate "$verify_dir" &&
         { printf '\060\052\060\005\006\003\053\145\160\003\041\000'
-            printf '%s' "$(configured_cluster_key)" | openssl base64 -d -A; } >"$verify_dir/pub.der" &&
+            printf '%s' "$key_text" | openssl base64 -d -A; } >"$verify_dir/pub.der" &&
         openssl pkeyutl -verify -pubin -inkey "$verify_dir/pub.der" -keyform DER -rawin \
             -in "$verify_dir/tbs.der" -sigfile "$verify_dir/sig.bin" >/dev/null 2>&1; then
         rm -rf "$verify_dir"

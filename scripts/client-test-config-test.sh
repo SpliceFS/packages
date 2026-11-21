@@ -111,12 +111,14 @@ key=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
 # The command $1 runs with the stand-in flag $2 set, in a shell of its own.
 with_flag() {
     (
-        export "$2"
+        flag="$2"
+        export "${flag%%=*}=${flag#*=}"
         "$1" "$3" "$4"
     )
 }
 quietly() { "$@" >/dev/null; }
-mode_of() { ls -ld "$1" | cut -c1-10; }
+# The file $1 has exactly the mode $2 (find says it the same way on every system).
+has_mode() { found="$(find "$1" -perm "$2")"; [ -n "$found" ]; }
 
 # The status of in_fake_system is the answer, so set -e being off inside it changes nothing.
 # shellcheck disable=SC2310
@@ -129,7 +131,7 @@ expect "the cluster is the server of the system by its address, with the user an
         grep -qxF 'cluster_key: $key' '$system/etc/clusters.d/test.yaml'"
 expect "the cluster names the password file" has_line "password_file: $system/state/password" "$system/etc/clusters.d/test.yaml"
 expect "the password file holds the password of the user" has_line secret "$system/state/password"
-expect "the password file is readable by its owner only" test "$(mode_of "$system/state/password")" = "-rw-------"
+expect "the password file is readable by its owner only" has_mode "$system/state/password" 600
 expect "the mount is the share of the cluster, at the folder" \
     sh -c "grep -qxF 'cluster: test' '$system/etc/mounts.d/test.yaml' && grep -qxF 'path: /media' '$system/etc/mounts.d/test.yaml' &&
         grep -qxF 'target: $system/mnt/media' '$system/etc/mounts.d/test.yaml'"

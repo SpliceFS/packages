@@ -159,7 +159,22 @@ stand_in_answer() {
                 return 1
             fi
             ;;
-        *"--quiet splicefs.service"* | *"rc-service splicefs status"*) return 1 ;;
+        # The service of the client has files of its own: enabled.client, active.client. Its unit is
+        # splicefs.service and its OpenRC service is splicefs; the server's name has a d at the end, which
+        # these patterns do not match.
+        *"systemctl enable"*"splicefs.service"* | *"rc-update add splicefs "*) : >"$STAND_IN_DIR/enabled.client" ;;
+        *"systemctl disable"*"splicefs.service"* | *"rc-update del splicefs "*) rm -f "$STAND_IN_DIR/enabled.client" ;;
+        *"systemctl start"*"splicefs.service"* | *"systemctl restart"*"splicefs.service"* | *"rc-service splicefs start"* | *"rc-service splicefs restart"*)
+            : >"$STAND_IN_DIR/active.client"
+            ;;
+        *"systemctl stop"*"splicefs.service"* | *"rc-service splicefs stop"*) rm -f "$STAND_IN_DIR/active.client" ;;
+        *is-enabled*"splicefs.service"*) [ -f "$STAND_IN_DIR/enabled.client" ] ;;
+        *is-active*"splicefs.service"* | *"rc-service splicefs status"*) [ -f "$STAND_IN_DIR/active.client" ] ;;
+        *"systemctl show"*"splicefs.service"* | *'= "$2/$1"'*"sh splicefs /usr/bin"*)
+            [ -f "$STAND_IN_DIR/active.client" ] || return 1
+            echo 7001
+            ;;
+        mount) [ ! -f "$STAND_IN_DIR/active.client" ] || echo "splicefs on /mnt/media type fuse.splicefs (rw)" ;;
         *"systemctl enable"* | *"rc-update add"*) : >"$STAND_IN_DIR/enabled" ;;
         *"systemctl disable"* | *"rc-update del"*) rm -f "$STAND_IN_DIR/enabled" ;;
         *"systemctl start"* | *"systemctl restart"* | *"rc-service splicefsd start"* | *"rc-service splicefsd restart"*)
@@ -168,12 +183,16 @@ stand_in_answer() {
         *"systemctl stop"* | *"rc-service splicefsd stop"*) rm -f "$STAND_IN_DIR/active" ;;
         *is-enabled*) [ -f "$STAND_IN_DIR/enabled" ] ;;
         *is-active* | *"rc-service splicefsd status"*) [ -f "$STAND_IN_DIR/active" ] ;;
-        *"rc-update show"*) [ ! -f "$STAND_IN_DIR/enabled" ] || echo " splicefsd | default" ;;
+        *"rc-update show"*)
+            [ ! -f "$STAND_IN_DIR/enabled" ] || echo " splicefsd | default"
+            [ ! -f "$STAND_IN_DIR/enabled.client" ] || echo " splicefs | default"
+            ;;
         *"systemctl show"* | *'= "$2/$1"'*)
             [ -f "$STAND_IN_DIR/active" ] || return 1
             read -r process_id <"$STAND_IN_DIR/pid"
             echo "$process_id"
             ;;
+        *getent*" 7001") echo root ;;
         *getent*) echo "${STAND_IN_USER:-splicefs}" ;;
         *"grep -q /usr/local/bin"*) return 1 ;;
         *lifecycle-snapshot.sh*)
@@ -252,6 +271,14 @@ uname() {
 }
 getent() {
     echo "172.17.0.2        STREAM stand-in"
+}
+# The client's answer: its control program works while its service runs, and the file of the share reads
+# through the mount, which timeout starts, while it runs.
+splicefsctl() {
+    [ -f "$STAND_IN_DIR/active.client" ]
+}
+timeout() {
+    [ -f "$STAND_IN_DIR/active.client" ] && echo hello
 }
 curl() {
     if [ -f "$STAND_IN_DIR/active" ]; then
@@ -558,7 +585,6 @@ scenario; built="server client"; fail_on="sh deb v1.3.9 v1.4.0"; launch client_u
 scenario; built="server client"; fail_on="apt-get remove -y -qq splicefs-client"; launch client_plain_removal_fails
 scenario; built="server client"; last="/etc/b"; launch both_snapshot_differs
 scenario; removal_lines_added="$sysrc_lines"; launch service_lines_server_only
-scenario; removal_lines_added="$sysrc_lines"; built=client; launch service_lines_client_only
 scenario; fetch_hook=1; launch hook_fetches
 scenario; fetch_hook=1; record=none; launch hook_nothing_published
 scenario; fetch_hook=1; fail_on=fetch_published_package; launch hook_fails
@@ -618,7 +644,7 @@ expect "the service is active and answering after a restart" holds "ok: active a
 expect "the service is active and answering after the container restarts, because it is enabled" \
     holds "ok: active and answering after a reboot, because it was enabled"
 expect "after the stop the service is silent and nothing of ours runs" holds "ok: stopped and silent"
-expect "after the stop no process of ours is left" holds "ok: no process of ours is running after the stop"
+expect "after the stop no process of the program of the service is left" holds "ok: no process of /usr/bin/splicefsd is running after the stop"
 expect "after the disable the service is not enabled" holds "ok: the service is not enabled"
 expect "the test data is removed after the documented removal, before the last snapshot" test_data_removed_before_the_last_snapshot
 expect "a system without firewalld has nothing changed in its firewall" \
@@ -895,8 +921,7 @@ expect "it is named next to the difference, with what the file is" \
 use_case checksum_of_a_core_named_file
 expect "the checksum of a file whose name starts with core is no path of a core" sh -c "! grep -q 'core-files.sh /' '$dir/log'"
 
-# Both programs in one boot: each step runs for the server, then for the client. The service steps are
-# built for the server only; the client says they wait and nothing is done for it.
+# Both programs in one boot: each step runs for the server, then for the client, service steps included.
 use_case both
 expect "a run of both programs passes" passed_status
 expect "the steps run in order, each once for the boot" \
@@ -916,13 +941,20 @@ expect "each step runs for the server, then for the client" \
     "step 3: server: " "step 3: client: " "step 4: server: " "step 4: client: " "step 9: server: the package" \
     "step 9: client: the package" "step 9: the documented removal" "step 9: server: what" "step 9: client: what" \
     "step 9: the system is as it was"
-expect "the service steps of the client wait for its certificate trust setting" \
-    sh -c "for n in 1a 3 4 5 7 8; do grep -qx \"step \$n: client: service steps wait for the client's certificate trust setting\" '$out' || exit 1; done"
-expect "the service steps of the server run" \
-    sh -c "for n in 1a 3 4 5 7 8; do grep -q \"^step \$n: server: \" '$out' || exit 1; done"
-expect "the service of the client is never enabled, started, restarted, stopped or disabled" \
-    sh -c "! grep -q -e 'systemctl [a-z]* splicefs.service' -e 'systemctl [a-z]* --now splicefs.service' '$dir/log'"
-expect "a test configuration is written once, for the server" sh -c "[ \"\$(grep -c 'write_test_config' '$dir/log')\" -eq 1 ]"
+expect "the service steps run for the server and for the client" \
+    sh -c "for n in 1a 3 4 5 7 8; do grep -q \"^step \$n: server: \" '$out' && grep -q \"^step \$n: client: \" '$out' || exit 1; done"
+expect "the published client is left alone in step 1a, and the step says why" \
+    holds "the published client cannot be configured as the test configuration does: the upgrade under a running service is not tested"
+expect "the service of the client is enabled, started, restarted, stopped and disabled" \
+    sh -c "for c in enable start restart stop disable; do grep -q \"systemctl \$c splicefs.service\" '$dir/log' || exit 1; done"
+expect "a test configuration is written for each program, the server's first" \
+    sh -c "[ \"\$(grep -c 'write_test_config' '$dir/log')\" -eq 2 ]"
+expect "the client waits for the certificate the cluster key signed before it starts, and is started after the server" \
+    lines_in_order "step 4: server: " "step 4: client: " "ok: the server serves a certificate the cluster key signed" "ok: /mnt/media is a mount"
+expect "the mount is looked for after the start and after the stop" \
+    holds "ok: /mnt/media is a mount"
+expect "after the stop the client's mount is gone and no process of its program is left" \
+    holds "ok: no process of /usr/bin/splicefs is running after the stop"
 expect "six snapshots: the boot, around the reinstall of each program, and the end" \
     sh -c "[ \"\$(grep -c 'lifecycle-snapshot.sh' '$dir/log')\" -eq 6 ]"
 expect "the plain removal of the server, then of the client, then one documented removal" \
@@ -932,18 +964,17 @@ expect "the documented removal names both programs, in one command" \
 expect "the test data is removed once for each program that has a test configuration" \
     sh -c "[ \"\$(grep -c 'remove_test_data' '$dir/log')\" -eq 2 ]"
 
+# The client mounts from the server of the same system: with no packages of the server in the run, its
+# service steps stop at step 3 and say why, before anything of the client's is configured.
 use_case client_only
-expect "a run of the client alone passes" passed_status
-expect "the steps run in order" steps_run 'step 0: step 1: step 1a: step 2: step 3: step 4: step 5: step 7: step 8: step 9: '
-expect "the client's service steps wait" \
-    sh -c "for n in 1a 3 4 5 7 8; do grep -qx \"step \$n: client: service steps wait for the client's certificate trust setting\" '$out' || exit 1; done"
-expect "nothing is configured, started or stopped" \
-    sh -c "! grep -q -e 'write_test_config' -e 'systemctl enable' -e 'systemctl start' -e 'systemctl stop' '$dir/log'"
+expect "a run of the client alone fails" failed_status
+expect "it fails in step 3, for the client" failed_in 3
+expect "it says that the server is missing" \
+    holds "the client mounts from the server of the same system, and this run has no packages of the server in dist/server"
+expect "nothing is configured or started" sh -c "! grep -q -e 'write_test_config' -e 'systemctl start' '$dir/log'"
 expect "the published client file is installed, then the new one" \
     in_order "apt-get install -y -qq /pkg/client/published/splicefs-client_1.3.9_amd64.deb" \
     "sh deb v1.3.9 v1.4.0 file /pkg/client/splicefs-client_1.4.0_amd64.deb"
-expect "the documented removal names the client only" \
-    sh -c "grep -q 'apt-get purge splicefs-client' '$dir/log' && ! grep -q 'apt-get purge.*splicefs-server' '$dir/log'"
 
 # The steps tell a person to leave out the line of a service never turned on; the test does, for
 # every service its steps did not turn on (those of steps 3 to 8, which only the server has), and says so.
@@ -953,12 +984,6 @@ expect "the line of the service that was turned on runs" sh -c "grep -q 'sysrc -
 expect "the line of the service that was never turned on does not run" sh -c "! grep -q 'sysrc -x splicefs_enable' '$dir/log'"
 expect "the line that is left out is printed" holds 'step 9: deb: "sysrc -x splicefs_enable" is left out, as the steps say'
 expect "the line that runs is not printed as left out" lacks '"sysrc -x splicefsd_enable" is left out'
-
-use_case service_lines_client_only
-expect "a run of the client alone passes" passed_status
-expect "neither line runs: its service steps wait" sh -c "! grep -q 'sysrc -x' '$dir/log'"
-expect "both lines are printed as left out" \
-    sh -c "grep -q '\"sysrc -x splicefs_enable\" is left out' '$out' && grep -q '\"sysrc -x splicefsd_enable\" is left out' '$out'"
 
 use_case both_rpm
 expect "both programs pass on an rpm system" passed_status

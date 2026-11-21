@@ -69,7 +69,7 @@ use_program() {
     use_recorded_version || exit 1
     . scripts/package-lib.sh
     . scripts/published-lib.sh
-    unset port health_path
+    unset port health_path mount_point service_before_upgrade needs_cluster_certificate
     # shellcheck source=/dev/null
     . "$defs/service-check.sh"
     package_arches "$platform"

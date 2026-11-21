@@ -60,6 +60,12 @@ port_open_in_firewall() {
     firewall_in_use "$1" && on_system "$1" firewall-cmd --query-port="$port/tcp" >/dev/null
 }
 
+# Status 0 when the folder $2 is a mount of the system $1: every system's own mount table lists the folder
+# between spaces ("splicefs on /mnt/media type ...").
+mounted_at() {
+    on_system "$1" mount | grep -qF " $2 "
+}
+
 active_and_answering() {
     service_active "$1" && answers "$1"
 }
@@ -88,6 +94,14 @@ check_start() {
     service_start "$1" || fail "the documented start command failed"
     must "the service is not active 20 seconds after the documented start command" wait_for 20 service_active "$1"
     echo "ok: the documented start command starts it"
+}
+
+# A program that mounts (mount_point of its service check) has its mount in the mount table while its service
+# runs, and no longer after it stopped.
+check_mount_up() {
+    [ -n "${mount_point:-}" ] || return 0
+    must "$mount_point is not a mount while the service runs" mounted_at "$1" "$mount_point"
+    echo "ok: $mount_point is a mount"
 }
 
 check_documented_start() {
@@ -134,6 +148,8 @@ check_stop() {
     service_stop "$1" || fail "stopping the service failed"
     must "the service is still active 10 seconds after it was stopped" wait_for 10 inactive "$1"
     refuse "the service still answers after it was stopped" answers "$1"
+    # shellcheck disable=SC2310
+    [ -z "${mount_point:-}" ] || refuse "$mount_point is still a mount after the service was stopped" mounted_at "$1" "$mount_point"
     echo "ok: stopped and silent"
 }
 

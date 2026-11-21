@@ -69,9 +69,13 @@
 # of the package file says (scripts/package-message-lib.sh). Step 2 puts the new file over the published one:
 # that is an upgrade, with the upgrade message, unless the version is the same, which pkg installs again as a
 # forced install, with the install message (put_over_message of scripts/service-upgrade-lib.sh).
-# The numbers are those of the design of the test. The steps 3, 4, 5, 7 and 8 are built for the
-# server only: for the client each prints "service steps wait for the client's certificate trust
-# setting" and does nothing. Step 6, the modes of the client, is not built yet.
+# The numbers are those of the design of the test. Step 3 gives the client its test configuration: a cluster
+# that is the server of the system, trusted by the cluster key the server's own command makes, and one mount
+# of the share; step 4 starts the client when the server serves a certificate that key signed, and the
+# mount is up and reads the file of the share; steps 5, 7 and 8 keep that true across a restart and a reboot,
+# and the stop takes the mount away. Step 1a leaves the client alone until a published release has the
+# cluster_key setting (service_before_upgrade of programs/client/service-check.sh). Step 6, the other modes
+# of the client, is not built yet.
 # Phase 1 is the steps 0 to 4 and the restart of the service in step 5; phase 2, after the host
 # restarted the system, is the rest of step 5; phase 3 is the steps 7 to 9.
 # Before every step and after the snapshot of step 9, the core dumps that appeared since the step
@@ -137,9 +141,6 @@ finish() {
     return "$status"
 }
 trap finish EXIT
-
-# The programs the service steps are built for; the others wait for their certificate trust setting.
-service_step_programs="server"
 
 # use_program for the format of this system: the functions of the format are sourced again, because
 # the service manager adapters name the service of the program when they are sourced (only when another
@@ -320,7 +321,8 @@ documented_removal() {
     if [ -z "$held" ]; then
         echo "step 9: $format: nothing installed, the removal command is left out, as the steps say"
     fi
-    turned_on="$(programs_turned_on)"
+    # The steps 3 to 8 turned on the service of every program of the run.
+    turned_on="$present"
     services_left_out "$file" "$turned_on" | while IFS= read -r line; do
         echo "step 9: $format: \"$line\" is left out, as the steps say"
     done
@@ -414,38 +416,12 @@ each_program() {
     done
 }
 
-# Step $1 of a program whose service steps are not built: it says so and nothing is done for it.
-begin_waiting_step() {
-    begin_step "$1" "$PROGRAM" "service steps wait for the $PROGRAM's certificate trust setting"
-}
-
-# Whether the service steps are built for the program $1.
-has_service_steps() {
-    case " $service_step_programs " in *" $1 "*) return 0 ;; *) return 1 ;; esac
-}
-
-# The programs whose service the steps 3 to 8 turned on, separated by spaces.
-programs_turned_on() {
-    for step_program in $present; do
-        # has_service_steps is one test whose status is the answer, so set -e being off inside it changes nothing.
-        # shellcheck disable=SC2310
-        ! has_service_steps "$step_program" || printf '%s ' "$step_program"
-    done
-}
-
-# Like each_program for a service step, step $1 with the text $2 and the function $3: a program whose
-# service steps are not built says so and nothing is done for it.
+# Like each_program for a service step: step $1 with the text $2 and the function $3.
 each_service_program() {
     for step_program in $present; do
         use_program_in_system "$step_program"
-        # has_service_steps is one test whose status is the answer, so set -e being off inside it changes nothing.
-        # shellcheck disable=SC2310
-        if has_service_steps "$PROGRAM"; then
-            begin_step "$1" "$PROGRAM" "$2"
-            "$3"
-        else
-            begin_waiting_step "$1"
-        fi
+        begin_step "$1" "$PROGRAM" "$2"
+        "$3"
     done
 }
 
@@ -475,14 +451,29 @@ step_running_baseline() {
         echo "nothing is published for $PROGRAM: the upgrade under a running service is not tested"
         return 0
     fi
+    if [ "${service_before_upgrade:-yes}" = no ]; then
+        echo "the published $PROGRAM cannot be configured as the test configuration does: the upgrade under a running service is not tested"
+        return 0
+    fi
     service_enable_and_configure
     service_start_and_check
     note_running_service "$system" "$old_tag"
 }
 
+# The client mounts from the server of the same system, so a run that has packages of the client alone
+# has nothing to mount from: that is no run of the client's service steps, and it says so.
+require_server_in_the_run() {
+    [ "${needs_cluster_certificate:-no}" = yes ] || return 0
+    case " $present " in
+        *" server "*) return 0 ;;
+        *) fail "the $PROGRAM mounts from the server of the same system, and this run has no packages of the server in dist/server" ;;
+    esac
+}
+
 # Steps 3 and 4 turn the service on and start it, unless step 1a did and the upgrade kept it so: then they
 # check that it is still so.
 step_enable_and_configure() {
+    require_server_in_the_run
     # ran_before_the_package is one test whose status is the answer, so set -e being off inside it changes nothing.
     # shellcheck disable=SC2310
     if ran_before_the_package; then
@@ -501,18 +492,46 @@ step_start_and_check() {
     fi
 }
 
+# A program that trusts the server by its cluster key (the client) starts after the server serves a certificate
+# that key signed. The server of the same system started before, in this step. One that ran before the key was
+# made (step 1a) issued its certificate without it, and issues the new one when it restarts, so it is
+# restarted, and what is waited for is that it answers again. Where the system has the TLS tool the
+# certificate the server serves is then checked against the key; where it has none, the mount that follows
+# is the check, because the client refuses a server the key did not sign.
+make_server_certificate_trusted() {
+    use_program_in_system server
+    # ran_before_the_package is one test whose status is the answer, so set -e being off inside it changes nothing.
+    # shellcheck disable=SC2310
+    if ran_before_the_package; then
+        check_restart "$system"
+    fi
+    use_program_in_system client
+    # shellcheck disable=SC2310
+    if in_system "$system" can_ask_served_certificate; then
+        must "the server does not serve a certificate signed by the cluster key 20 seconds after it answers" \
+            wait_for 20 in_system "$system" served_certificate_is_signed_by_cluster_key
+        echo "ok: the server serves a certificate the cluster key signed"
+    else
+        echo "ok: this system has no TLS tool to show the certificate; the mount below proves the client trusts it"
+    fi
+}
+
 service_start_and_check() {
+    # needs_cluster_certificate is set by the service check of the program that trusts the server by its key.
+    if [ "${needs_cluster_certificate:-no}" = yes ]; then make_server_certificate_trusted; fi
     must "saving the firewall zone files failed" save_firewall_zones "$system" "$own/firewall-zones"
     must "opening the port ${port:-} in the firewall failed" open_firewall "$system"
     check_start "$system"
     check_user "$system"
     check_answers "$system"
+    check_mount_up "$system"
 }
 
 service_stop_and_check() {
     check_stop "$system"
-    must "a process of ours is still running after the stop" no_process_of_ours "$system"
-    echo "ok: no process of ours is running after the stop"
+    # The other program of the system may be running still: the exact program of this service is looked for.
+    must "a process of $bindir/$program is still running after the stop" no_process_of_ours "$system" "$bindir/$program"
+    echo "ok: no process of $bindir/$program is running after the stop"
 }
 
 service_disable_and_check() {
@@ -534,16 +553,13 @@ step_after_documented_removal() {
     check_nothing_of_ours "$system"
 }
 
-# Step 5 for each program in the first phase: the restart of the service. A program that has no
-# service steps is named in the second phase, where the step ends.
+# Step 5 for each program in the first phase: the restart of the service.
 step_restart() {
-    for step_program in $present; do
-        use_program_in_system "$step_program"
-        # shellcheck disable=SC2310
-        has_service_steps "$PROGRAM" || continue
-        begin_step 5 "$PROGRAM" "$restart_text"
-        check_restart "$system"
-    done
+    each_service_program 5 "$restart_text" step_restart_service
+}
+
+step_restart_service() {
+    check_restart "$system"
 }
 
 # Step 5 for each program in the second phase, after the host restarted the system: the service
@@ -551,13 +567,8 @@ step_restart() {
 step_after_restart() {
     for step_program in $present; do
         use_program_in_system "$step_program"
-        # shellcheck disable=SC2310
-        if has_service_steps "$PROGRAM"; then
-            enter_step 5 "$PROGRAM" "$restart_text"
-            check_after_reboot "$system"
-        else
-            begin_waiting_step 5
-        fi
+        enter_step 5 "$PROGRAM" "$restart_text"
+        check_after_reboot "$system"
     done
 }
 
