@@ -14,6 +14,15 @@
 # FOLDER is an empty folder the caller removes. It is also where stop_systems looks for the systems
 # still running, so the caller calls stop_systems before it removes the folder.
 run_systems() {
+    start_systems "$@"
+    report_systems "$out" "$count"
+}
+
+# The first half of run_systems: prepares every system, then starts the prepared ones, and returns
+# without waiting for them. It sets out (FOLDER) and count (the number of lines of the list) for
+# report_systems. A caller that wants to stop the systems before they end calls stop_systems
+# between the two. Usage: start_systems FOLDER PREPARE TEST <LIST
+start_systems() {
     out="$1"
     systems_folder="$1"
     prepare="$2"
@@ -37,7 +46,6 @@ run_systems() {
         "$test" "$format" "$image" "$each" >>"$out/$each.out" 2>&1 &
         echo "$!" >"$out/$each.pid"
     done
-    report_systems "$out" "$count"
 }
 
 # Waits for each system's process in the order of the list and prints its output, then the
@@ -87,6 +95,9 @@ pull_system() {
 # not a list kept here: a stop that arrives between starting a system and noting its process id
 # would miss that system and leave it running. The list goes through a file because dash gives a
 # command substitution an empty one. Every background job of the caller is a system.
+# A caller calls it from its trap for INT, TERM or EXIT. Open defect: bash 3.2 (the macOS /bin/sh)
+# can lose a TERM that arrives just before its wait builtin blocks, so the trap never runs and the
+# systems keep running. It was seen only on bash 3.2; dash does not lose the signal.
 stop_systems() {
     [ -n "${systems_folder:-}" ] || return 0
     jobs -p >"$systems_folder/jobs" || return 0
