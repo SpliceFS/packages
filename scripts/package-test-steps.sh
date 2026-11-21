@@ -361,7 +361,9 @@ check_plain_removal() {
     check_message_of_new_package remove "$own/removal-output"
     refuse "the package is still installed after the plain removal" package_installed "$1"
     must "the plain removal left a program of the package behind" in_system "$1" check_programs_removed
-    must "a process of ours is still running after the plain removal" no_process_of_ours "$1"
+    # The program of this removal, which is gone, so a process that still runs it shows its file as deleted. The
+    # other program of the system may be running (the server that is the fixture of a client), as nothing stopped it.
+    must "a process of $bindir/$program is still running after the plain removal" no_process_of_ours "$1" "$bindir/$program *"
     must "the plain removal took away the configuration file or the data file" \
         in_upgrade_lib "$1" verify_markers_kept "plain removal"
     echo "ok: the programs are gone, the configuration and the data remain"
