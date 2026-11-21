@@ -213,9 +213,10 @@ apk-resign-test: built-apk-packages ## Checks that Alpine packages signed again 
 	PROGRAM=$(PROGRAM) APK_IMAGE=$(APK_IMAGE) scripts/apk-resign-test.sh
 
 # One boot of a clean server of every system listed in packaging/test-systems, all at the same
-# time: the package file is installed with the system's package manager and checked, then removed as
-# the documentation says, and the system must be as it was (scripts/package-test.sh lists the steps).
-package-test: built-packages ## Installs the package file and removes it again on every server image (ONLY=deb or an image for one)
+# time: the package files of every program in dist (server and client) are installed with the
+# system's package manager and checked, then removed as the documentation says, and the system must
+# be as it was (scripts/package-test.sh lists the steps). A program with no packages in dist is left out.
+package-test: built-packages ## Installs the package files and removes them again on every server image (ONLY=deb or an image for one)
 	$(TEST_VARS) scripts/package-test.sh
 
 # Proves the service, not only the files: in a container per system that is booted as a server,

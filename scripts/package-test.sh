@@ -92,11 +92,16 @@ service_step_programs="server"
 
 # Whether dist/$1 holds packages: a missing or empty folder is a program that is not tested.
 has_packages() {
-    [ -d "dist/$1" ] && [ -n "$(find "dist/$1" -mindepth 1 -maxdepth 1 | head -n 1)" ]
+    for entry in "dist/$1"/* "dist/$1"/.[!.]*; do
+        [ -e "$entry" ] && return 0
+    done
+    return 1
 }
 
 present=""
 for candidate in $all_programs; do
+    # has_packages is one test whose status is the answer, so set -e being off inside it changes nothing.
+    # shellcheck disable=SC2310
     if has_packages "$candidate"; then
         present="$present${present:+ }$candidate"
     else
@@ -142,6 +147,8 @@ use_program() {
     PROGRAM="$1"
     export PROGRAM
     VERSION="$given_version"
+    # The status ends the run here also in a system, where errexit is off; the function says why.
+    # shellcheck disable=SC2310
     use_recorded_version || exit 1
     . scripts/package-lib.sh
     . scripts/published-lib.sh
