@@ -137,8 +137,11 @@ check_restart() {
 # The system was restarted by whoever runs the steps, as a person restarts a machine: the service
 # starts again on its own because it is enabled.
 check_after_reboot() {
-    must "the service is not active and answering 60 seconds after a reboot" \
-        wait_for 60 active_and_answering "$1"
+    # A service that is not back after a reboot says what its manager and its log know, which is all that is left of it.
+    wait_for 60 active_and_answering "$1" || {
+        service_report "$1"
+        fail "the service is not active and answering 60 seconds after a reboot"
+    }
     echo "ok: active and answering after a reboot, because it was enabled"
 }
 

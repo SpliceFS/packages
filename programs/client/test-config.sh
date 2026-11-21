@@ -6,8 +6,9 @@
 # splicefsdctl cluster init makes on the server and splicefsdctl cluster show prints. Sourced inside a
 # system the packages are installed in (scripts/package-test-steps.sh, through scripts/system-state-lib.sh),
 # after scripts/package-lib.sh, which says where the configuration and the data are (confdir, datadir).
-# The functions read those variables when they run, so a test can move them. The address of the system,
-# which the adapter of the package format knows, is in OWN_ADDRESS.
+# The functions read those variables when they run, so a test can move them. The name of the system is in
+# OWN_NAME: the cluster is the server of the system by that name, because the address of a system can change
+# when it restarts (a container gets a new one) and the name is resolved again every time.
 # shellcheck disable=SC2154
 # shellcheck source=../../scripts/test-config-lib.sh
 . scripts/test-config-lib.sh
@@ -38,16 +39,16 @@ make_cluster_key() {
 }
 
 # Writes the cluster, the mount, the password and the folder it mounts at. The cluster is the server of this
-# system, by its address, trusted by the cluster key.
+# system, by its name, trusted by the cluster key.
 write_test_config() {
-    : "${OWN_ADDRESS:?OWN_ADDRESS is not set: the system has no address of its own}"
+    : "${OWN_NAME:?OWN_NAME is not set}"
     set_paths
     key="$(make_cluster_key)" || exit 1
     make_test_folder "$mount_target"
     make_test_folder "$datadir"
     (umask 077 && printf '%s\n' "$user_password" >"$password_path")
     printf 'url: https://%s:%s%s\nuser: %s\npassword_file: %s\ncluster_key: %s\n' \
-        "$OWN_ADDRESS" "$server_port" "$server_api_path" "$user_name" "$password_path" "$key" >"$cluster_conf"
+        "$OWN_NAME" "$server_port" "$server_api_path" "$user_name" "$password_path" "$key" >"$cluster_conf"
     printf 'cluster: %s\npath: /%s\ntarget: %s\n' "$cluster_name" "$share_name" "$mount_target" >"$mount_conf"
 }
 
@@ -81,7 +82,7 @@ can_ask_served_certificate() {
 # issuer has no certificate of its own, so the signature is checked with the key alone, the way the client
 # does. Usage: take_served_certificate FOLDER. Files: tbs.der and sig.bin.
 take_served_certificate() {
-    openssl s_client -connect "$OWN_ADDRESS:$server_port" </dev/null 2>/dev/null | openssl x509 >"$1/leaf.pem" || return 1
+    openssl s_client -connect "$OWN_NAME:$server_port" </dev/null 2>/dev/null | openssl x509 >"$1/leaf.pem" || return 1
     parsed="$(openssl asn1parse -in "$1/leaf.pem")" || return 1
     # The part the issuer signed is the first thing inside the certificate; the signature is the last
     # thing in it, a bit string at the same depth.

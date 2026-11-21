@@ -78,7 +78,7 @@ chmod 755 "$work/bin/splicefsdctl" "$work/bin/splicefs" "$work/bin/openssl"
 # of the system moved under $system. Prints what they print.
 in_fake_system() {
     PATH="$work/bin:$PATH" STAND_IN_DIR="$system" PROGRAM=client VERSION=v1.2.3 PACKAGE_DATE=20261112 \
-        SYSTEM="$system" PACKAGE_TEST_OUT="$system/out" OWN_ADDRESS=172.17.0.2 sh -c '
+        SYSTEM="$system" PACKAGE_TEST_OUT="$system/out" OWN_NAME=a-system sh -c '
         . scripts/package-lib.sh
         . programs/client/test-config.sh
         confdir="$SYSTEM/etc"
@@ -125,8 +125,8 @@ has_mode() { found="$(find "$1" -perm "$2")"; [ -n "$found" ]; }
 in_fake_system write_test_config >"$work/out" || { cat "$work/out"; failed=$((failed + 1)); }
 expect "the key is made on the server before it is shown" \
     sh -c "[ \"\$(sed -n 1p '$system/calls')\" = 'splicefsdctl cluster init' ] && [ \"\$(sed -n 2p '$system/calls')\" = 'splicefsdctl cluster show' ]"
-expect "the cluster is the server of the system by its address, with the user and the key of the server" \
-    sh -c "grep -qxF 'url: https://172.17.0.2:8480/api' '$system/etc/clusters.d/test.yaml' &&
+expect "the cluster is the server of the system by its name, with the user and the key of the server" \
+    sh -c "grep -qxF 'url: https://a-system:8480/api' '$system/etc/clusters.d/test.yaml' &&
         grep -qxF 'user: alice' '$system/etc/clusters.d/test.yaml' &&
         grep -qxF 'cluster_key: $key' '$system/etc/clusters.d/test.yaml'"
 expect "the cluster names the password file" has_line "password_file: $system/state/password" "$system/etc/clusters.d/test.yaml"
