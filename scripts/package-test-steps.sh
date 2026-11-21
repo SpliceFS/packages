@@ -23,12 +23,20 @@
 #      of step 2, which carry a throwaway signature, skip it). When nothing is published, the step
 #      says so and installs nothing. A system the host cannot reach fetches the file itself, and the
 #      version of the baseline is the one of the file it got (record_fetched_version);
+#   1a. for a program whose service steps are built and that has a published package, its service is
+#      enabled, configured and started, the way steps 3 and 4 do it (one set of functions), and its
+#      process id and the version its health endpoint reports are written down. With nothing published
+#      the step says that the upgrade under a running service is not tested;
 #   2. the new package FILE is put over it the way scripts/upgrade-package-lib.sh says (an upgrade,
 #      or a reinstall when the version is the same, and a published package newer than the package under
 #      test, which a release published during the run makes, fails the step: it never goes down); with no
 #      baseline it is installed. Every file the
 #      package promises is in its place (scripts/package-test-lib.sh), installing enabled and
-#      started nothing, and the configuration and data of step 1 are kept. Then the file is put
+#      started nothing (apart from the service step 1a started, which is still enabled and running), and
+#      the configuration and data of step 1 are kept. A service step 1a started is checked for the promise of
+#      the format (scripts/service-upgrade-lib.sh): deb, rpm and apk restarted it, so it runs in a new
+#      process as the new version; on pkg the old process runs as the old version until the restart the
+#      upgrade message names, which is then run. Then the file is put
 #      over itself once more: the files, the configuration and the state of the service stay as
 #      they were;
 #   3. the service is enabled with the documented command, and the program's test configuration
@@ -56,6 +64,11 @@
 #      byte for byte (a file that did not exist is deleted) and the port is closed in the firewall,
 #      and nothing of ours is installed or running; and the snapshot equals the one of step 0, apart
 #      from the paths of scripts/lifecycle-excluded.
+# On pkg, which prints messages (deb, rpm and apk print none), what the package printed in step 1 (or 2 when
+# nothing is published), in step 2 and in step 9 holds its install, upgrade and remove message, as the manifest
+# of the package file says (scripts/package-message-lib.sh). Step 2 puts the new file over the published one:
+# that is an upgrade, with the upgrade message, unless the version is the same, which pkg installs again as a
+# forced install, with the install message (put_over_message of scripts/service-upgrade-lib.sh).
 # The numbers are those of the design of the test. The steps 3, 4, 5, 7 and 8 are built for the
 # server only: for the client each prints "service steps wait for the client's certificate trust
 # setting" and does nothing. Step 6, the modes of the client, is not built yet.
@@ -92,6 +105,8 @@ cd "$root"
 . scripts/package-record.sh
 . scripts/package-test-program-lib.sh
 . scripts/service-check-lib.sh
+. scripts/service-upgrade-lib.sh
+. scripts/package-message-lib.sh
 . scripts/documented-removal-lib.sh
 . scripts/service-run-local.sh
 . scripts/system-state-lib.sh
@@ -157,7 +172,7 @@ check_installed_files() {
     must "the service definition does not name the program $bindir/$program" on_system "$1" grep -qF "$bindir/$program" "$definition"
     must "the user $expected_user was not created" on_system "$1" grep -q "^$expected_user:" /etc/passwd
     echo "ok: the package is installed, its files are in place and the user exists"
-    check_idle_after_install "$1"
+    check_service_after_package "$1"
 }
 
 # Where the published package file is: on a system the host reaches (a container) the host put it
@@ -185,6 +200,24 @@ record_fetched_version() {
     record_baseline_version "$fetched_version"
 }
 
+# Runs the command $2... and shows what it printed, and keeps it in the file $1 too, for the checks of the
+# messages a package prints.
+keep_output() {
+    kept="$1"
+    shift
+    kept_status=0
+    "$@" >"$kept" 2>&1 || kept_status=$?
+    cat "$kept"
+    return "$kept_status"
+}
+
+# The message of the type $1 that the package printed into the file $2 is the one in the manifest of the new
+# package file, which is the one that was installed, upgraded to or removed.
+check_message_of_new_package() {
+    new_file="$(package_file)"
+    check_package_message "$1" "$2" "$new_file"
+}
+
 # Step 1. The published package is what people have installed. It is the one the record of the
 # build names, or the newest on the site; nothing is installed when none is published.
 install_baseline() {
@@ -194,7 +227,8 @@ install_baseline() {
     fi
     published_file="$(published_file_of_system)"
     record_fetched_version "$published_file"
-    must "installing the published package failed" install_published_package "$1" "$published_file"
+    must "installing the published package failed" keep_output "$own/baseline-output" install_published_package "$1" "$published_file"
+    check_package_message install "$own/baseline-output" "$published_file"
     must "the package manager does not list the published package as installed" package_installed "$1"
     # The quotes are single on purpose: the variables are those of the shell that sh -c starts.
     # shellcheck disable=SC2016
@@ -230,12 +264,15 @@ refuse_downgrade() {
 install_new_package() {
     if [ -n "$from" ]; then
         refuse_downgrade
-        must "putting the new package over the published one failed" put_new_package_over "$1" "$old_tag"
+        must "putting the new package over the published one failed" keep_output "$own/upgrade-output" put_new_package_over "$1" "$old_tag"
+        put_over_type="$(put_over_message "$old_tag" "$VERSION")"
+        check_message_of_new_package "$put_over_type" "$own/upgrade-output"
         must "the upgrade did not keep the configuration file and the data file" \
             in_upgrade_lib "$1" verify_markers_kept "upgrade"
         return 0
     fi
-    must "installing the package failed" install_package "$1"
+    must "installing the package failed" keep_output "$own/install-output" install_package "$1"
+    check_message_of_new_package install "$own/install-output"
     must "writing the configuration file and the data file failed" in_upgrade_lib "$1" write_markers "$format"
 }
 
@@ -302,7 +339,8 @@ documented_removal() {
 # The package manager's plain removal takes the programs and leaves what the administrator and the
 # running server wrote, which only a purge or a person deletes.
 check_plain_removal() {
-    must "the plain removal failed" remove_package "$1"
+    must "the plain removal failed" keep_output "$own/removal-output" remove_package "$1"
+    check_message_of_new_package remove "$own/removal-output"
     refuse "the package is still installed after the plain removal" package_installed "$1"
     must "the plain removal left a program of the package behind" in_system "$1" check_programs_removed
     must "a process of ours is still running after the plain removal" no_process_of_ours "$1"
@@ -420,12 +458,47 @@ step_new_package() {
     begin_step 2 "$PROGRAM" "the new package file is installed over it, and over itself"
     install_new_package "$system"
     check_installed_files "$system"
+    check_upgrade_of_running_service "$system"
     check_reinstall_changes_nothing "$system"
 }
 
 service_enable_and_configure() {
     check_enable "$system"
     write_and_check_test_config "$system"
+}
+
+# Step 1a: the published package's service is turned on and started like steps 3 and 4 do it, and what
+# it is is written down; step 2 then puts the new package over a running service. With nothing published
+# there is no running service to upgrade.
+step_running_baseline() {
+    if [ -z "$from" ]; then
+        echo "nothing is published for $PROGRAM: the upgrade under a running service is not tested"
+        return 0
+    fi
+    service_enable_and_configure
+    service_start_and_check
+    note_running_service "$system" "$old_tag"
+}
+
+# Steps 3 and 4 turn the service on and start it, unless step 1a did and the upgrade kept it so: then they
+# check that it is still so.
+step_enable_and_configure() {
+    # ran_before_the_package is one test whose status is the answer, so set -e being off inside it changes nothing.
+    # shellcheck disable=SC2310
+    if ran_before_the_package; then
+        check_still_enabled_and_configured "$system"
+    else
+        service_enable_and_configure
+    fi
+}
+
+step_start_and_check() {
+    # shellcheck disable=SC2310
+    if ran_before_the_package; then
+        check_still_running "$system"
+    else
+        service_start_and_check
+    fi
 }
 
 service_start_and_check() {
@@ -499,10 +572,12 @@ phase1() {
     take_snapshot "$system" "$own/before"
 
     each_program step_baseline
+    each_service_program 1a "the published package's service is enabled, configured and started, to be upgraded while it runs" \
+        step_running_baseline
     each_program step_new_package
     each_service_program 3 "the service is enabled, and the test configuration is written through the documented folders" \
-        service_enable_and_configure
-    each_service_program 4 "the service is started, runs as its own user and does its job" service_start_and_check
+        step_enable_and_configure
+    each_service_program 4 "the service is started, runs as its own user and does its job" step_start_and_check
     step_restart
 }
 

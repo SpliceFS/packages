@@ -47,8 +47,9 @@ reinstall_package() {
             ;;
         apk:file) upgrade_package_to_newer "$1" "$2" "$3" ;;
         # pkg add refuses a file of the installed version unless it is forced, and runs the install
-        # scripts of the package again, as a reinstall must.
-        pkg:file) pkg add -f "$3" >/dev/null ;;
+        # scripts of the package again, as a reinstall must. What pkg says is the upgrade message of the
+        # package, which the caller may keep and check.
+        pkg:file) pkg add -f "$3" ;;
         *) apk fix -q --reinstall "$3" >/dev/null ;;
     esac
 }
@@ -75,8 +76,8 @@ upgrade_package_to_newer() {
             fi
             ;;
         apk:file) apk add -q --allow-untrusted "$3" >/dev/null ;;
-        # pkg add of a file of a newer version upgrades the installed package.
-        pkg:file) pkg add "$3" >/dev/null ;;
+        # pkg add of a file of a newer version upgrades the installed package, and says its upgrade message.
+        pkg:file) pkg add "$3" ;;
         *) apk add -q -u "$3" >/dev/null ;;
     esac
 }

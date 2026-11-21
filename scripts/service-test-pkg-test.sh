@@ -37,6 +37,7 @@ case "$1" in
     info) [ -f "$INSTALLED" ] ;;
     query) echo "${PKG_QUERY_VERSION:-}" ;;
     add) echo "Installing $2" ;;
+    delete) echo "Deinstalling $3" ;;
     *) ;;
 esac
 STAND_IN
@@ -65,13 +66,13 @@ cat >"$work/bin/ifconfig" <<'STAND_IN'
 echo "ifconfig $*" >> "$CALLS"
 cat "$IFCONFIG_OUT"
 STAND_IN
-# curl answers with the status code in FAKE_CODE, as the real one does for -w '%{http_code}', and
-# writes only the address it was asked for.
+# curl answers with the status code in FAKE_CODE on its last line, as the real one does for
+# -w '\n%{http_code}', and writes only the address it was asked for.
 cat >"$work/bin/curl" <<'STAND_IN'
 #!/bin/sh
 for url; do :; done
 echo "curl $url" >> "$CALLS"
-printf '%s' "$FAKE_CODE"
+printf '\n%s' "$FAKE_CODE"
 STAND_IN
 chmod 755 "$work"/bin/*
 
@@ -125,6 +126,14 @@ runs "a published file is installed with pkg add too: pkg fetch proved it" "pkg 
     "install_published_package system /x/published.pkg"
 said "what pkg add says about the published package is shown" "Installing /x/published.pkg"
 runs "the plain removal is pkg delete" "pkg delete -y splicefs-server" 0 "remove_package system"
+said "what pkg delete says is shown, so the caller can keep the remove message" "Deinstalling splicefs-server"
+# The text is for the shell that sh -c starts, which expands it.
+# shellcheck disable=SC2016
+runs "each message names the command the service functions run" "" 0 \
+    '[ "$(message_command install)" = "sysrc splicefsd_enable=YES && service splicefsd start" ] &&
+     [ "$(message_command upgrade)" = "service splicefsd restart" ] &&
+     [ "$(message_command remove)" = "sysrc -x splicefsd_enable" ]'
+runs "a message type the package does not have fails" "" 1 "message_command reinstall"
 
 : >"$work/installed"
 runs "the package is installed when pkg info -e says so" "pkg info -e splicefs-server" 0 "package_installed system"

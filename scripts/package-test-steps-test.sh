@@ -29,7 +29,9 @@ cat >"$t/farm/scripts/service-run-local.sh" <<'STAND_IN'
 # the package of the program, server or client, is installed), config.PROGRAM (exists while dpkg
 # keeps the configuration of a package that was removed and not purged: the other package managers
 # keep nothing), enabled and active (exist while the service of the server is enabled and running;
-# the client's service never is), and for the n-th snapshot or core listing the files snapshot.n and
+# the client's service never is), installed-version.PROGRAM (the version the installed package is) and
+# running-version and pid (the version and process id of the service while it runs, which a start and a
+# restart set), and for the n-th snapshot or core listing the files snapshot.n and
 # cores.n, the look after the last snapshot (the file last-snapshot holds its number)
 # cores.after-snapshot, and for a core given by its path the answer of a core that no step could
 # read. The package manager and service manager commands of the three formats change that state.
@@ -37,7 +39,8 @@ cat >"$t/farm/scripts/service-run-local.sh" <<'STAND_IN'
 # firewalld: its zone files are the folder zones, which starts as a copy of zones-initial, are what
 # cp and test -f and rm -f of /etc/firewalld/zones see, and --add-port writes the zone with the port
 # and the zone before it; the port counts as open while the file public.xml says so, or always when
-# STAND_IN_PORT_OPEN is set.
+# STAND_IN_PORT_OPEN is set. An upgrade call (deb, rpm, apk) restarts a running service of the server, which
+# STAND_IN_NO_RESTART prevents and STAND_IN_STALE_VERSION lets run the old version.
 on_system() {
     shift
     call="$*"
@@ -112,6 +115,16 @@ host_path() {
         *) ;;
     esac
 }
+# Starts or restarts the service of the server: a new process id, and the version it runs is the version
+# of the package that is installed now.
+start_service() {
+    next_number pid
+    echo "$((4241 + number))" >"$STAND_IN_DIR/pid"
+    : >"$STAND_IN_DIR/active"
+    running_tag=
+    [ ! -f "$STAND_IN_DIR/installed-version.server" ] || read -r running_tag <"$STAND_IN_DIR/installed-version.server"
+    echo "$running_tag" >"$STAND_IN_DIR/running-version"
+}
 stand_in_answer() {
     if [ -n "${STAND_IN_FAIL:-}" ]; then
         case "$call" in *"$STAND_IN_FAIL"*) return 1 ;; *) ;; esac
@@ -150,13 +163,17 @@ stand_in_answer() {
         *"systemctl enable"* | *"rc-update add"*) : >"$STAND_IN_DIR/enabled" ;;
         *"systemctl disable"* | *"rc-update del"*) rm -f "$STAND_IN_DIR/enabled" ;;
         *"systemctl start"* | *"systemctl restart"* | *"rc-service splicefsd start"* | *"rc-service splicefsd restart"*)
-            : >"$STAND_IN_DIR/active"
+            start_service
             ;;
         *"systemctl stop"* | *"rc-service splicefsd stop"*) rm -f "$STAND_IN_DIR/active" ;;
         *is-enabled*) [ -f "$STAND_IN_DIR/enabled" ] ;;
         *is-active* | *"rc-service splicefsd status"*) [ -f "$STAND_IN_DIR/active" ] ;;
         *"rc-update show"*) [ ! -f "$STAND_IN_DIR/enabled" ] || echo " splicefsd | default" ;;
-        *"systemctl show"* | *'= "/usr/bin/$1"'*) [ -f "$STAND_IN_DIR/active" ] && echo 4242 ;;
+        *"systemctl show"* | *'= "$2/$1"'*)
+            [ -f "$STAND_IN_DIR/active" ] || return 1
+            read -r process_id <"$STAND_IN_DIR/pid"
+            echo "$process_id"
+            ;;
         *getent*) echo "${STAND_IN_USER:-splicefs}" ;;
         *"grep -q /usr/local/bin"*) return 1 ;;
         *lifecycle-snapshot.sh*)
@@ -182,6 +199,16 @@ stand_in_answer() {
         *package_held*splicefs-server*) [ -f "$STAND_IN_DIR/installed.server" ] || [ -f "$STAND_IN_DIR/config.server" ] ;;
         *package_held*splicefs-client*) [ -f "$STAND_IN_DIR/installed.client" ] || [ -f "$STAND_IN_DIR/config.client" ] ;;
         *package_held*) return 1 ;;
+        *'upgrade_package "$@"'*)
+            # What the package does to a running service: deb, rpm and apk restart it (a new process that
+            # runs the new version, which STAND_IN_STALE_VERSION leaves at the old one), pkg does not.
+            name_programs
+            for each in $named; do echo "$VERSION" >"$STAND_IN_DIR/installed-version.$each"; done
+            if [ "$FORMAT" != pkg ] && [ -z "${STAND_IN_NO_RESTART:-}" ] && [ -f "$STAND_IN_DIR/active" ] && [ "$named" = server ]; then
+                [ -z "${STAND_IN_STALE_VERSION:-}" ] || echo "$PUBLISHED_VERSION" >"$STAND_IN_DIR/installed-version.server"
+                start_service
+            fi
+            ;;
         *"then echo steps/uninstall-dnf.sh"*) echo steps/uninstall-dnf.sh ;;
         *dpkg-query* | *"rpm -q"* | *"apk info -e"*)
             name_programs
@@ -201,9 +228,12 @@ stand_in_answer() {
             ;;
         *"apt-get install"* | *"dnf install"* | *"apk add"*)
             name_programs
+            installed_tag="$VERSION"
+            case "$call" in */published/* | */fetched/*) installed_tag="$PUBLISHED_VERSION" ;; *) ;; esac
             for each in $named; do
                 rm -f "$STAND_IN_DIR/config.$each"
                 : >"$STAND_IN_DIR/installed.$each"
+                echo "$installed_tag" >"$STAND_IN_DIR/installed-version.$each"
             done
             ;;
         *) ;;
@@ -220,7 +250,12 @@ getent() {
     echo "172.17.0.2        STREAM stand-in"
 }
 curl() {
-    if [ -f "$STAND_IN_DIR/active" ]; then printf 200; else printf 000; fi
+    if [ -f "$STAND_IN_DIR/active" ]; then
+        read -r reported <"$STAND_IN_DIR/running-version"
+        printf '{"status":"ok","version":"%s"}\n200' "$reported"
+    else
+        printf '\n000'
+    fi
 }
 STAND_IN
 # The lines of the steps file of FreeBSD that delete the setting of each service.
@@ -247,12 +282,15 @@ scenario() {
     fetched_server=
     fetched_client=
     removal_lines_added=
+    no_restart=
+    stale_version=
 }
 
 # Runs the case $1 with the settings of scenario: $built names the programs whose packages are in
 # dist, the snapshot of step 0 is $first, the snapshot of step 9 is $last, the one after each reinstall
-# is $reinstalled, $cores are the cores listed at the fourth look (before step 3 of a run of the
-# server alone), $late_cores those listed at the look after the last snapshot, $user is the user the
+# is $reinstalled, $cores are the cores listed at the fifth look (before step 3 of a run of the
+# server alone), $no_restart and $stale_version, when not empty, make the package leave a running service
+# alone, or restart it into the old version, $late_cores those listed at the look after the last snapshot, $user is the user the
 # service runs as, $format the package format of the system ($removal_lines_added, when not empty, is
 # added to the end of the steps file of the documented removal, as the file of FreeBSD has lines the
 # others do not). $firewalld, when not empty, makes the
@@ -294,7 +332,7 @@ launch() {
         taken=$((taken + 2))
     done
     printf '%s\n' "$last" >"$case_dir/dir/snapshot.$((taken + 1))"
-    [ -z "$cores" ] || printf '%s\n' "$cores" >"$case_dir/dir/cores.4"
+    [ -z "$cores" ] || printf '%s\n' "$cores" >"$case_dir/dir/cores.5"
     [ -z "$late_cores" ] || printf '%s\n' "$late_cores" >"$case_dir/dir/cores.after-snapshot"
     echo "$((taken + 1))" >"$case_dir/dir/last-snapshot"
     # Bytes a copy by line would change: a carriage return and no newline at the end.
@@ -305,6 +343,7 @@ launch() {
         export STAND_IN_FAIL="$fail_on" STAND_IN_DIR="$case_dir/dir" STAND_IN_USER="$user" \
             STAND_IN_FIREWALLD="$firewalld" STAND_IN_PORT_OPEN="$port_open" STAND_IN_FETCH="$fetch_hook" \
             STAND_IN_FETCHED_SERVER="$fetched_server" STAND_IN_FETCHED_CLIENT="$fetched_client" \
+            STAND_IN_NO_RESTART="$no_restart" STAND_IN_STALE_VERSION="$stale_version" \
             FORMAT="$format" PLATFORM=linux/amd64 PROGRAMS="$built" PACKAGE_TEST_OUT="$case_dir/out" BASELINES="$case_dir/baselines"
         steps="$case_dir/root/scripts/package-test-steps.sh"
         sh "$steps" phase1 || status=$?
@@ -439,7 +478,7 @@ firewall_zones_saved_then_put_back_by() {
 zones_as_they_were() { diff -r "$dir/zones-initial" "$dir/zones" >/dev/null; }
 steps_run() {
     # The line that says the removal command is left out starts like a step and is no step.
-    steps_seen="$(grep '^step ' "$out" | cut -c1-7 | uniq | tr '\n' ' ')"
+    steps_seen="$(grep '^step ' "$out" | sed 's/^\(step [0-9a]*:\).*/\1/' | uniq | tr '\n' ' ')"
     [ "$steps_seen" = "$1" ]
 }
 failed_status() { [ "$status" -ne 0 ]; }
@@ -467,6 +506,14 @@ published_apk_checked() {
 # Every case runs at the same time, because each is a process that starts a few hundred more.
 scenario; launch good
 scenario; record=1.2.3; launch same_version
+scenario; record=1.2.3; no_restart=1; launch same_version_no_restart
+scenario; no_restart=1; launch upgrade_does_not_restart
+scenario; stale_version=1; launch upgrade_restarts_into_the_old_version
+scenario; format=rpm; launch rpm_restarts
+scenario; format=apk; launch apk_restarts
+scenario; format=rpm; no_restart=1; launch rpm_does_not_restart
+scenario; format=apk; record=1.2.3; launch apk_same_version
+scenario; format=rpm; record=1.2.3; launch rpm_same_version
 scenario; record=none; launch nothing_published
 scenario; fail_on=check_links; launch file_check_fails
 scenario; fail_on="apt-get install"; launch baseline_install_fails
@@ -477,11 +524,15 @@ scenario; reinstalled="/etc/changed"; launch reinstall_changes_files
 scenario; fail_on="verify_markers_kept reinstall"; launch reinstall_loses_files
 scenario; format=rpm; launch rpm_holds_nothing
 scenario; format=apk; launch apk_holds_nothing
-scenario; fail_on="systemctl enable"; launch enable_fails
-scenario; fail_on=write_test_config; launch test_config_not_written
-scenario; fail_on=check_test_config; launch test_config_not_where_documented
-scenario; fail_on="systemctl start"; launch start_fails
-scenario; user=root; launch runs_as_root
+scenario; record=none; fail_on="systemctl enable"; launch enable_fails
+scenario; fail_on="systemctl enable"; launch baseline_enable_fails
+scenario; record=none; fail_on=write_test_config; launch test_config_not_written
+scenario; fail_on=write_test_config; launch baseline_test_config_not_written
+scenario; record=none; fail_on=check_test_config; launch test_config_not_where_documented
+scenario; record=none; fail_on="systemctl start"; launch start_fails
+scenario; fail_on="systemctl start"; launch baseline_start_fails
+scenario; record=none; user=root; launch runs_as_root
+scenario; user=root; launch baseline_runs_as_root
 scenario; fail_on="systemctl restart"; launch restart_fails
 scenario; fail_on=readlink; launch process_left_after_stop
 scenario; fail_on="systemctl disable"; launch disable_fails
@@ -519,13 +570,13 @@ scenario; format=rpm; firewalld=1; zones="public.xml public.xml.old"; launch zon
 scenario; format=rpm; firewalld=1; launch zones_missing
 scenario; format=rpm; firewalld=1; zones="public.xml.old"; launch one_zone_existed
 scenario; format=rpm; firewalld=1; port_open=1; launch port_stays_open
-scenario; format=rpm; firewalld=1; zones="public.xml public.xml.old"; fail_on="firewall-zones/public.xml.old"; launch zone_not_saved
+scenario; format=rpm; record=none; firewalld=1; zones="public.xml public.xml.old"; fail_on="firewall-zones/public.xml.old"; launch zone_not_saved
 wait
 
 use_case good
 expect "a good run passes" passed_status
-expect "the steps run in order: 0, 1, 2, 3, 4, 5, 7, 8, 9" \
-    steps_run 'step 0: step 1: step 2: step 3: step 4: step 5: step 7: step 8: step 9: '
+expect "the steps run in order: 0, 1, 1a, 2, 3, 4, 5, 7, 8, 9" \
+    steps_run 'step 0: step 1: step 1a: step 2: step 3: step 4: step 5: step 7: step 8: step 9: '
 expect "the key is in place for the install of the published file only" \
     in_order "install -m 0644 /keys/splicefs.asc /etc/apt/keyrings/splicefs.asc" "apt-get install -y -qq /pkg/server/published/" "rm -f /etc/apt/keyrings/splicefs.asc"
 expect "the first snapshot is taken before the published package is installed" \
@@ -540,6 +591,22 @@ expect "the service is enabled, configured, started, restarted, the container re
     "systemctl stop" "systemctl disable" "apt-get remove" "apt-get purge"
 expect "the test configuration is checked where the documentation says before the service starts" \
     in_order write_test_config check_test_config "systemctl start"
+# The published package's service runs before the upgrade (step 1a), with the same functions steps 3 and 4 use,
+# so those two steps find it enabled, configured and running and do not do it again.
+expect "step 1a turns the published package's service on after step 1 and before the new package goes over it" \
+    in_order "apt-get install -y -qq /pkg/server/published/" "systemctl enable" write_test_config "systemctl start" \
+    "sh deb v1.2.2 v1.2.3 file /pkg/server/splicefs-server_1.2.3_amd64.deb"
+expect "step 1a notes the version the health endpoint reports and the process id" \
+    holds "ok: the service runs as process 4242 and reports v1.2.2"
+expect "the service is enabled once, configured once and started once: steps 3 and 4 do not do it again" \
+    sh -c "[ \"\$(grep -c 'systemctl enable' '$dir/log')\" -eq 1 ] && [ \"\$(grep -c write_test_config '$dir/log')\" -eq 1 ] && [ \"\$(grep -c 'systemctl start' '$dir/log')\" -eq 1 ]"
+expect "step 3 finds the service enabled and its test configuration where the documentation says" \
+    holds "ok: the service is still enabled and its test configuration is where the documentation says"
+expect "step 4 finds the service running as its own user and answering" holds "ok: the service is still running"
+expect "step 2 finds the service restarted by the package: a new process that reports the new version" \
+    holds "ok: the package restarted the service (process 4242, then 4243), which reports v1.2.3"
+expect "step 2 does not ask for an idle service: it ran before the package went over it" \
+    lacks "ok: installed, not enabled and not running"
 expect "the service runs as its own user" holds "ok: runs as splicefs"
 expect "the health endpoint answers from inside, and the line says so" holds "ok: answers 200 on /api/v1/health from inside"
 expect "no line of the steps says from outside: only the host asks from outside" sh -c "! grep -q 'from outside' '$out'"
@@ -599,11 +666,39 @@ expect "a published file of the same version passes" passed_status
 expect "the same version is put over the published one with the reinstall, and again over itself" \
     sh -c "[ \"\$(grep -c 'sh deb v1.2.3 v1.2.3 file' '$dir/log')\" -eq 2 ]"
 
+use_case same_version_no_restart
+expect "a package of the published version that leaves the running service alone fails step 2" failed_in 2
+expect "the missing restart is named" holds "the upgrade did not start a new process of the service: it still runs as process 4242"
+use_case upgrade_does_not_restart
+expect "an upgrade that leaves the running service in its old process fails step 2" failed_in 2
+expect "that stops the run: no step 3" lacks "step 3:"
+use_case upgrade_restarts_into_the_old_version
+expect "an upgrade whose restarted service reports the old version fails step 2" failed_in 2
+expect "the versions are named" holds "after the upgrade the service reports v1.2.2, not the new v1.2.3"
+use_case rpm_restarts
+expect "an rpm upgrade restarts the running service" holds "ok: the package restarted the service"
+use_case apk_restarts
+expect "an apk upgrade restarts the running service" holds "ok: the package restarted the service"
+use_case apk_same_version
+expect "an apk reinstall of the same version restarts the running service, as an upgrade does" \
+    holds "ok: the package restarted the service (process 4242, then 4243), which reports v1.2.3"
+use_case rpm_same_version
+expect "an rpm reinstall of the same version restarts the running service, as an upgrade does" \
+    holds "ok: the package restarted the service (process 4242, then 4243), which reports v1.2.3"
+use_case rpm_does_not_restart
+expect "an rpm upgrade that does not restart the running service fails step 2" failed_in 2
+
 use_case nothing_published
 expect "a run with nothing published passes" passed_status
 expect "the steps run in order with nothing published" \
-    steps_run 'step 0: step 1: step 2: step 3: step 4: step 5: step 7: step 8: step 9: '
+    steps_run 'step 0: step 1: step 1a: step 2: step 3: step 4: step 5: step 7: step 8: step 9: '
 expect "step 1 says nothing is published" holds "nothing is published for server"
+expect "step 1a says the upgrade under a running service is not tested" \
+    holds "nothing is published for server: the upgrade under a running service is not tested"
+expect "step 2 asks for an idle service: nothing ran before the package was installed" \
+    holds "ok: installed, not enabled and not running"
+expect "steps 3 and 4 turn the service on and start it, once" \
+    sh -c "[ \"\$(grep -c 'systemctl enable' '$dir/log')\" -eq 1 ] && [ \"\$(grep -c 'systemctl start' '$dir/log')\" -eq 1 ] && ! grep -q 'the service is still' '$out'"
 expect "no published file is installed" sh -c "! grep -q '/published/' '$dir/log'"
 expect "the new file is installed, and the configuration file and the data file are written" \
     in_order "apt-get install -y -qq /pkg/server/splicefs-server_1.2.3_amd64.deb" "write_markers deb" "sh deb v1.2.3 v1.2.3 file"
@@ -721,6 +816,16 @@ expect "the change is shown" holds "/etc/changed"
 use_case reinstall_loses_files
 expect "a reinstall that loses the configuration or the data fails step 2" failed_in 2
 
+use_case baseline_enable_fails
+expect "a failing enable command of the published package's service is step 1a" failed_in 1a
+expect "that stops the run: the new package is not put over it" lacks "step 2:"
+use_case baseline_test_config_not_written
+expect "a test configuration that cannot be written for the published package's service is step 1a" failed_in 1a
+use_case baseline_start_fails
+expect "a failing start of the published package's service is step 1a" failed_in 1a
+expect "that stops the run: the new package is not put over it" lacks "step 2:"
+use_case baseline_runs_as_root
+expect "a published package's service that runs as another user fails step 1a" failed_in 1a
 use_case enable_fails
 expect "a failing enable command is step 3" failed_in 3
 expect "that stops the run: no start" lacks "step 4:"
@@ -790,7 +895,7 @@ expect "the checksum of a file whose name starts with core is no path of a core"
 use_case both
 expect "a run of both programs passes" passed_status
 expect "the steps run in order, each once for the boot" \
-    steps_run 'step 0: step 1: step 2: step 3: step 4: step 5: step 7: step 8: step 9: '
+    steps_run 'step 0: step 1: step 1a: step 2: step 3: step 4: step 5: step 7: step 8: step 9: '
 expect "neither program is left out" lacks "no packages, left out"
 expect "the baseline and the new package are put in for the server, then for the client" \
     in_order "apt-get install -y -qq /pkg/server/published/splicefs-server_1.2.2_amd64.deb" \
@@ -802,14 +907,14 @@ expect "each program is installed over itself: the server and the client, each w
     "sh deb v1.4.0 v1.4.0 file /pkg/client/splicefs-client_1.4.0_amd64.deb"
 expect "the client's own file checks run" sh -c "[ \"\$(grep -c 'check_extras' '$dir/log')\" -eq 4 ]"
 expect "each step runs for the server, then for the client" \
-    lines_in_order "step 1: server: " "step 1: client: " "step 2: server: " "step 2: client: " \
+    lines_in_order "step 1: server: " "step 1: client: " "step 1a: server: " "step 1a: client: " "step 2: server: " "step 2: client: " \
     "step 3: server: " "step 3: client: " "step 4: server: " "step 4: client: " "step 9: server: the package" \
     "step 9: client: the package" "step 9: the documented removal" "step 9: server: what" "step 9: client: what" \
     "step 9: the system is as it was"
 expect "the service steps of the client wait for its certificate trust setting" \
-    sh -c "for n in 3 4 5 7 8; do grep -qx \"step \$n: client: service steps wait for the client's certificate trust setting\" '$out' || exit 1; done"
+    sh -c "for n in 1a 3 4 5 7 8; do grep -qx \"step \$n: client: service steps wait for the client's certificate trust setting\" '$out' || exit 1; done"
 expect "the service steps of the server run" \
-    sh -c "for n in 3 4 5 7 8; do grep -q \"^step \$n: server: \" '$out' || exit 1; done"
+    sh -c "for n in 1a 3 4 5 7 8; do grep -q \"^step \$n: server: \" '$out' || exit 1; done"
 expect "the service of the client is never enabled, started, restarted, stopped or disabled" \
     sh -c "! grep -q -e 'systemctl [a-z]* splicefs.service' -e 'systemctl [a-z]* --now splicefs.service' '$dir/log'"
 expect "a test configuration is written once, for the server" sh -c "[ \"\$(grep -c 'write_test_config' '$dir/log')\" -eq 1 ]"
@@ -823,9 +928,9 @@ expect "the test data is removed once" sh -c "[ \"\$(grep -c 'remove_test_data' 
 
 use_case client_only
 expect "a run of the client alone passes" passed_status
-expect "the steps run in order" steps_run 'step 0: step 1: step 2: step 3: step 4: step 5: step 7: step 8: step 9: '
+expect "the steps run in order" steps_run 'step 0: step 1: step 1a: step 2: step 3: step 4: step 5: step 7: step 8: step 9: '
 expect "the client's service steps wait" \
-    sh -c "for n in 3 4 5 7 8; do grep -qx \"step \$n: client: service steps wait for the client's certificate trust setting\" '$out' || exit 1; done"
+    sh -c "for n in 1a 3 4 5 7 8; do grep -qx \"step \$n: client: service steps wait for the client's certificate trust setting\" '$out' || exit 1; done"
 expect "nothing is configured, started or stopped" \
     sh -c "! grep -q -e 'write_test_config' -e 'systemctl enable' -e 'systemctl start' -e 'systemctl stop' '$dir/log'"
 expect "the published client file is installed, then the new one" \
