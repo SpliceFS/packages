@@ -170,7 +170,7 @@ package-freebsd: freebsd-kvm package-inputs keys ## Builds and checks the FreeBS
 # the documentation says, and must find the system as it was (scripts/freebsd-package-test.sh). It
 # needs Docker and KVM. FREEBSD=15.1 limits the run to one release.
 package-test-freebsd: freebsd-kvm ## Runs the package test in a FreeBSD machine of every release (FREEBSD=15.1 for one)
-	$(TEST_VARS) FREEBSD_IMAGE=$(FREEBSD_IMAGE) FREEBSD=$(FREEBSD) scripts/freebsd-package-test.sh
+	VERSION=$(VERSION) FREEBSD_IMAGE=$(FREEBSD_IMAGE) FREEBSD=$(FREEBSD) scripts/freebsd-package-test.sh
 
 # First in every target that starts a FreeBSD machine, so that a computer that cannot is found
 # before anything is built.

@@ -129,13 +129,43 @@ jobs:
       - name: Install, upgrade, run and remove both programs in a clean system of every release
         run: make package-test ONLY="$FORMAT"
 
+  # The package test (scripts/freebsd-package-test.sh) on FreeBSD, for both programs in one machine of
+  # each release of packaging/freebsd/releases, which boots twice because the machine has no channel to
+  # the host while it runs: install the published packages of both, put the new ones over them, enable
+  # and start the services, restart the machine, stop, disable, remove as the documentation says, and find
+  # the system as it was. It takes the package files that the FreeBSD jobs of the two calls above kept
+  # (check-packages.yml), so it starts when both are done. The machine is amd64 and needs the hardware
+  # virtualization that ubuntu-latest offers.
+  package-test-freebsd:
+    name: Package test of both programs (FreeBSD ${{ matrix.release }})
+    needs: [changes, packages-server, released-server, released-client]
+    if: contains(fromJSON(needs.changes.outputs.groups), 'freebsd')
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        release: ${{ fromJSON(needs.packages-server.outputs.freebsd-releases) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: freebsd-packages-server-${{ matrix.release }}
+          path: dist/server
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: freebsd-packages-client-${{ matrix.release }}
+          path: dist/client
+      - name: Install, upgrade, run and remove both programs in a FreeBSD machine
+        run: make package-test-freebsd FREEBSD=${{ matrix.release }}
+
   # The one check a branch must pass. A skipped job passes: it is skipped when the change cannot
   # affect its group, or when a job it needs did not succeed, which that job's own result fails.
   # A failed or cancelled job fails. A new job is added to the list when it is added above, and
   # nowhere else. The other workflows of this repository are separate runs and are not in it.
   all-checks:
     name: All checks
-    needs: [changes, check, version-order, packages-server, packages-client, released-server, released-client, package-test]
+    needs: [changes, check, version-order, packages-server, packages-client, released-server, released-client, package-test, package-test-freebsd]
     if: ${{ always() }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
