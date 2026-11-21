@@ -1,5 +1,5 @@
 # shellcheck shell=sh
-# Sourced inside a system a package is installed in (scripts/package-test.sh, through docker exec). It is the
+# Sourced inside a system a package is installed in (scripts/package-test-steps.sh). It is the
 # one place that says how the new package is put over the installed one.
 #
 # A change to the packaging alone is tested with the programs of the latest release, which is

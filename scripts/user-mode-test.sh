@@ -31,6 +31,9 @@ cd "$root"
 . scripts/package-record.sh
 use_recorded_version
 . scripts/package-lib.sh
+# The adapters of the package formats run their commands in the container with docker exec.
+# shellcheck source=service-run-container.sh
+. scripts/service-run-container.sh
 # shellcheck source=server-fixture-lib.sh
 . scripts/server-fixture-lib.sh
 

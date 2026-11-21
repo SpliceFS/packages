@@ -1,7 +1,7 @@
 # shellcheck shell=sh
-# answers_text is read by scripts/package-test.sh, which sources this file.
+# answers_text is read by scripts/package-test-steps.sh, which sources this file.
 # shellcheck disable=SC2034
-# Sourced by scripts/package-test.sh and scripts/service-test-host.sh. It says what "the service
+# Sourced by scripts/package-test-steps.sh and scripts/service-test-host.sh. It says what "the service
 # works" means for this program; everything else in the service test is the same for every program.
 
 # The default listener of the server (docs/configuration.md): every interface, TLS with a
@@ -9,35 +9,49 @@
 # and the health endpoint is /v1/health (api/routes.go).
 port=8480
 health_path=/api/v1/health
-answers_text="answers 200 on $health_path from outside"
+answers_text="answers 200 on $health_path from inside"
 
 # program and defs are set by scripts/package-lib.sh before it sources this file.
 # shellcheck disable=SC2154
 expected_user="$(sed -n 's/^User=//p' "$defs/systemd/$program.service")"
 [ -n "$expected_user" ] || fail "$defs/systemd/$program.service sets no User"
 
-# Extra options for docker run: the port is published on a free port of the host.
-run_options() {
-    printf '%s' "-p 127.0.0.1::$port"
-}
-
-# Status 0 when the health endpoint answers 200 on the port $1 of this machine. Only the answer
-# counts: Docker accepts the connection on the host even when nothing listens inside.
+# Status 0 when the health endpoint answers 200 on the address $1 and port $2. Only the answer
+# counts: a port that accepts a connection says nothing about what listens behind it. The
+# certificate is not verified: the server made it for itself. Systems differ in what they have to
+# talk HTTPS with, so the first of these that exists is used: curl, openssl, wget (busybox, on
+# Alpine).
 health_answers() {
-    code="$(curl -sk -o /dev/null -w '%{http_code}' --max-time 3 \
-        "https://127.0.0.1:$1$health_path" || true)"
-    [ "$code" = 200 ]
+    if command -v curl >/dev/null 2>&1; then
+        code="$(curl -sk -o /dev/null -w '%{http_code}' --max-time 3 "https://$1:$2$health_path" || true)"
+        [ "$code" = 200 ]
+    elif command -v openssl >/dev/null 2>&1; then
+        # HTTP/1.0 makes the server close the connection after the answer, which ends s_client.
+        printf 'GET %s HTTP/1.0\r\nHost: %s\r\n\r\n' "$health_path" "$1" |
+            timeout 3 openssl s_client -quiet -connect "$1:$2" 2>/dev/null | head -n 1 | grep -q ' 200 '
+    else
+        wget -q -T 3 -O /dev/null --no-check-certificate "https://$1:$2$health_path" 2>/dev/null
+    fi
 }
 
-# The same, asked from the host of the container $1. The published port can change when the
-# container restarts, so it is looked up every time.
+# The IPv4 address of this system that is not a loopback one: the name of the system resolves to it
+# (the container runtime and every installer write the name into /etc/hosts), and the server listens
+# on every interface, so a request to it comes in through a real interface and not through lo. getent
+# hosts is not used: on some systems it answers with ::1 for the name of the system.
+own_address() {
+    # A name that does not resolve gives no address, and the caller treats that as the answer.
+    # shellcheck disable=SC2312
+    getent ahostsv4 "$(uname -n)" | awk '$1 !~ /^127\./ { print $1; exit }'
+}
+
+# The same, asked inside the system that runs the service, which the argument names and does not
+# need: the server must listen beyond the loopback address.
 answers() {
-    mapping="$(docker port "$1" "$port/tcp")" || return 1
-    hostport="$(printf '%s\n' "$mapping" | head -n 1 | sed 's/.*://')" || return 1
-    health_answers "$hostport"
+    address="$(own_address)"
+    [ -n "$address" ] && health_answers "$address" "$port"
 }
 
 # The same on the machine that runs the service itself, where the port is the port it listens on.
 answers_here() {
-    health_answers "$port"
+    health_answers 127.0.0.1 "$port"
 }

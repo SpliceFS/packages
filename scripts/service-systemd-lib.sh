@@ -1,12 +1,13 @@
 # shellcheck shell=sh
-# The service functions of scripts/package-test.sh (see the steps there) for a system whose
+# The service functions of scripts/package-test-steps.sh (see the steps there) for a system whose
 # service manager is systemd: the containers of the deb and rpm formats and the machine of CI.
 # Sourced by the adapters of those (scripts/service-test-<format>.sh and
 # scripts/service-test-host-deb.sh) after scripts/package-lib.sh, which says what $program is,
-# and after the functions that say where a command runs, which differ between a container and
-# the machine itself:
+# and after the functions that say where a command runs, which differ between a script on the host
+# of a container, a script inside the system and the machine itself:
 #   on_system SYSTEM COMMAND [ARGUMENT...]          runs the command as an ordinary user
 #   on_system_as_root SYSTEM COMMAND [ARGUMENT...]  runs the command as root
+# (scripts/service-run-container.sh, scripts/service-run-local.sh, scripts/service-test-host-deb.sh)
 # SYSTEM is the first argument that the checks of scripts/service-check-lib.sh pass on.
 # $program is set by package-lib.sh, which ShellCheck cannot follow.
 # shellcheck disable=SC2154

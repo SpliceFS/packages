@@ -215,15 +215,15 @@ apk-resign-test: built-apk-packages ## Checks that Alpine packages signed again 
 # One boot of a clean server of every system listed in packaging/test-systems, all at the same
 # time: the package files of every program in dist (server and client) are installed with the
 # system's package manager and checked, then removed as the documentation says, and the system must
-# be as it was (scripts/package-test.sh lists the steps, among them the upgrade from the newest
-# published package and the service). A program with no packages in dist is left out, so PROGRAM
+# be as it was (scripts/package-test-steps.sh lists the steps, among them the upgrade from the newest
+# published package and the service; scripts/package-test.sh runs them inside each system). A program with no packages in dist is left out, so PROGRAM
 # needs no value: every program that has a folder in dist is checked to hold packages of every
 # format, and tested.
 package-test: ## Installs, upgrades, runs and removes the package files on every server image (ONLY=deb or an image for one)
 	@for p in server client; do \
 		[ ! -d "dist/$$p" ] || $(MAKE) --no-print-directory built-packages PROGRAM=$$p || exit 1; \
 	done
-	$(TEST_VARS) scripts/package-test.sh
+	$(TEST_VARS) GO_IMAGE=$(GO_IMAGE) scripts/package-test.sh
 
 # Installs the Debian package of the program on this machine itself and proves the service there
 # with the checks of the package test, except the reboot, then removes the package again. A CI runner
