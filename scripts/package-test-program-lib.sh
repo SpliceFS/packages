@@ -29,6 +29,42 @@ save_baseline_version() {
     mv "$baseline_file.new" "$baseline_file"
 }
 
+# A program that mounts from the server of the same system (its service check says it needs the cluster
+# certificate) has nothing to mount from in a run without packages of the server: the newest published server
+# is its fixture, installed in step 3. Sets $fixtures to the programs of the run that are no program under test
+# but a fixture (empty, or server), for the programs in $present.
+choose_fixtures() {
+    fixtures=""
+    case " $present " in
+        *" server "*) return 0 ;;
+        *) ;;
+    esac
+    for mounting_program in $present; do
+        use_program "$mounting_program"
+        if [ "${needs_cluster_certificate:-no}" = yes ]; then fixtures=server; fi
+    done
+}
+
+# Writes the record of each fixture, which names the newest published version as its version, in the folder of
+# the records (record_folder): the fixture is a published package that is no build, so make packages made no
+# record for it. The host fetches and proves its file like a baseline.
+write_fixture_records() {
+    for fixture_program in $fixtures; do
+        fixture_newest="$(sh scripts/published-newest.sh "$fixture_program")" ||
+            fail "could not read the newest published package of $fixture_program from $site_root"
+        [ "$fixture_newest" != "$nothing_published" ] ||
+            fail "no package of $fixture_program is published and dist/$fixture_program has none: the $present has no $fixture_program to mount from"
+        mkdir -p "$(dirname "$(record_file "$fixture_program")")"
+        (
+            PROGRAM="$fixture_program"
+            VERSION="$(package_release_of_debver "$fixture_newest")"
+            UPGRADE_FROM="$fixture_newest"
+            write_package_record
+        )
+        echo "$fixture_program: no packages; the newest published $fixture_program ($fixture_newest) is the fixture of the $present"
+    done
+}
+
 # Sets $from (empty when nothing is published), and PUBLISHED_VERSION, which the scripts that run in
 # the steps read: the program version of the published package, or the new one when there is none.
 set_baseline() {

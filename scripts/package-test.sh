@@ -121,7 +121,8 @@ for copied in $present; do
 done
 record_folder="$repository_copy/dist"
 
-# The programs that are no program under test, only the published package a program under test needs (below).
+# The programs that are no program under test, only the published package a program under test needs
+# (choose_fixtures).
 fixtures=""
 
 # The folder of the host that is mounted at /pkg/PROGRAM: the packages of dist for a program under test, and
@@ -269,34 +270,12 @@ test_system() {
 # step below uses (fail, must, system_selected, boot_system).
 use_program "${present%% *}"
 
-# A program that mounts from the server of the same system (its service check says it needs the cluster
-# certificate) has nothing to mount from in a run without packages of the server: the newest published
-# server package is installed in step 3 as its fixture. The fixture is fetched and proven like a baseline
-# and mounted at /pkg/PROGRAM, and its record, which names the published version as its version, is
-# written in the copy of the repository, the one place no build is needed for.
-case " $present " in
-    *" server "*) ;;
-    *)
-        for mounting_program in $present; do
-            use_program "$mounting_program"
-            if [ "${needs_cluster_certificate:-no}" = yes ]; then fixtures=server; fi
-        done
-        ;;
-esac
-for fixture_program in $fixtures; do
-    fixture_newest="$(sh scripts/published-newest.sh "$fixture_program")" ||
-        fail "could not read the newest published package of $fixture_program from $site_root"
-    [ "$fixture_newest" != "$nothing_published" ] ||
-        fail "no package of $fixture_program is published and dist/$fixture_program has none: the $present has no $fixture_program to mount from"
-    mkdir -p "$record_folder/$fixture_program"
-    (
-        PROGRAM="$fixture_program"
-        VERSION="$(package_release_of_debver "$fixture_newest")"
-        UPGRADE_FROM="$fixture_newest"
-        write_package_record
-    )
-    echo "$fixture_program: no packages; the newest published $fixture_program ($fixture_newest) is the fixture of the $present"
-done
+# A program that mounts from the server of the same system has nothing to mount from in a run without packages
+# of the server: the newest published server is installed in step 3 as its fixture (choose_fixtures). The
+# fixture is fetched and proven like a baseline and mounted at /pkg/PROGRAM, and its record is written in the
+# copy of the repository, the one place no build is needed for.
+choose_fixtures
+write_fixture_records
 
 systems="$(cat packaging/test-systems)"
 selected=""
