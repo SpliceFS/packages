@@ -50,7 +50,7 @@ test_system() {
     if boot_system --name "$container" --platform "$platform" \
         -e PROGRAM -e VERSION -e PACKAGE_DATE -v "$root":/src:ro $mounts -w /src "$2" >"$log" 2>&1 &&
         wait_booted "$1" "$container" >>"$log" 2>&1 &&
-        docker exec "$container" sh "scripts/repo-test-$1.sh" /out >>"$log" 2>&1; then
+        docker exec -e FORMAT="$1" "$container" sh "scripts/repo-test-$1.sh" /out >>"$log" 2>&1; then
         echo "ok   $1 $2"
         result=0
     else
