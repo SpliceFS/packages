@@ -2,7 +2,7 @@
 # Builds dist/site from the redirect page, the script template and the public keys.
 # Variables: KEYS_DIR (default keys, relative to the caller's folder), BASE_URL (default
 # https://packages.splicefs.org), OPENPGP_FINGERPRINT (the pinned primary key fingerprint),
-# SITE_DIR (output folder, default dist/site; the lifecycle test builds elsewhere).
+# SITE_DIR (output folder, default dist/site; the tests that build a site of their own name another).
 set -eu
 
 DEFAULT_URL='https://packages.splicefs.org'

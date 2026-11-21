@@ -1,5 +1,5 @@
 #!/bin/sh
-# check: service-test-upgrade.sh: the service test puts the package file over the installed one with the system's package manager, and checks the signature of a published rpm
+# check: service-test-upgrade.sh: the service adapters put the package file over the installed one with the system's package manager, and checks the signature of a published rpm
 # Test of the upgrade_package function of scripts/service-test-deb.sh and scripts/service-test-rpm.sh,
 # and of install_published_package and remove_package of the rpm one.
 # docker is a stand-in that runs the command it is given here, and the package managers are stand-ins

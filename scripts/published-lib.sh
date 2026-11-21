@@ -1,6 +1,6 @@
 # shellcheck shell=sh
 # What the scripts that read the package site have in common (scripts/published-newest.sh,
-# scripts/upgrade-test.sh, scripts/lifecycle-repo.sh): where the site is, what the published files are called and where
+# scripts/package-test.sh): where the site is, what the published files are called and where
 # they are, and how they are downloaded and proven. What people have installed is what the site serves, so
 # nothing here asks GitHub. Sourced after scripts/package-lib.sh (or scripts/program-conf.sh for the
 # scripts that only read the index), which says what the program and its versions are called. The

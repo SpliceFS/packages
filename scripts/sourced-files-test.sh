@@ -91,7 +91,7 @@ exactly "this repository passes" 0 "every sourced file exists"
 mv "$work/tree/scripts/package-lib.sh" "$work/package-lib.sh"
 check
 holds "a library that scripts source is removed: each script is named" 1 \
-    "scripts/package-apk.sh:" "scripts/lifecycle-test.sh:" \
+    "scripts/package-apk.sh:" "scripts/fstab-test.sh:" \
     "sources scripts/package-lib.sh, which does not exist"
 if grep -v -F "sources scripts/package-lib.sh, which does not exist" "$work/out"; then
     echo "FAIL a library that is removed: only its own users are named"

@@ -206,8 +206,8 @@ built-packages: built-apk-packages ## Stops unless dist/PROGRAM holds packages o
 package-order-test: ## Checks that package versions sort right in dpkg, rpm and apk (needs Docker)
 	scripts/package-order-test.sh
 
-# Signs the Alpine packages of dist/PROGRAM again with a new key (scripts/apk-resign.sh, which the
-# lifecycle test uses) and checks that apk accepts them with that key and refuses them without it.
+# Signs the Alpine packages of dist/PROGRAM again with a new key (scripts/apk-resign.sh, which only this
+# test runs now) and checks that apk accepts them with that key and refuses them without it.
 # CI runs it in the Alpine jobs of test-packages.yml, where the Alpine packages are.
 apk-resign-test: built-apk-packages ## Checks that Alpine packages signed again are trusted with the new key only
 	PROGRAM=$(PROGRAM) APK_IMAGE=$(APK_IMAGE) scripts/apk-resign-test.sh
@@ -215,23 +215,18 @@ apk-resign-test: built-apk-packages ## Checks that Alpine packages signed again 
 # One boot of a clean server of every system listed in packaging/test-systems, all at the same
 # time: the package files of every program in dist (server and client) are installed with the
 # system's package manager and checked, then removed as the documentation says, and the system must
-# be as it was (scripts/package-test.sh lists the steps). A program with no packages in dist is left out.
-package-test: built-packages ## Installs the package files and removes them again on every server image (ONLY=deb or an image for one)
+# be as it was (scripts/package-test.sh lists the steps, among them the upgrade from the newest
+# published package and the service). A program with no packages in dist is left out, so PROGRAM
+# needs no value: every program that has a folder in dist is checked to hold packages of every
+# format, and tested.
+package-test: ## Installs, upgrades, runs and removes the package files on every server image (ONLY=deb or an image for one)
+	@for p in server client; do \
+		[ ! -d "dist/$$p" ] || $(MAKE) --no-print-directory built-packages PROGRAM=$$p || exit 1; \
+	done
 	$(TEST_VARS) scripts/package-test.sh
 
-# Proves the service, not only the files: in a container per system that is booted as a server,
-# with that system's own service manager as process 1, installs the package and checks that it
-# is neither enabled nor running, then starts it with the documented commands and checks that it
-# runs as its own user, does its job (what that means is in programs/PROGRAM/service-check.sh),
-# restarts and comes back after a reboot. An upgrade restarts a running service and leaves a
-# stopped one stopped; removing the package stops and disables it; a new install after that is
-# idle again.
-.PHONY: service-test
-service-test: built-packages ## Proves the service installs idle, starts when told, restarts, upgrades and stops
-	$(TEST_VARS) scripts/service-test.sh
-
 # Installs the Debian package of the program on this machine itself and proves the service there
-# with the checks of service-test, except the reboot, then removes the package again. A CI runner
+# with the checks of the package test, except the reboot, then removes the package again. A CI runner
 # is a whole machine that booted the normal way, which no container is. It changes the machine, so
 # the script refuses to run outside CI. It needs the deb package in dist/PROGRAM and sudo.
 .PHONY: service-test-host
@@ -256,61 +251,17 @@ fstab-test: built-apk-packages ## Proves an fstab line is mounted by OpenRC on e
 user-mode-test: built-packages ## Proves an ordinary user can run the client and mount (needs SERVER_BIN)
 	$(TEST_VARS) SERVER_BIN=$(SERVER_BIN) scripts/user-mode-test.sh
 
-# The part of the upgrade test that decides whether the packaging changed, checked against small
-# hand-made package listings. It needs no Docker, so it is part of check.
-.PHONY: upgrade-diff-test upgrade-test
-upgrade-diff-test: ## Checks, without Docker, how the upgrade test decides that the packaging changed
-	scripts/upgrade-diff-test.sh
-
-# Installs the newest package of the program that was published when the packages were built
-# (UPGRADE_FROM of make packages; the newest on the package site when it is empty),
-# downloaded from the site, in a clean, booted server of the first system of each format in
-# packaging/test-systems, writes a configuration line and a data file, and installs the packages in
-# dist/PROGRAM over it, the way a user upgrades. It checks that both survived, the service user
-# exists, the new version is installed and every file the new package lists is there. It runs only
-# for a format whose packaging changed since that package: a version that differs only in the
-# programs and the changelog cannot break an upgrade. When the packaging changed and the version is
-# the published one, the new package is reinstalled over the old one (scripts/upgrade-package-lib.sh).
-# It needs Docker and the network.
-upgrade-test: built-packages ## Upgrades from the newest published package to dist/PROGRAM, when the packaging changed
-	$(TEST_VARS) scripts/upgrade-test.sh
-
-# The whole life of the packages in one booted server per system of packaging/test-systems: our
-# repository is set up with setup.sh, the newest published package of the server and the client is
-# installed from it, upgraded to the new packages, removed, installed again, removed, and the
-# repository taken away with setup.sh --remove; the system must then match the one it started as
-# (what is left out is in scripts/lifecycle-excluded). It needs the new packages of both
-# programs in dist/server and dist/client (make packages for each), Docker and the network.
-# ONLY limits it to one format or one image; PLATFORM is as for the other tests.
-.PHONY: lifecycle-repo lifecycle-test
-lifecycle-repo: ## Builds the repositories the lifecycle test installs from, for both programs
-	$(MAKE) built-packages PROGRAM=server
-	$(MAKE) built-packages PROGRAM=client
-	$(MAKE) keys
-	for p in server client; do \
-		PROGRAM=$$p PLATFORM=$(PLATFORM) scripts/lifecycle-repo.sh && \
-		scripts/part.sh apk-resign $(REPO_RUN) $(APK_IMAGE) sh scripts/apk-resign.sh /repo/dist/lifecycle/$$p && \
-		$(MAKE) repo PROGRAM=$$p REPO_DIR=dist/lifecycle/$$p || exit 1; \
-	done
-
-lifecycle-test: lifecycle-repo ## Runs the whole life of the packages, from setup.sh to removal, on every system
-	PROGRAM=server PLATFORM=$(PLATFORM) ONLY=$(ONLY) scripts/lifecycle-test.sh
-
 # Signed package repositories in dist/PROGRAM/repo, made from the packages make packages left in
 # dist/PROGRAM (it builds none). Keys come from scripts/signing-keys.sh, which is the one place
 # that picks real or throwaway keys. Each format runs in the image of its own distribution's
 # tools, with the keys mounted read-only.
 REPO_RUN = docker run --rm --user "$(shell id -u):$(shell id -g)" $(KEYS_MOUNT) -v "$(CURDIR)":/repo -w /repo
 
-#   REPO_DIR  the folder that holds the packages and receives the repository in REPO_DIR/repo;
-#             dist/PROGRAM unless the lifecycle test makes a repository of its own.
-REPO_DIR ?= dist/$(PROGRAM)
-
 .PHONY: repo repo-test
 repo: built-packages keys ## Builds the signed apt, rpm and Alpine repositories into dist/PROGRAM/repo
-	scripts/part.sh repo-apt $(REPO_RUN) $(GO_IMAGE) sh scripts/repo-apt.sh /repo/$(REPO_DIR)
-	scripts/part.sh repo-rpm $(REPO_RUN) $(RPM_IMAGE) sh scripts/repo-rpm.sh /repo/$(REPO_DIR)
-	scripts/part.sh repo-apk $(REPO_RUN) $(APK_IMAGE) sh scripts/repo-apk.sh /repo/$(REPO_DIR)
+	scripts/part.sh repo-apt $(REPO_RUN) $(GO_IMAGE) sh scripts/repo-apt.sh /repo/$(PACKAGE_OUT)
+	scripts/part.sh repo-rpm $(REPO_RUN) $(RPM_IMAGE) sh scripts/repo-rpm.sh /repo/$(PACKAGE_OUT)
+	scripts/part.sh repo-apk $(REPO_RUN) $(APK_IMAGE) sh scripts/repo-apk.sh /repo/$(PACKAGE_OUT)
 
 # Installs from the repository on every system in packaging/test-systems with signature checks
 # on, and checks that a damaged repository is refused.

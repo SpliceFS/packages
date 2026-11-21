@@ -3,8 +3,8 @@ name: Build packages
 
 # Builds the deb, rpm and Alpine packages of a SpliceFS program and the signed repositories, on
 # amd64 and arm64, and says what was packaged. package-and-test.yml calls it and then tests what
-# it built; the CI of this repository calls it too, for both programs, so that the lifecycle
-# test starts as soon as the packages exist and does not wait for the tests of each package.
+# it built; the CI of this repository calls it too, for both programs, so that the package test of
+# both programs starts as soon as the packages exist and does not wait for the tests of each package.
 # The call ends when the packages are in the artifacts packages-<program>-<arch>. Every key is
 # a throwaway key made in the run (see package-and-test.yml for the inputs).
 on:

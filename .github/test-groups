@@ -8,7 +8,7 @@
 # rpm       the rpm packages, the same
 # apk       the Alpine packages, the same
 # freebsd   the FreeBSD packages, built and checked in a machine of each release
-#           (deb, rpm and apk are tested with the lifecycle test and the version order too: ci.yml)
+#           (deb, rpm and apk are tested with the package test of both programs and the version order too: ci.yml)
 # install   the setup script run on every system and on FreeBSD, against the published site
 #           (install-tests.yml). It needs only the setup script, its own tests and its own
 #           workflow: it builds no package, so no change to a package can affect it.
@@ -49,7 +49,7 @@ packaging/service/systemd/*         deb rpm
 packaging/test-systems              deb rpm apk
 
 # What every format uses: the programs, the scripts, the Makefile, the manual steps that the
-# lifecycle and user mode tests run, the workflows, the actions, and the published keys that prove
+# package and user mode tests run, the workflows, the actions, and the published keys that prove
 # the release archives before they are packaged.
 programs/*                          deb rpm apk freebsd
 packaging/*                         deb rpm apk freebsd

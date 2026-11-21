@@ -122,10 +122,10 @@ if [ -z "$present" ]; then
 fi
 
 # The newest published package of the program, which step 1 installs and step 2 upgrades: the version
-# the record of the build names (the newest on the site when it names none), as scripts/upgrade-test.sh
-# reads it. The site is asked once for each program of the run, by the first call, before any system
-# starts, and the answer is kept in a file for the systems. Sets $from, empty when nothing is
-# published, and PUBLISHED_VERSION, which the scripts that run in the systems read.
+# the record of the build names (the newest on the site when it names none). The site is asked
+# once for each program of the run, by the first call, before any system starts, and the answer is
+# kept in a file for the systems. Sets $from, empty when nothing is published, and
+# PUBLISHED_VERSION, which the scripts that run in the systems read.
 set_baseline() {
     baseline_file="$work/baseline-$PROGRAM"
     if [ ! -f "$baseline_file" ]; then

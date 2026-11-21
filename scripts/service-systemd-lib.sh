@@ -1,5 +1,5 @@
 # shellcheck shell=sh
-# The service functions of scripts/service-test.sh (see the list there) for a system whose
+# The service functions of scripts/package-test.sh (see the steps there) for a system whose
 # service manager is systemd: the containers of the deb and rpm formats and the machine of CI.
 # Sourced by the adapters of those (scripts/service-test-<format>.sh and
 # scripts/service-test-host-deb.sh) after scripts/package-lib.sh, which says what $program is,

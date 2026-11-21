@@ -47,8 +47,8 @@ jobs:
   # proven by their signature, packaged with the definitions of this commit, and the packages
   # are tested on the server images. A change to a definition, a script or a test system
   # shows here before it reaches a release of a program. The build and the tests are two calls
-  # because the lifecycle test needs only the packages, and must not wait for the tests of each
-  # package. One call for each program, not a matrix: what a build says (the version, the
+  # because the package test of both programs together needs only the packages, and must not wait
+  # for the tests of each package. One call for each program, not a matrix: what a build says (the version, the
   # newest release) is the output of the job, and the output of a matrix is that of one leg.
   # The jobs that need these builds are skipped with them.
   packages-server:
@@ -77,6 +77,7 @@ jobs:
       program: server
       formats: ${{ needs.changes.outputs.formats }}
       freebsd: ${{ contains(fromJSON(needs.changes.outputs.groups), 'freebsd') }}
+      package-test: false
       source: ${{ toJSON(needs.packages-server.outputs) }}
 
   released-client:
@@ -87,21 +88,22 @@ jobs:
       program: client
       formats: ${{ needs.changes.outputs.formats }}
       freebsd: ${{ contains(fromJSON(needs.changes.outputs.groups), 'freebsd') }}
+      package-test: false
       source: ${{ toJSON(needs.packages-client.outputs) }}
 
-  # The whole life of the packages: set up the repository, install the published release of both
-  # programs, upgrade to the new packages, remove, install, uninstall as the documentation says,
-  # and find the system as it was. It needs the packages of the server and of the client in one
-  # run, and a call of package-and-test.yml or test-packages.yml holds one program, so the job is
-  # here, where both calls are known. It starts when both builds are done, not when their tests
-  # are. The packages are the ones of the jobs above; their build keys differ, which the test
-  # repository takes care of by signing again.
-  lifecycle:
-    name: Lifecycle (${{ matrix.format }}, ${{ matrix.arch }})
+  # The package test (scripts/package-test.sh) of both programs together, in one boot of each
+  # system: install the published packages of both, upgrade to the new ones, enable and start the
+  # services, restart, reboot, stop, disable, remove as the documentation says, and find the system
+  # as it was. It needs the packages of the server and of the client in one run, and a call of
+  # package-and-test.yml or test-packages.yml holds one program, so the job is here, where both
+  # calls are known (the calls above skip their own package test for that reason). It starts when
+  # both builds are done, not when their tests are.
+  package-test:
+    name: Package test of both programs (${{ matrix.format }}, ${{ matrix.arch }})
     needs: [changes, packages-server, packages-client]
     if: needs.changes.outputs.formats != '[]'
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 25
+    timeout-minutes: 40
     strategy:
       fail-fast: false
       matrix:
@@ -124,8 +126,8 @@ jobs:
         with:
           name: packages-client-${{ matrix.arch }}
           path: dist
-      - name: Install, upgrade, remove and uninstall in a clean system of every release
-        run: make lifecycle-test ONLY="$FORMAT"
+      - name: Install, upgrade, run and remove both programs in a clean system of every release
+        run: make package-test ONLY="$FORMAT"
 
   # The one check a branch must pass. A skipped job passes: it is skipped when the change cannot
   # affect its group, or when a job it needs did not succeed, which that job's own result fails.
@@ -133,7 +135,7 @@ jobs:
   # nowhere else. The other workflows of this repository are separate runs and are not in it.
   all-checks:
     name: All checks
-    needs: [changes, check, version-order, packages-server, packages-client, released-server, released-client, lifecycle]
+    needs: [changes, check, version-order, packages-server, packages-client, released-server, released-client, package-test]
     if: ${{ always() }}
     runs-on: ubuntu-latest
     timeout-minutes: 10

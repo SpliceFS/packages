@@ -1,5 +1,5 @@
 # shellcheck shell=sh
-# The checks of a running service, shared by scripts/service-test.sh and scripts/lifecycle-test.sh.
+# The checks of a running service, shared by scripts/package-test.sh and scripts/service-test-host.sh.
 # Sourced after scripts/package-lib.sh (which also has wait_for, must and refuse, the helpers
 # every test uses), the service check of the program (what "the service works" means) and the
 # functions of the package format (scripts/service-test-<format>.sh); the first argument of every
@@ -125,20 +125,6 @@ check_reboot() {
     must "the service is not active and answering 60 seconds after a reboot" \
         wait_for 60 active_and_answering "$1"
     echo "ok: active and answering after a reboot, because it was enabled"
-}
-
-# An upgrade restarts a service that was running, so that it runs the new files. The process id
-# changes only when it was restarted, which is how a restart is told from a service that was
-# left alone. The second argument is the function that upgrades, called with the container.
-check_upgrade_keeps_running() {
-    before="$(service_pid "$1")" || fail "cannot find the main process before the upgrade"
-    "$2" "$1" || fail "upgrading the package failed"
-    must "the service is not active and answering 20 seconds after an upgrade" \
-        wait_for 20 active_and_answering "$1"
-    after="$(service_pid "$1")" || fail "cannot find the main process after the upgrade"
-    [ "$after" != "$before" ] || fail "the upgrade did not restart the running service"
-    service_enabled "$1" || fail "the upgrade turned the service off"
-    echo "ok: an upgrade restarted the running service"
 }
 
 # A stopped service stays enabled, so that it comes back at the next boot: only the disable

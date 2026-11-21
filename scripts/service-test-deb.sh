@@ -1,5 +1,5 @@
 #!/bin/sh
-# Debian and Ubuntu (systemd) functions of scripts/service-test.sh; the file is sourced, so
+# Debian and Ubuntu (systemd) functions of scripts/package-test.sh; the file is sourced, so
 # it runs nothing itself. The service functions are those of scripts/service-systemd-lib.sh.
 # $name, $debver and $program come from scripts/package-lib.sh and $platform from the harness.
 # shellcheck disable=SC2154 # those variables are set by the file that sources this one

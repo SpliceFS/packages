@@ -1,5 +1,5 @@
 #!/bin/sh
-# Rocky Linux, Amazon Linux and openSUSE (systemd) functions of scripts/service-test.sh; the
+# Rocky Linux, Amazon Linux and openSUSE (systemd) functions of scripts/package-test.sh; the
 # file is sourced, so it runs nothing itself. The service functions are those of
 # scripts/service-systemd-lib.sh. $name, $rpmver and $program come from scripts/package-lib.sh
 # and $platform from the harness.

@@ -1,5 +1,5 @@
 #!/bin/sh
-# Alpine (OpenRC) functions of scripts/service-test.sh; the file is sourced, so it runs
+# Alpine (OpenRC) functions of scripts/package-test.sh; the file is sourced, so it runs
 # nothing itself. $name, $apkver and $program come from scripts/package-lib.sh and $platform
 # from the harness.
 # shellcheck disable=SC2154 # those variables are set by the file that sources this one

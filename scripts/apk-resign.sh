@@ -1,9 +1,10 @@
 #!/bin/sh
 # Signs the Alpine packages in OUTPUT_DIR/alpine/<cpu> again, in place, with the repository key in
 # /keys, and changes nothing else in them. It runs in the apk-build image, like repo-apk.sh, which
-# then builds the repository from them. The lifecycle test needs it because the packages it
-# serves were made with other keys: the new ones by the builds of each program, the published
-# release by the release key, and apk finds the key to check a package by the name inside it.
+# then builds the repository from them. Only its own test (scripts/apk-resign-test.sh) runs it now.
+# It is for one repository that serves packages made with other keys: the new ones by the builds
+# of each program, the published release by the release key, and apk finds the key to check a
+# package by the name inside it.
 #
 # An Alpine package is three gzip streams one after the other: the signature, the control part
 # and the data. The signature covers the control stream only. abuild makes a package by signing

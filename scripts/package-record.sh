@@ -2,8 +2,7 @@
 # Sourced from the root of the repository. make packages records the version it built, the
 # date that goes into the version of a build that is not a release, and the release the upgrade
 # tests start from, in dist/PROGRAM/version.
-# That file is the one place the tests that follow (package-test, service-test, repo-test,
-# upgrade-test) take the version from, so none of them needs it given again, and a test can
+# That file is the one place the tests that follow (package-test, repo-test) take the version from, so none of them needs it given again, and a test can
 # never run against packages of another version than the ones in dist.
 
 # Writes the record from PROGRAM, VERSION and PACKAGE_DATE of the environment, and from

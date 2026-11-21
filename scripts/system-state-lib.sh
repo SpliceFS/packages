@@ -1,6 +1,5 @@
 # shellcheck shell=sh
-# What the tests that boot a system and install our packages in it (scripts/lifecycle-test.sh,
-# scripts/package-test.sh) look at on the host: the checks of scripts/package-test-lib.sh run
+# What the tests that boot a system and install our packages in it (scripts/package-test.sh) look at on the host: the checks of scripts/package-test-lib.sh run
 # inside the container, no process of ours, the snapshot of the files, and the core dumps. Sourced
 # after scripts/package-lib.sh, which provides fail. The first argument of each is the container;
 # $own is the folder of the system's files, as the caller sets it.
