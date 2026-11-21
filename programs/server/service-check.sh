@@ -9,7 +9,7 @@
 # and the health endpoint is /v1/health (api/routes.go).
 port=8480
 health_path=/api/v1/health
-answers_text="answers 200 on $health_path from outside"
+answers_text="answers 200 on $health_path from inside"
 
 # program and defs are set by scripts/package-lib.sh before it sources this file.
 # shellcheck disable=SC2154

@@ -8,22 +8,28 @@
 # ("PROGRAM: no packages, left out").
 #
 # This script is the host's part and does nothing to a system but start it, run the steps in it,
-# restart it and read what they wrote. The steps themselves, and what each of them checks, are in
-# scripts/package-test-steps.sh, which runs inside the system with what the system has. Per system:
+# restart it, ask the server from outside and read what the steps wrote. The steps themselves, and
+# what each of them checks, are in scripts/package-test-steps.sh, which runs inside the system with
+# what the system has. Per system:
 #   1. the container is started with the repository (read only) at /src, the package folders at
 #      /pkg/PROGRAM (they hold the published baseline files, which this script fetched once for the
 #      whole run from the package site and proved by its signed index, scripts/published-verify.sh),
 #      the public signing keys at /keys, and the version of each baseline at /baselines;
 #   2. docker exec runs phase 1 of the steps (steps 0 to 4 and the restart of the service);
-#   3. docker restart restarts the container, the way a machine is rebooted;
-#   4. docker exec runs phase 2 (the rest of step 5, and the steps 7 to 9);
-#   5. the output folder of the steps is copied out of the container: its log is printed and its
-#      result is "ok" or the line of the step that failed.
+#   3. a probe container on the network of the system asks the health endpoint of the server at the
+#      address of the system and the port of the server, which proves from outside what the firewall
+#      rule of step 4 lets through (a program that listens on no port is not asked);
+#   4. docker restart restarts the container, the way a machine is rebooted;
+#   5. docker exec runs phase 2 (the rest of step 5), the probe asks again, and docker exec runs
+#      phase 3 (the steps 7 to 9);
+#   6. the output folder of the steps is copied out of the container: its log is printed and its
+#      result is "ok" or the line of the step that failed (the host's own line when the probe failed).
 # A failing system does not stop the others, so one run shows every system that is broken. Runs on
 # the host (make package-test, CI). Environment: the version of each program comes from
 # dist/PROGRAM/version, which make packages wrote (scripts/package-record.sh), and a VERSION given
 # must be that one for every program in the run; PLATFORM (linux/amd64 or linux/arm64) tests that CPU
-# type by emulation, empty means this machine's own; ONLY limits the run to one format or image.
+# type by emulation, empty means this machine's own; ONLY limits the run to one format or image;
+# GO_IMAGE is the image of the probe container (it has curl).
 #
 # What differs between package formats is in scripts/service-test-<format>.sh and
 # scripts/package-test-<format>.sh, which only the steps read; this script needs their files to exist.
@@ -34,6 +40,7 @@ root="$(cd "$(dirname "$0")/.." && pwd)"
 # package-lib.sh reads files relative to the repository root.
 cd "$root"
 . scripts/package-record.sh
+. scripts/package-test-program-lib.sh
 . scripts/systems-lib.sh
 # Named explicitly because after a run with another platform the local image tag can point
 # at the other CPU type, and an empty setting would then silently test the wrong one.
@@ -43,8 +50,11 @@ work="$(mktemp -d)"
 # step 1 gives the package managers of the systems (mounted at /keys, filled by fetch_baselines),
 # and the version of each program's baseline (mounted at /baselines, one file for each program).
 keys_dir="$work/keys"
-baselines_dir="$work/baselines"
-mkdir "$keys_dir" "$baselines_dir"
+baselines="$work/baselines"
+mkdir "$keys_dir" "$baselines"
+# The container that asks the server from outside, on the network of the system: an image the project
+# runs its own tests in, which has curl.
+probe_image="${GO_IMAGE:?GO_IMAGE is not set}"
 # Where in the system the steps write their log and their result. It is on the system's own disk, which
 # a restart keeps, and scripts/lifecycle-excluded leaves it out of the snapshots.
 out_dir=/var/tmp/package-test
@@ -88,13 +98,15 @@ if [ -z "$present" ]; then
     exit 1
 fi
 
-# The newest published package of the program, which step 1 installs and step 2 upgrades: the version
-# the record of the build names (the newest on the site when it names none). The site is asked
-# once for each program of the run, by the first call, before any system starts, and the answer is
-# kept in the file of the program in $baselines_dir for the systems. Sets $from, empty when nothing is
-# published.
-set_baseline() {
-    baseline_file="$baselines_dir/$PROGRAM"
+# Where the baseline of a program is read from the package site, once for the whole run, before the
+# program is chosen for the systems (scripts/package-test-program-lib.sh calls this once the words of
+# the program are set): the newest published package of the program, which step 1 installs and step 2
+# upgrades, is the version the record of the build names (the newest on the site when it names none).
+# The answer is kept in the file of the program in $baselines for the systems, empty when nothing is
+# published. Also tells where the published package file of the program is.
+prepare_baseline() {
+    published_dir="$root/dist/$PROGRAM/published"
+    baseline_file="$baselines/$PROGRAM"
     if [ ! -f "$baseline_file" ]; then
         # upgrade_from_version is a test whose status is the answer, so set -e being off inside it changes nothing.
         # shellcheck disable=SC2310
@@ -102,28 +114,6 @@ set_baseline() {
             fail "could not read the newest published package of $PROGRAM from $site_url"
         mv "$baseline_file.new" "$baseline_file"
     fi
-    from="$(cat "$baseline_file")"
-    if [ -n "$from" ]; then
-        # A version that package_release_of_debver refuses ends the script here, with its message.
-        use_published_version "$from"
-    fi
-}
-
-# Chooses the program $1: what the record of its build says (its version), what scripts/package-lib.sh
-# makes of that (the package names and versions), where its published package is, and the published
-# baseline.
-use_program() {
-    PROGRAM="$1"
-    export PROGRAM
-    VERSION="$given_version"
-    # The status ends the run here, where errexit is off in a system; the function says why.
-    # shellcheck disable=SC2310
-    use_recorded_version || exit 1
-    . scripts/package-lib.sh
-    . scripts/published-lib.sh
-    package_arches "$platform"
-    published_dir="$root/dist/$PROGRAM/published"
-    set_baseline
 }
 
 # Runs phase $1 of scripts/package-test-steps.sh in the container, as the root of the system, with
@@ -144,16 +134,47 @@ wait_until_booted() {
     }
 }
 
-# Both phases with the restart between them; the status is that of the first one that fails. The
-# caller runs this in a subshell so that fail ends only this system.
+# Asks the health endpoint of every program of the run that listens on a port, from a probe container
+# on the network of the system: the system's own address, which the container runtime may change at a
+# restart, so it is read now, and the port and path the service check of the program names. Outside is
+# the only place that proves what the firewall lets through. The first answer is the answer: the steps
+# of the phase before waited, from inside, until the service worked, so nothing is waited for here.
+# On a wrong answer the line of the step is written to $own/outside-failure, for the result, and the
+# status is 1. Usage: check_from_outside PHASE (phase 1 or phase 2).
+check_from_outside() {
+    for outside_program in $present; do
+        use_program "$outside_program"
+        [ -n "${port:-}" ] || continue
+        # The names of the networks of the container, each with its address there; the first is used.
+        read -r network address _ <<ADDRESS
+$(docker inspect -f '{{range $name, $net := .NetworkSettings.Networks}}{{$name}} {{$net.IPAddress}} {{end}}' "$container")
+ADDRESS
+        url="https://$address:$port$health_path"
+        asked="answers 200 on $health_path from outside, after $1"
+        code="$(docker run --rm --network "$network" "$probe_image" \
+            curl -sk -o /dev/null -w '%{http_code}' --max-time 5 "$url" || true)"
+        if [ "$code" != 200 ]; then
+            echo "step 5: $outside_program: $asked: $url gave ${code:-nothing}" >"$own/outside-failure"
+            return 1
+        fi
+        echo "ok: $outside_program: $asked ($url, from a container on the network $network)"
+    done
+}
+
+# The three phases with the restart between phases 1 and 2 and the question from outside after each of
+# them; the status is that of the first that fails. The caller runs this in a subshell so that fail
+# ends only this system.
 run_phases() {
     wait_until_booted
-    # run_phase is one command whose status is the answer, so set -e being off inside it changes nothing.
+    # run_phase and check_from_outside are one command each whose status is the answer, so set -e being
+    # off inside them changes nothing.
     # shellcheck disable=SC2310
-    run_phase phase1 || return 1
+    run_phase phase1 && check_from_outside "phase 1" || return 1
     docker restart "$container" >/dev/null || fail "docker restart failed"
     wait_until_booted
-    run_phase phase2
+    # shellcheck disable=SC2310
+    run_phase phase2 && check_from_outside "phase 2" || return 1
+    run_phase phase3
 }
 
 # One system, in a container and a folder of its own: number $3 of the list. It runs in a process of
@@ -169,7 +190,7 @@ test_system() {
     started=0
     # The folder of each program is mounted at /pkg/PROGRAM.
     set -- --name "$container" --platform "$platform" -v "$root":/src:ro -v "$keys_dir":/keys:ro \
-        -v "$baselines_dir":/baselines:ro
+        -v "$baselines":/baselines:ro
     for system_program in $present; do
         set -- "$@" -v "$root/dist/$system_program":"/pkg/$system_program":ro
     done
@@ -191,6 +212,8 @@ test_system() {
         mkdir "$own/out"
         docker cp "$container:$out_dir/." "$own/out" >>"$log" 2>&1 || true
         if [ -f "$own/out/log" ]; then cat "$own/out/log" >>"$log"; fi
+        # A failed question from outside is the result: the steps knew nothing of it.
+        if [ -f "$own/outside-failure" ]; then cp "$own/outside-failure" "$own/out/result"; fi
     fi
     cat "$log"
     result="$(cat "$own/out/result" 2>/dev/null)" || result="no result was written"

@@ -223,7 +223,7 @@ package-test: ## Installs, upgrades, runs and removes the package files on every
 	@for p in server client; do \
 		[ ! -d "dist/$$p" ] || $(MAKE) --no-print-directory built-packages PROGRAM=$$p || exit 1; \
 	done
-	$(TEST_VARS) scripts/package-test.sh
+	$(TEST_VARS) GO_IMAGE=$(GO_IMAGE) scripts/package-test.sh
 
 # Installs the Debian package of the program on this machine itself and proves the service there
 # with the checks of the package test, except the reboot, then removes the package again. A CI runner

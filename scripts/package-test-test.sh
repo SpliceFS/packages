@@ -1,9 +1,11 @@
 #!/bin/sh
-# check: package-test.sh: the host boots each system, runs the two phases with the restart between them, collects the output and names the failed step
+# check: package-test.sh: the host boots each system, runs the three phases with the restart between them, asks the server from a probe container after phases 1 and 2, collects the output and names the failed step
 # Test of scripts/package-test.sh, the host's part of the package test, with a stand-in docker command,
 # so it needs no Docker and no network. The stand-in writes every call to a log and answers like a
 # container that runs the steps: the phase of the steps that is run writes the log and the result
-# the case says into the folder of the container, which docker cp copies out. A call that holds the
+# the case says into the folder of the container, which docker cp copies out. The probe container that
+# asks the server from outside answers with the HTTP status the case says for the time before and after
+# the restart of the container. A call that holds the
 # text in STAND_IN_FAIL fails. The package site is a stand-in curl, and the proof of a download a
 # stand-in published-verify.sh, which fails when the file is named in STAND_IN_UNPROVEN. The steps
 # themselves are tested in scripts/package-test-steps-test.sh.
@@ -59,7 +61,7 @@ cat >"$t/bin/docker" <<'STAND_IN'
 #!/bin/sh
 # Stand-in docker. STAND_IN_DIR holds the log of the calls and, for each container, a folder named
 # by it that stands for the folder the steps write into. A phase of the steps run in a container
-# appends one line to its log, and writes its result in the second phase or when it fails:
+# appends one line to its log, and writes its result in the third phase or when it fails:
 # STAND_IN_RESULT is the line of the step that fails, which is also the status of the phase (set
 # for the phase named in STAND_IN_FAILED_PHASE), and "ok" otherwise; STAND_IN_NO_RESULT writes none.
 # A system is named in the call by its container, so that the systems of one case, which run at the
@@ -75,7 +77,23 @@ if [ -n "${STAND_IN_FAIL:-}" ]; then
 fi
 case "$1" in
     version) echo linux/amd64 ;;
-    inspect) echo true ;;
+    inspect)
+        # The address of the system on its network, or whether it runs.
+        case "$call" in *IPAddress*) echo "bridge 172.17.0.2" ;; *) echo true ;; esac
+        ;;
+    run)
+        # The probe container, which asks the server from the network of the system.
+        case "$call" in
+            *"go:v1 curl"*)
+                if grep -q 'package-test-steps.sh phase2' "$STAND_IN_DIR/log"; then
+                    printf '%s' "${STAND_IN_OUTSIDE_AFTER_2:-200}"
+                else
+                    printf '%s' "${STAND_IN_OUTSIDE_AFTER_1:-200}"
+                fi
+                ;;
+            *) ;;
+        esac
+        ;;
     logs) echo "container output" ;;
     cp)
         # docker cp CONTAINER:/folder/. DESTINATION
@@ -97,6 +115,14 @@ case "$1" in
                 mkdir -p "$folder"
                 echo "the log of phase 2" >>"$folder/log"
                 if [ "${STAND_IN_FAILED_PHASE:-}" = phase2 ]; then
+                    [ -n "${STAND_IN_NO_RESULT:-}" ] || echo "${STAND_IN_RESULT:-}" >"$folder/result"
+                    exit 1
+                fi
+                ;;
+            *"package-test-steps.sh phase3"*)
+                mkdir -p "$folder"
+                echo "the log of phase 3" >>"$folder/log"
+                if [ "${STAND_IN_FAILED_PHASE:-}" = phase3 ]; then
                     [ -n "${STAND_IN_NO_RESULT:-}" ] || echo "${STAND_IN_RESULT:-}" >"$folder/result"
                     exit 1
                 fi
@@ -125,12 +151,16 @@ scenario() {
     result=
     no_result=
     target=
+    outside_after_1=200
+    outside_after_2=200
 }
 
 # Starts the case $1 in the background with the settings of scenario: $built names the programs whose
 # packages are in dist ($empty_client makes a folder of the client with nothing in it), $target is the
 # image or format of the systems to test. A call that holds the text in $fail_on fails. $failed_phase
-# names the phase (phase1 or phase2) that fails, with $result as the line of the step it failed in.
+# names the phase (phase1, phase2 or phase3) that fails, with $result as the line of the step it failed
+# in. $outside_after_1 and $outside_after_2 are the HTTP status the probe container gets from the
+# server after phase 1 and after phase 2.
 # Keeps the output in $t/cases/$1/out, the calls in $t/cases/$1/dir/log and the status in
 # $t/cases/$1/status; the cases are read with use_case, after wait.
 launch() {
@@ -150,7 +180,8 @@ launch() {
         STAND_IN_FAIL="$fail_on" STAND_IN_DIR="$case_dir/dir" PATH="$t/bin:$PATH" ONLY="$target" \
             STAND_IN_UNPROVEN="$unproven" STAND_IN_NO_SITE="$no_site" STAND_IN_KEYS="$root/keys" \
             STAND_IN_OTHER_KEY="$other_key" STAND_IN_FAILED_PHASE="$failed_phase" STAND_IN_RESULT="$result" \
-            STAND_IN_NO_RESULT="$no_result" \
+            STAND_IN_NO_RESULT="$no_result" STAND_IN_OUTSIDE_AFTER_1="$outside_after_1" \
+            STAND_IN_OUTSIDE_AFTER_2="$outside_after_2" GO_IMAGE=ghcr.io/splicefs/go:v1 \
             sh "$case_dir/root/scripts/package-test.sh" >"$case_dir/out" 2>&1 || status=$?
         echo "$status" >"$case_dir/status"
     ) &
@@ -183,6 +214,9 @@ expect() {
 }
 
 holds() { grep -q -F -e "$1" "$out"; }
+# The calls of the phases, the restarts, the probes and the first boot, in the order they were made, as
+# one line.
+sequence_of() { grep -o -e 'docker run -d' -e 'package-test-steps.sh phase[123]' -e 'docker restart' -e 'go:v1 curl' -e 'docker cp' "$dir/log" | tr '\n' ',' ; }
 lacks() { ! grep -q -F -e "$1" "$out"; }
 # The calls named by the arguments are in the log, in that order.
 in_order() {
@@ -209,9 +243,14 @@ scenario; target=$debian; no_site=1; launch no_site
 scenario; target=$debian; unproven=.deb; launch unproven
 scenario; target=$debian; other_key=1; launch other_key
 scenario; target=$debian; failed_phase=phase1; result="step 4: server: the service is started"; launch phase1_fails
-scenario; target=$debian; failed_phase=phase2; result="step 9: the system is as it was"; launch phase2_fails
+scenario; target=$debian; failed_phase=phase2; result="step 5: server: the service is active again"; launch phase2_fails
+scenario; target=$debian; failed_phase=phase3; result="step 9: the system is as it was"; launch phase3_fails
+scenario; target=$debian; outside_after_1=000; launch outside_fails_after_1
+scenario; target=$debian; outside_after_2=000; launch outside_fails_after_2
+scenario; target=$debian; outside_after_2=503; launch outside_wrong_status
+scenario; target=$debian; built="server client"; outside_after_1=000; launch both_outside_fails
 scenario; target=$debian; fail_on="restart splicefs-package-test"; launch restart_fails
-scenario; target=$debian; failed_phase=phase2; no_result=1; launch no_result
+scenario; target=$debian; failed_phase=phase3; no_result=1; launch no_result
 scenario; target=deb; fail_on="-2 sh scripts/package-test-steps.sh phase1"; launch one_of_two_fails
 scenario; target=$debian; built=client; launch client_only
 scenario; target=$debian; built="server client"; launch both
@@ -222,22 +261,30 @@ wait
 use_case good
 expect "a good run passes" passed_status
 expect "the system is named as passed" holds "ok   deb $debian"
-expect "the system is booted once" sh -c "[ \"\$(grep -c 'docker run' '$dir/log')\" -eq 1 ]"
+expect "the system is booted once" sh -c "[ \"\$(grep -c 'docker run -d' '$dir/log')\" -eq 1 ]"
 expect "the repository is mounted read only at /src" sh -c "grep -q 'docker run.* -v $t/cases/good/root:/src:ro' '$dir/log'"
 expect "the keys of the site are mounted read only at /keys" sh -c "grep -q 'docker run.* -v .*/keys:/keys:ro' '$dir/log'"
 expect "the baselines are mounted read only at /baselines" sh -c "grep -q 'docker run.* -v .*/baselines:/baselines:ro' '$dir/log'"
 expect "the package folder of the program is mounted at /pkg/PROGRAM" \
     sh -c "grep -q 'docker run.* -v $t/cases/good/root/dist/server:/pkg/server:ro' '$dir/log'"
-expect "no port is published: the steps ask from inside" sh -c "! grep -q 'docker run.* -p ' '$dir/log'"
-expect "phase 1, the restart of the container, then phase 2" \
-    in_order "docker run" "package-test-steps.sh phase1" "docker restart splicefs-package-test-" "package-test-steps.sh phase2" "docker cp"
-expect "the service manager is waited for before each phase" \
+expect "no port is published: the probe container asks from the network of the system" sh -c "! grep -q 'docker run.* -p ' '$dir/log'"
+expect "phase 1, the probe, the restart of the container, phase 2, the probe, phase 3, in this order" \
+    test "$(sequence_of)" = "docker run -d,package-test-steps.sh phase1,go:v1 curl,docker restart,package-test-steps.sh phase2,go:v1 curl,package-test-steps.sh phase3,docker cp,"
+expect "the probe container is the project's Go image, on the network of the system, and goes away" \
+    sh -c "grep -q 'docker run --rm --network bridge ghcr.io/splicefs/go:v1 curl' '$dir/log'"
+expect "the probe asks the health endpoint at the address of the system and the port of the server" \
+    sh -c "[ \"\$(grep -c 'https://172.17.0.2:8480/api/v1/health' '$dir/log')\" -eq 2 ]"
+expect "the address is read again after the restart, which can change it" \
+    sh -c "[ \"\$(grep -c 'docker inspect.*IPAddress' '$dir/log')\" -eq 2 ]"
+expect "the answer is said to be from outside, after each phase that asks" \
+    sh -c "grep -q 'answers 200 on /api/v1/health from outside, after phase 1' '$out' && grep -q 'answers 200 on /api/v1/health from outside, after phase 2' '$out'"
+expect "the service manager is waited for before the first phase and after the restart" \
     sh -c "[ \"\$(grep -c 'is-system-running' '$dir/log')\" -eq 2 ]"
 expect "the steps are told the format, the platform, the programs and the folder of their output" \
     sh -c "grep -q 'phase1' '$dir/log' && grep -q -e '-e FORMAT=deb -e PLATFORM=linux/amd64 -e PROGRAMS=server -e PACKAGE_TEST_OUT=/var/tmp/package-test' '$dir/log'"
 expect "the steps run in the repository at /src" sh -c "grep -q -e '-w /src splicefs-package-test-.* sh scripts/package-test-steps.sh phase1' '$dir/log'"
-expect "the log of both phases is printed, in order" \
-    sh -c "grep -n 'the log of phase' '$out' | cut -d: -f2 | tr '\n' '|' | grep -q 'the log of phase 1|the log of phase 2|'"
+expect "the log of the three phases is printed, in order" \
+    sh -c "grep -n 'the log of phase' '$out' | cut -d: -f2 | tr '\n' '|' | grep -q 'the log of phase 1|the log of phase 2|the log of phase 3|'"
 expect "the output folder is copied out of the container" sh -c "grep -q 'docker cp splicefs-package-test-.*:/var/tmp/package-test/\\.' '$dir/log'"
 expect "the container is removed" sh -c "grep -q 'docker rm -f splicefs-package-test-' '$dir/log'"
 expect "the signing keys are fetched from the site once, and the package files after them" \
@@ -254,11 +301,11 @@ use_case two_systems
 expect "two systems of one format pass" holds "passed: 2  failed: 0"
 expect "the published file of a format is fetched once for all its systems" \
     sh -c "[ \"\$(grep -c 'curl.*/server/$old_file' '$dir/log')\" -eq 1 ] && [ \"\$(grep -c 'verify $old_file ' '$dir/log')\" -eq 1 ]"
-expect "each system is a container of its own" sh -c "[ \"\$(grep -c 'docker run' '$dir/log')\" -eq 2 ]"
+expect "each system is a container of its own" sh -c "[ \"\$(grep -c 'docker run -d' '$dir/log')\" -eq 2 ]"
 
 use_case nothing_published
 expect "a run with nothing published passes" passed_status
-expect "nothing is fetched or proven" sh -c "! grep -q 'curl\|verify ' '$dir/log'"
+expect "nothing is fetched or proven" sh -c "! grep -q '^curl\|^verify ' '$dir/log'"
 
 use_case other_key
 expect "a signing key on the site that is not the repository's key fails the run" failed_status
@@ -285,8 +332,37 @@ expect "the output is collected all the same" sh -c "grep -q 'docker cp' '$dir/l
 
 use_case phase2_fails
 expect "a failing phase 2 fails the system" failed_status
-expect "the failing step is named with its number" holds "FAIL deb $debian (step 9)"
+expect "the failing step is named with its number" holds "FAIL deb $debian (step 5)"
 expect "the logs of both phases are printed" sh -c "grep -q 'the log of phase 1' '$out' && grep -q 'the log of phase 2' '$out'"
+expect "the server is asked once only, after phase 1, and phase 3 does not run" \
+    sh -c "[ \"\$(grep -c 'go:v1 curl' '$dir/log')\" -eq 1 ] && ! grep -q 'package-test-steps.sh phase3' '$dir/log'"
+
+use_case phase3_fails
+expect "a failing phase 3 fails the system" failed_status
+expect "the failing step is named with its number" holds "FAIL deb $debian (step 9)"
+expect "the logs of all three phases are printed" sh -c "grep -q 'the log of phase 1' '$out' && grep -q 'the log of phase 2' '$out' && grep -q 'the log of phase 3' '$out'"
+
+use_case outside_fails_after_1
+expect "a server that does not answer from outside after phase 1 fails the system" failed_status
+expect "the step is named" holds "FAIL deb $debian (step 5)"
+expect "the line says what was asked, from where, and what came back" \
+    holds "step 5: server: answers 200 on /api/v1/health from outside, after phase 1: https://172.17.0.2:8480/api/v1/health gave 000"
+expect "the container is not restarted, and no later phase runs" \
+    sh -c "! grep -q 'docker restart' '$dir/log' && ! grep -q 'package-test-steps.sh phase2' '$dir/log'"
+expect "the output is collected all the same" sh -c "grep -q 'docker cp' '$dir/log'"
+
+use_case outside_fails_after_2
+expect "a server that does not answer from outside after the restart fails the system" failed_status
+expect "the step is named, with the phase" holds "step 5: server: answers 200 on /api/v1/health from outside, after phase 2: https://172.17.0.2:8480/api/v1/health gave 000"
+expect "phase 3 does not run" no_call "package-test-steps.sh phase3"
+
+use_case outside_wrong_status
+expect "another answer than 200 fails the system" failed_status
+expect "the status is shown" holds "gave 503"
+
+use_case both_outside_fails
+expect "with both programs, only the server is asked from outside" sh -c "[ \"\$(grep -c 'go:v1 curl' '$dir/log')\" -eq 1 ]"
+expect "its failure fails the system" failed_status
 
 use_case restart_fails
 expect "a failing restart of the container fails the system" failed_status
@@ -304,6 +380,7 @@ expect "the failing system is named" holds "failed system: deb ghcr.io/splicefs/
 
 use_case client_only
 expect "a run of the client alone passes" passed_status
+expect "the client listens on no port, so no probe container is started" no_call "go:v1 curl"
 expect "the server is left out, and said" holds "server: no packages, left out"
 expect "only the folder of the client is mounted" \
     sh -c "grep -q 'dist/client:/pkg/client:ro' '$dir/log' && ! grep -q 'dist/server' '$dir/log'"
@@ -314,7 +391,7 @@ expect "a run of both programs passes" passed_status
 expect "the folder of each program is mounted at /pkg/PROGRAM" \
     sh -c "grep -q 'docker run.* -v $t/cases/both/root/dist/server:/pkg/server:ro -v $t/cases/both/root/dist/client:/pkg/client:ro' '$dir/log'"
 expect "the steps are told both programs, the server first" sh -c "grep -q -e '-e PROGRAMS=server client ' '$dir/log'"
-expect "the system is booted once" sh -c "[ \"\$(grep -c 'docker run' '$dir/log')\" -eq 1 ]"
+expect "the system is booted once" sh -c "[ \"\$(grep -c 'docker run -d' '$dir/log')\" -eq 1 ]"
 expect "each program's published file is fetched from its own folder of the site and proven" \
     sh -c "grep -q 'curl.*/server/apt/pool/main/s/splicefs-server/splicefs-server_1.2.2_amd64.deb' '$dir/log' && grep -q 'curl.*/client/apt/pool/main/s/splicefs-client/splicefs-client_1.3.9_amd64.deb' '$dir/log' && grep -q 'verify apt/pool/main/s/splicefs-client/splicefs-client_1.3.9_amd64.deb' '$dir/log'"
 

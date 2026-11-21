@@ -231,6 +231,9 @@ launch() {
             [ -f "$case_dir/dir/enabled" ] || rm -f "$case_dir/dir/active"
             sh "$steps" phase2 || status=$?
         fi
+        if [ "$status" -eq 0 ]; then
+            sh "$steps" phase3 || status=$?
+        fi
         echo "$status" >"$case_dir/status"
     ) &
 }
@@ -442,7 +445,8 @@ expect "the service is enabled, configured, started, restarted, the container re
 expect "the test configuration is checked where the documentation says before the service starts" \
     in_order write_test_config check_test_config "systemctl start"
 expect "the service runs as its own user" holds "ok: runs as splicefs"
-expect "the health endpoint answers from outside" holds "ok: answers 200 on /api/v1/health from outside"
+expect "the health endpoint answers from inside, and the line says so" holds "ok: answers 200 on /api/v1/health from inside"
+expect "no line of the steps says from outside: only the host asks from outside" sh -c "! grep -q 'from outside' '$out'"
 expect "the service is active and answering after a restart" holds "ok: active and answering after a restart"
 expect "the service is active and answering after the container restarts, because it is enabled" \
     holds "ok: active and answering after a reboot, because it was enabled"
