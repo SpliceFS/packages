@@ -10,7 +10,9 @@
 # each program, which holds the version of its published baseline, empty when nothing is published),
 # and may set $given_version (a VERSION given by hand, which must be the recorded one) and define
 # prepare_baseline, which runs after the words of the program are set and before its baseline is read:
-# the host makes the file of the baseline there (save_baseline_version), the steps need nothing.
+# the host makes the file of the baseline there (save_baseline_version), the steps need nothing. A system
+# that fetches its published package itself replaces the version in the file with the one of the file it
+# got (record_baseline_version).
 # shellcheck disable=SC2154 # the caller sets platform, baselines and given_version, the libraries the rest
 
 # Writes the version of the published baseline of the program into its file in $baselines, once for the
@@ -38,6 +40,19 @@ set_baseline() {
         PUBLISHED_VERSION="$old_tag"
     fi
     export PUBLISHED_VERSION
+}
+
+# Records $1, the version of the published package that the system fetched itself (a system the host
+# cannot reach: the hook published_baseline_version of its format reads it from the file it got), as the
+# baseline of the program, and sets the words that follow from it again. The host read the site before
+# the system fetched, and the site can list a newer package by then, so the file the system got is the
+# only place that says which version it is. The record is the file of the program in $baselines, which
+# the program chosen again, in this phase or the next, reads, so the version is read from the file once.
+# A version that is not one of ours ends the caller, as set_baseline does.
+record_baseline_version() {
+    printf '%s\n' "$1" >"$baselines/$PROGRAM.new"
+    mv "$baselines/$PROGRAM.new" "$baselines/$PROGRAM"
+    set_baseline
 }
 
 # Chooses the program $1. What the service check of the program before it set and the next does not

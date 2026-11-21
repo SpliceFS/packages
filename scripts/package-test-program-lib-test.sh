@@ -81,6 +81,24 @@ got="$(choose none 'prepare_baseline() { upgrade_from_version() { return 1; }; s
 holds "a site that cannot be read ends the caller and names the program and the site" "$got" "could not read the newest published package of server from https://packages.splicefs.org/server"
 case "$got" in *"not reached"*) printf 'FAIL the caller went on after a site that cannot be read\n'; failed=$((failed + 1)) ;; *) ;; esac
 
+# A system that fetches its published package itself (the FreeBSD machine) records the version of the
+# file it got (record_baseline_version): the file of the program takes the place of what the host
+# read, the words that follow are those of the recorded version, and the program chosen again later,
+# in this process or the next phase's, reads the recorded one.
+got="$(choose 1.2.1 'use_program server; record_baseline_version 1.2.2; echo "$(cat "$baselines/server") $from $old_tag $PUBLISHED_VERSION $old_debver"')"
+holds "a recorded version replaces the baseline of the program, and the words follow it" "$got" "1.2.2 1.2.2 v1.2.2 v1.2.2 1.2.2"
+
+got="$(choose 1.2.1 'use_program server; record_baseline_version 1.2.2; use_program client; use_program server; echo "$from $old_tag"')"
+holds "the program chosen again reads the recorded version, not the one of the host" "$got" "1.2.2 v1.2.2"
+
+got="$(choose 1.2.1 'use_program server; record_baseline_version 1.2.2; chosen_program=; use_program server; echo "$from"; ls "$baselines"')"
+holds "a recorded version is the file, so the next phase reads it" "$got" "1.2.2"
+case "$got" in *.new*) printf 'FAIL the temporary file of the record is left behind: %s\n' "$got"; failed=$((failed + 1)) ;; *) ;; esac
+
+got="$(choose 1.2.1 'use_program server; record_baseline_version 1.2.2.rc1; echo "not reached"')"
+holds "a recorded version that is not one of ours ends the caller and is named" "$got" "1.2.2.rc1 is not a package version this repository publishes"
+case "$got" in *"not reached"*) printf 'FAIL the caller went on after a version that is not one of ours\n'; failed=$((failed + 1)) ;; *) ;; esac
+
 got="$(choose 1.2.2 'given_version=v9.9.9; use_program server')"
 holds "a version given by the caller must be the recorded one" "$got" "is not the recorded v1.2.3"
 
