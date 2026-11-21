@@ -15,14 +15,15 @@ fail() {
   exit 1
 }
 
-# The two files the script writes, the folders it may leave a temporary file in, and the
-# package query that says whether a package is installed. Minimal images differ in tools,
+# The two files the script writes, the folders it writes them into (it may leave a temporary
+# file in them, and --remove must leave them as they were), and the package query that says
+# whether a package is installed. Minimal images differ in tools,
 # so everything here is plain sh, sha256sum and stat.
 case "$format" in
   deb)
     keyfile=/etc/apt/keyrings/splicefs.asc
     srcfile=/etc/apt/sources.list.d/splicefs.sources
-    tmpdirs="/etc/apt/keyrings /etc/apt/sources.list.d"
+    setup_dirs="/etc/apt/keyrings /etc/apt/sources.list.d"
     sitekey=/site/keys/splicefs.asc
     # dpkg -s also succeeds for a removed package whose configuration files remain.
     is_installed() {
@@ -49,7 +50,7 @@ case "$format" in
         repo_listed() { yum repolist all 2>/dev/null | grep -q splicefs; }
       fi
     fi
-    tmpdirs="/etc/pki/rpm-gpg $(dirname "$srcfile")"
+    setup_dirs="/etc/pki/rpm-gpg $(dirname "$srcfile")"
     is_installed() { rpm -q "$1" >/dev/null 2>&1; }
     # The keys rpm knows, one per line, in a fixed order. Only the setup's own key is compared:
     # dnf imports the keys of the system's other repositories while it installs the packages.
@@ -59,7 +60,7 @@ case "$format" in
     keyfile=/etc/apk/keys/splicefs.rsa.pub
     srcfile=/etc/apk/repositories.d/splicefs.list
     # The script keeps its temporary key file in /etc/apk, outside the keys folder.
-    tmpdirs="/etc/apk/keys /etc/apk/repositories.d /etc/apk"
+    setup_dirs="/etc/apk/keys /etc/apk/repositories.d /etc/apk"
     sitekey=/site/keys/splicefs.rsa.pub
     is_installed() { apk info -e "$1" >/dev/null 2>&1; }
     remove_pkgs() { apk del "$@"; }
@@ -105,8 +106,22 @@ state() {
   done
 }
 
+# The folders the setup writes into as they are now: one line each, with the names in it or
+# "missing". A folder the setup made is missing again after --remove, and a folder the system
+# ships keeps what it held.
+layout() {
+  for d in $setup_dirs; do
+    if [ -d "$d" ]; then
+      lay_names=$(find "$d" -maxdepth 1 ! -path "$d" | sed "s|^$d/||" | sort | tr '\n' ' ')
+      echo "$d: $lay_names"
+    else
+      echo "$d: missing"
+    fi
+  done
+}
+
 no_temp_files() {
-  for d in $tmpdirs; do
+  for d in $setup_dirs; do
     # find fails when the folder does not exist, and then there is no temporary file in it.
     st_found=$(find "$d" -maxdepth 1 -name '*.new' 2>/dev/null) || st_found=
     if [ -n "$st_found" ]; then
@@ -235,6 +250,9 @@ try run_script --remove
 if grep -q -e '^removed ' -e '^warning:' "$out"; then fail "--remove on a clean system removed or warned"; fi
 expect_untouched "--remove on a clean system"
 
+# Compared with the folders after --remove (l), when the setup has run and the packages are in.
+layout_before=$(layout)
+
 # d. the script succeeds and prints the next steps. Its self-check passes here, because the
 # published copy and the copy that runs are the same file.
 try run_script
@@ -358,6 +376,12 @@ for f in $files; do
   grep -q "^removed $f\$" "$out" || fail "--remove did not report $f"
 done
 no_temp_files
+layout_after=$(layout)
+[ "$layout_after" = "$layout_before" ] ||
+  fail "after --remove the folders are not as they were before the setup. Before:
+$layout_before
+After:
+$layout_after"
 try repo_listed
 [ "$status" -ne 0 ] || fail "the package manager still lists the repository after --remove"
 if [ "$format" = rpm ]; then
