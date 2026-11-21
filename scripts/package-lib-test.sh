@@ -46,7 +46,7 @@ cp "$root/scripts/program-conf.sh" "$tree/scripts/"
 # wanted: name, program, programs, docs, confdir, confsubdirs (the folders joined by a comma) and
 # release_repo, the repository the program is released from, on one line.
 reads() {
-    got="$(cd "$1" && PROGRAM="$2" VERSION=v1.2.3 PACKAGE_DATE=20261112 sh -c \
+    got="$(cd "$1" && FORMAT=deb PROGRAM="$2" VERSION=v1.2.3 PACKAGE_DATE=20261112 sh -c \
         '. "$1/scripts/package-lib.sh"; echo "$name|$program|$programs|$docs|$confdir|$(echo $confsubdirs | tr " " ,)|$release_repo"' \
         sh "$root" 2>&1)" || true
     if [ "$got" = "$3" ]; then
@@ -112,7 +112,7 @@ docs_of 'FAIL: SRC is not set: it is the source tree of the program at this vers
 links_of() {
     # The inner shell expands $1 and $2, which are the root of the repository and the link root.
     # shellcheck disable=SC2016
-    got="$(cd "$1" && PROGRAM="$2" VERSION=v1.2.3 PACKAGE_DATE=20261112 sh -c \
+    got="$(cd "$1" && FORMAT=deb PROGRAM="$2" VERSION=v1.2.3 PACKAGE_DATE=20261112 sh -c \
         '. "$1/scripts/package-lib.sh"; package_links "$2"; cd "$2" && find . -type l | LC_ALL=C sort |
             while read -r l; do echo "${l#.} -> $(readlink "$l")"; done | tr "\n" ,' \
         sh "$root" "$linkroot" 2>&1)" || true
@@ -142,7 +142,7 @@ links_of "$root" client '/usr/sbin/mount.splicefs -> /usr/bin/splicefsctl,'
 link_list_of() {
     # The inner shell expands $1, which is the root of the repository.
     # shellcheck disable=SC2016
-    got="$(cd "$tree" && PROGRAM="$1" VERSION=v1.2.3 PACKAGE_DATE=20261112 sh -c \
+    got="$(cd "$tree" && FORMAT=deb PROGRAM="$1" VERSION=v1.2.3 PACKAGE_DATE=20261112 sh -c \
         '. "$1/scripts/package-lib.sh"; package_link_list | tr "\n" ,' sh "$root" 2>&1)" || true
     if [ "$got" = "$2" ]; then
         printf 'ok   package_link_list of %-6s %s\n' "$1" "$2"
@@ -157,7 +157,7 @@ link_list_of other ''
 
 # The formats whose definition copies a tree in (rpm, Alpine) get the links as a folder of their
 # own, which is readable by everyone because it is copied over the root of the package.
-tree_of="$(cd "$tree" && PROGRAM=demo VERSION=v1.2.3 PACKAGE_DATE=20261112 sh -c \
+tree_of="$(cd "$tree" && FORMAT=deb PROGRAM=demo VERSION=v1.2.3 PACKAGE_DATE=20261112 sh -c \
     '. "$1/scripts/package-lib.sh"; package_link_tree' sh "$root" 2>&1)" || true
 target_of="$(readlink "$tree_of/usr/sbin/mount.demo" 2>/dev/null)" || target_of=""
 mode_of="$(find "$tree_of" -maxdepth 0 -perm 755 2>/dev/null)" || mode_of=""
@@ -175,12 +175,12 @@ rm -rf "$tree_of"
 freebsd_link_list_of() {
     # The inner shell expands $1, which is the root of the repository.
     # shellcheck disable=SC2016
-    got="$(cd "$tree" && PROGRAM="$1" VERSION=v1.2.3 PACKAGE_DATE=20261112 sh -c \
-        '. "$1/scripts/package-lib.sh"; package_freebsd_link_list | tr "\n" ,' sh "$root" 2>&1)" || true
+    got="$(cd "$tree" && FORMAT=pkg PROGRAM="$1" VERSION=v1.2.3 PACKAGE_DATE=20261112 sh -c \
+        '. "$1/scripts/package-lib.sh"; package_link_list | tr "\n" ,' sh "$root" 2>&1)" || true
     if [ "$got" = "$2" ]; then
-        printf 'ok   package_freebsd_link_list of %-6s %s\n' "$1" "$2"
+        printf 'ok   package_link_list of pkg %-6s %s\n' "$1" "$2"
     else
-        printf 'FAIL package_freebsd_link_list of %s: want "%s" got "%s"\n' "$1" "$2" "$got"
+        printf 'FAIL package_link_list of pkg %s: want "%s" got "%s"\n' "$1" "$2" "$got"
         failed=$((failed + 1))
     fi
 }
@@ -196,7 +196,7 @@ plist_of() {
     cat > "$tree/plist.want"
     # The inner shell expands $1, which is the root of the repository.
     # shellcheck disable=SC2016
-    (cd "$1" && PROGRAM="$2" VERSION=v1.2.3 PACKAGE_DATE=20261112 sh -c \
+    (cd "$1" && FORMAT=pkg PROGRAM="$2" VERSION=v1.2.3 PACKAGE_DATE=20261112 sh -c \
         '. "$1/scripts/package-lib.sh"; package_freebsd_plist' sh "$root") > "$tree/plist.got" 2>&1 || true
     if cmp -s "$tree/plist.want" "$tree/plist.got"; then
         printf 'ok   package_freebsd_plist of %s\n' "$2"
@@ -385,9 +385,52 @@ refuse_release_of 0.5.34+dirty
 refuse_release_of v0.5.34
 refuse_release_of ''
 
+# $1 the version of a published FreeBSD package as pkg writes it, $2 the deb version it stands for. The
+# FreeBSD version that package_versions makes of the program version must be $1, so that the two
+# functions cannot drift apart.
+check_debver_of_pkgver() {
+    got="$(VERSION=v1.2.3 PACKAGE_DATE=20261112 sh -c \
+        '. scripts/package-lib.sh; package_debver_of_pkgver "$1"' sh "$1" 2>&1)" || true
+    made="$(VERSION=v1.2.3 PACKAGE_DATE=20261112 sh -c \
+        '. scripts/package-lib.sh; package_versions "v$1" 20261112' sh "$2" 2>&1)" || true
+    made="${made##* }"
+    if [ "$got" = "$2" ] && [ "$made" = "$1" ]; then
+        printf 'ok   FreeBSD version %-14s is the deb version %s\n' "$1" "$2"
+    else
+        printf 'FAIL FreeBSD version %s: want "%s" got "%s", and forward "%s"\n' "$1" "$2" "$got" "$made"
+        failed=$((failed + 1))
+    fi
+}
+
+# $1 a FreeBSD version that a published package does not have: a pre-release loses the dot of its
+# number (rc.1 and rc1 are one version), so it cannot be read back, and the others are not published.
+refuse_debver_of_pkgver() {
+    status=0
+    got="$(VERSION=v1.2.3 PACKAGE_DATE=20261112 sh -c \
+        '. scripts/package-lib.sh; package_debver_of_pkgver "$1"' sh "$1" 2>&1)" || status=$?
+    case "$status:$got" in
+        0:* | *:) printf 'FAIL FreeBSD version "%s" was accepted: %s\n' "$1" "$got" ;;
+        *:*"is not a FreeBSD package version this repository publishes")
+            printf 'ok   FreeBSD version "%s" refused: %s\n' "$1" "$got"
+            return 0
+            ;;
+        *) printf 'FAIL FreeBSD version "%s" was refused for another reason: %s\n' "$1" "$got" ;;
+    esac
+    failed=$((failed + 1))
+}
+
+check_debver_of_pkgver 0.10.0 0.10.0
+check_debver_of_pkgver 1.2.3 1.2.3
+refuse_debver_of_pkgver 1.2.3.rc1
+refuse_debver_of_pkgver 1.2.3.20261112
+refuse_debver_of_pkgver 1.2.3_1
+refuse_debver_of_pkgver v1.2.3
+refuse_debver_of_pkgver 1.2
+refuse_debver_of_pkgver ''
+
 # The unit in the repository is written for a manual install under /usr/local; the unit a
 # package ships has the program in /usr/bin, and nothing else is lost.
-got="$(VERSION=v1.2.3 PACKAGE_DATE=20261112 sh -c '. scripts/package-lib.sh; package_unit /dev/stdout' 2>&1)" || true
+got="$(FORMAT=deb VERSION=v1.2.3 PACKAGE_DATE=20261112 sh -c '. scripts/package-lib.sh; package_unit /dev/stdout' 2>&1)" || true
 got_lines="$(printf '%s\n' "$got" | wc -l)"
 repo_lines="$(wc -l < programs/server/systemd/splicefsd.service)"
 if printf '%s\n' "$got" | grep -qx 'ExecStart=/usr/bin/splicefsd' &&

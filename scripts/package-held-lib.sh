@@ -18,7 +18,7 @@ package_held() {
             ;;
         rpm) rpm -q "$2" >/dev/null 2>&1 ;;
         apk) apk info -e "$2" >/dev/null 2>&1 ;;
-        freebsd) pkg info -e "$2" >/dev/null 2>&1 ;;
+        pkg) pkg info -e "$2" >/dev/null 2>&1 ;;
         *) fail "package_held: no package format $1" ;;
     esac
 }

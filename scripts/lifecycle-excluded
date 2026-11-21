@@ -25,3 +25,12 @@
 /etc/hostname$    the same: Docker's file
 /etc/resolv.conf$ the same: Docker's file
 /var/tmp/package-test  the package test's own folder (scripts/package-test-steps.sh): its log, its result and its snapshots, written while the test runs
+/var/db/pkg       the package manager's own state (FreeBSD): the pkg database and the catalogs it downloads
+/var/db/second-boot  the file the second boot of the FreeBSD machine runs (scripts/freebsd-package-test.sh), put there by the first boot
+/usr/local/etc/rc.d/second_boot$  the one-shot rc.d script that starts that file; it removes itself before it runs the file
+/etc/ssh/ssh_host_*  the host keys the machine's own sshd makes when it first starts, which on FreeBSD 15 is the second boot, after the snapshot of step 0
+/var/run/sshd.pid$  the pid file of that sshd
+/var/run/utx.active$  the record of logins that sshd and the login programs of the machine write while the system runs
+/tmp/out          the machine's own boot hook (FreeBSD): the folder whose content goes back to the host
+/tmp/in           the same: the folder where the machine mounts the job disk
+/tmp/status$      the same: the status file of the job

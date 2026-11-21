@@ -44,7 +44,8 @@ jobs:
   # at once when /dev/kvm is missing (scripts/freebsd-require-kvm.sh). The machine builds the
   # packages for amd64 and arm64, installs the amd64 one from the repository it signed with the
   # throwaway key, starts the service, upgrades and removes it, and checks the boot order and
-  # the fstab line (programs/<program>/freebsd/check-lib.sh). Nothing of it is kept: no test of
+  # the fstab line (programs/<program>/freebsd/check-lib.sh). Its package files are kept as an
+  # artifact for the package test of both programs on FreeBSD (ci.yml); no test of
   # test-packages.yml uses a FreeBSD package.
   freebsd:
     name: FreeBSD packages (${{ matrix.release }})
@@ -96,6 +97,15 @@ jobs:
         run: |
           make package-freebsd PROGRAM="$PROGRAM" BIN="$GITHUB_WORKSPACE/bin" SRC="$GITHUB_WORKSPACE/src" \
             VERSION="$VERSION" FREEBSD="$RELEASE"
+      # The package files and the record of the build, for the package test of both programs
+      # (ci.yml), which needs the packages of the server and of the client in one machine.
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: freebsd-packages-${{ inputs.program }}-${{ matrix.release }}
+          path: |
+            packages/dist/${{ inputs.program }}/version
+            packages/dist/${{ inputs.program }}/freebsd
+          if-no-files-found: error
 
   # Installs, upgrades, starts and removes the package, and installs from the repository, on every
   # system of packaging/test-systems. The jobs are in a workflow of their own, which the release of a

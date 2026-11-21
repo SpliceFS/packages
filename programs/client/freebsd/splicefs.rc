@@ -15,8 +15,8 @@
 #                     it. The default is "NO": installing the package starts nothing and
 #                     turns nothing on, and pkg would end a process its scripts started.
 
-# rc.subr reads rcvar, required_modules, command, command_args, extra_commands, start_precmd
-# and reload_cmd.
+# rc.subr reads rcvar, required_modules, command, command_args, extra_commands, start_precmd,
+# stop_postcmd and reload_cmd.
 # shellcheck disable=SC2034
 # shellcheck source=/dev/null
 . /etc/rc.subr
@@ -30,10 +30,12 @@ load_rc_config "$name"
 program=/usr/local/bin/splicefs
 control=/usr/local/bin/splicefsctl
 logfile=/var/log/splicefs.log
-# daemon(8) writes two pid files: its own, which stop and status use, and the client's,
-# which reload needs because the signal must reach the client and not its supervisor.
-pidfile=/var/run/splicefs/daemon.pid
-childpidfile=/var/run/splicefs/splicefs.pid
+# The pid files and the control socket of the client live here. daemon(8) writes two pid files: its
+# own, which stop and status use, and the client's, which reload needs because the signal must
+# reach the client and not its supervisor.
+rundir=/var/run/splicefs
+pidfile="${rundir}/daemon.pid"
+childpidfile="${rundir}/splicefs.pid"
 
 # The mounts are FUSE mounts. rc.subr loads the kernel module before the start.
 required_modules=fusefs
@@ -48,13 +50,19 @@ command_args="-f -r -R 5 -P ${pidfile} -p ${childpidfile} -o ${logfile} ${progra
 extra_commands=reload
 start_precmd=splicefs_prestart
 start_postcmd=splicefs_wait
+stop_postcmd=splicefs_cleanup
 reload_cmd=splicefs_reload
 
 splicefs_prestart() {
     # The default cache folder. The client fills it with the blocks it has read.
     install -d -o root -g wheel -m 0755 /var/cache/splicefs
-    # The pid files and the control socket of the client live here.
-    install -d -o root -g wheel -m 0755 /var/run/splicefs
+    install -d -o root -g wheel -m 0755 "${rundir}"
+}
+
+# rc.subr runs this once the service has stopped. The start made the folder, so the stop takes it
+# away and a stopped service leaves nothing in /var/run.
+splicefs_cleanup() {
+    rm -rf "${rundir}"
 }
 
 # daemon(8) returns as soon as it has started the client, which answers on its control socket

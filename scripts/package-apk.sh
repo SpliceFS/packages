@@ -11,6 +11,8 @@ set -eu
 
 out="${1:?usage: package-apk.sh OUTPUT_DIR}"
 : "${BIN:?BIN is not set}"
+# The format says where this package puts things (the table of scripts/package-lib.sh).
+FORMAT=apk
 # shellcheck source=package-lib.sh
 . scripts/package-lib.sh
 docs="$(package_docs)"

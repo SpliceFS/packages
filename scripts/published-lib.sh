@@ -117,6 +117,9 @@ package_arches() {
     case "$1" in
         linux/amd64) deb_arch=amd64; rpm_arch=x86_64; apk_arch=x86_64 ;;
         linux/arm64) deb_arch=arm64; rpm_arch=aarch64; apk_arch=aarch64 ;;
+        # The FreeBSD package is named by its ABI, not by one of these words, and no published file
+        # of it is looked for by them.
+        freebsd/amd64) ;;
         *) fail "no package CPU type for $1" ;;
     esac
 }

@@ -100,22 +100,12 @@ if [ -z "$present" ]; then
     exit 1
 fi
 
-# Where the baseline of a program is read from the package site, once for the whole run, before the
-# program is chosen for the systems (scripts/package-test-program-lib.sh calls this once the words of
-# the program are set): the newest published package of the program, which step 1 installs and step 2
-# upgrades, is the version the record of the build names (the newest on the site when it names none).
-# The answer is kept in the file of the program in $baselines for the systems, empty when nothing is
-# published. Also tells where the published package file of the program is.
+# The hook of scripts/package-test-program-lib.sh that runs once the words of the program are set: the
+# baseline of the program is read from the package site into its file in $baselines for the systems.
+# Also tells where the published package file of the program is.
 prepare_baseline() {
     published_dir="$root/dist/$PROGRAM/published"
-    baseline_file="$baselines/$PROGRAM"
-    if [ ! -f "$baseline_file" ]; then
-        # upgrade_from_version is a test whose status is the answer, so set -e being off inside it changes nothing.
-        # shellcheck disable=SC2310
-        upgrade_from_version >"$baseline_file.new" ||
-            fail "could not read the newest published package of $PROGRAM from $site_url"
-        mv "$baseline_file.new" "$baseline_file"
-    fi
+    save_baseline_version
 }
 
 # Runs phase $1 of scripts/package-test-steps.sh in the container, as the root of the system, with

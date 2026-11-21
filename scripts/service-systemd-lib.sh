@@ -12,11 +12,14 @@
 # $program is set by package-lib.sh, which ShellCheck cannot follow.
 # shellcheck disable=SC2154
 
+# shellcheck source=service-linux-lib.sh
+. scripts/service-linux-lib.sh
+
 unit="$program.service"
 
 # The file that defines the service: the package puts it there.
 service_file() {
-    echo "/usr/lib/systemd/system/$unit"
+    echo "$servicedir/$unit"
 }
 
 service_active() {

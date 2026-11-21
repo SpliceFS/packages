@@ -21,7 +21,8 @@
 #      key of keys/, is given to the package manager as the install page tells a person, and the
 #      package manager checks the signature of the file (no flag turns that off; only the new files
 #      of step 2, which carry a throwaway signature, skip it). When nothing is published, the step
-#      says so and installs nothing;
+#      says so and installs nothing. A system the host cannot reach fetches the file itself, and the
+#      version of the baseline is the one of the file it got (record_fetched_version);
 #   2. the new package FILE is put over it the way scripts/upgrade-package-lib.sh says (an upgrade,
 #      or a reinstall when the version is the same); with no baseline it is installed. Every file the
 #      package promises is in its place (scripts/package-test-lib.sh), installing enabled and
@@ -46,7 +47,9 @@
 #      once as written except that its removal command names only the packages the package manager
 #      still holds, all programs in one command (dpkg keeps the configuration of a removed package, so
 #      apt-get purge still names it; the other package managers hold nothing, so the command is left
-#      out, as the steps tell a person to do): the data, the configuration, the user and the group.
+#      out, as the steps tell a person to do; so are the lines that delete the rc.conf setting of a
+#      service the steps 3 to 8 did not turn on, as the steps say): the data, the configuration, the
+#      user and the group.
 #      Then, program by program, the data the test made is removed, the saved zone files are put back
 #      byte for byte (a file that did not exist is deleted) and the port is closed in the firewall,
 #      and nothing of ours is installed or running; and the snapshot equals the one of step 0, apart
@@ -62,7 +65,7 @@
 # The log of both phases and the result ("ok", or the line of the step that failed) are written into
 # the folder PACKAGE_TEST_OUT, which the host collects; so are the files the phases pass on to each
 # other. The folder is on the system's own disk, which a restart keeps, and its path is left out of
-# the snapshots (scripts/lifecycle-excluded). Environment: FORMAT (deb, rpm or apk), PLATFORM
+# the snapshots (scripts/lifecycle-excluded). Environment: FORMAT (deb, rpm, apk or pkg), PLATFORM
 # (linux/amd64 or linux/arm64), PROGRAMS (the programs to test, in order) and PACKAGE_TEST_OUT.
 #
 # What differs between package formats is in scripts/service-test-<format>.sh (install_package,
@@ -87,6 +90,7 @@ cd "$root"
 . scripts/package-record.sh
 . scripts/package-test-program-lib.sh
 . scripts/service-check-lib.sh
+. scripts/documented-removal-lib.sh
 . scripts/service-run-local.sh
 . scripts/system-state-lib.sh
 format="${FORMAT:?FORMAT is not set}"
@@ -148,10 +152,35 @@ check_installed_files() {
         in_system "$1" check_versions check_links check_config_folders check_extras
     definition="$(service_file)"
     must "the service definition $definition is missing" on_system "$1" test -f "$definition"
-    refuse "the service definition points at /usr/local/bin" on_system "$1" grep -q /usr/local/bin "$definition"
+    must "the service definition does not name the program $bindir/$program" on_system "$1" grep -qF "$bindir/$program" "$definition"
     must "the user $expected_user was not created" on_system "$1" grep -q "^$expected_user:" /etc/passwd
     echo "ok: the package is installed, its files are in place and the user exists"
     check_idle_after_install "$1"
+}
+
+# Where the published package file is: on a system the host reaches (a container) the host put it
+# there, and on one it cannot reach (the FreeBSD machine) the system fetches it itself, with the
+# function of its format that does that.
+published_file_of_system() {
+    if command -v fetch_published_package >/dev/null 2>&1; then
+        fetch_published_package "$system" || fail "fetching the published package failed"
+    else
+        published_package_file
+    fi
+}
+
+# On a system that fetches the published package itself, the version of the file it got is the baseline:
+# what the host read of the site came earlier, and the site can list a newer package by the time the
+# system fetches. The version is read from the file once and recorded, and the checks of the steps 1 and
+# 2 that need the version of the published package use that one. It runs in the shell of the steps, not in
+# a command substitution, because the words it sets are the ones the steps read.
+# Usage: record_fetched_version PACKAGE_FILE
+record_fetched_version() {
+    command -v published_baseline_version >/dev/null 2>&1 || return 0
+    # fail ends the system, so the function being part of a condition changes nothing.
+    # shellcheck disable=SC2310
+    fetched_version="$(published_baseline_version "$system" "$1")" || fail "reading the version of the fetched package failed"
+    record_baseline_version "$fetched_version"
 }
 
 # Step 1. The published package is what people have installed. It is the one the record of the
@@ -161,7 +190,8 @@ install_baseline() {
         echo "nothing is published for $PROGRAM: there is no baseline, and nothing is installed in this step"
         return 0
     fi
-    published_file="$(published_package_file)"
+    published_file="$(published_file_of_system)"
+    record_fetched_version "$published_file"
     must "installing the published package failed" install_published_package "$1" "$published_file"
     must "the package manager does not list the published package as installed" package_installed "$1"
     # The quotes are single on purpose: the variables are those of the shell that sh -c starts.
@@ -222,39 +252,14 @@ check_reinstall_changes_nothing() {
         in_upgrade_lib "$1" verify_markers_kept "reinstall"
     echo "ok: installing the package file over itself changed no file, no configuration and no service"
 }
-# The documented removal reads as the install page shows it, for both programs, and says "Leave out
-# the one you did not install": its removal command names the packages in $2 (what the package
-# manager still holds, separated by spaces) and the others are left out of it. With none named the
-# command is left out whole: a package manager refuses a name it does not hold, and a command with
-# no name does nothing. The setup script's own removal is left out too: it removes the repository
-# this test never set up.
-documented_removal_text() {
-    {
-        echo '/setup\.sh/d'
-        for conf in programs/*/program.conf; do
-            other="$(sed -n 's/^name=//p' "$conf")"
-            case " $2 " in
-                *" $other "*) ;;
-                *)
-                    if [ -n "$2" ]; then
-                        echo "s/ $other\$//"
-                        echo "s/ $other / /"
-                    else
-                        echo "/ $other\$/d"
-                        echo "/ $other /d"
-                    fi
-                    ;;
-            esac
-        done
-    } >"$own/removal.sed"
-    sed -f "$own/removal.sed" "$1"
-}
 
 # Runs the documented removal as a person would: root, and "yes" for the questions the package
 # manager asks. The file says sudo, which root does not have in a container, so sudo is a function
 # that runs its arguments. zypper reads its questions from the terminal only and fails on a pipe
 # ("Cannot read input"), so the function gives zypper --non-interactive, which answers them with
-# their defaults, the same yes. The first failing command ends the run.
+# their defaults, the same yes. The first failing command ends the run, and tracing (set -x) puts each
+# command in the log, so the last one before the failure is the one that failed: a command that
+# fails without a message is named that way.
 documented_removal() {
     file="$(uninstall_file "$1")" || fail "no uninstall file for this system"
     # fail ends the system, so the functions being part of a condition change nothing.
@@ -263,12 +268,16 @@ documented_removal() {
     if [ -z "$held" ]; then
         echo "step 9: $format: nothing installed, the removal command is left out, as the steps say"
     fi
+    turned_on="$(programs_turned_on)"
+    services_left_out "$file" "$turned_on" | while IFS= read -r line; do
+        echo "step 9: $format: \"$line\" is left out, as the steps say"
+    done
     # shellcheck disable=SC2310
-    text="$(documented_removal_text "$file" "$held")" || fail "reading $file failed"
+    text="$(documented_removal_text "$file" "$held" "$turned_on")" || fail "reading $file failed"
     # on_system is one command whose status is the answer, so set -e being off inside it changes nothing.
     # The script is for the shell that sh -c starts, which reads its own variables.
     # shellcheck disable=SC2016,SC2310
-    yes | on_system "$1" env DEBIAN_FRONTEND=noninteractive sh -c 'set -e
+    yes | on_system "$1" env DEBIAN_FRONTEND=noninteractive sh -c 'set -ex
         sudo() { if [ "$1" = zypper ]; then shift; zypper --non-interactive "$@"; else "$@"; fi; }
         eval "$1"' sh "$text" ||
         fail "the commands of $file failed"
@@ -360,6 +369,15 @@ begin_waiting_step() {
 # Whether the service steps are built for the program $1.
 has_service_steps() {
     case " $service_step_programs " in *" $1 "*) return 0 ;; *) return 1 ;; esac
+}
+
+# The programs whose service the steps 3 to 8 turned on, separated by spaces.
+programs_turned_on() {
+    for step_program in $present; do
+        # has_service_steps is one test whose status is the answer, so set -e being off inside it changes nothing.
+        # shellcheck disable=SC2310
+        ! has_service_steps "$step_program" || printf '%s ' "$step_program"
+    done
 }
 
 # Like each_program for a service step, step $1 with the text $2 and the function $3: a program whose

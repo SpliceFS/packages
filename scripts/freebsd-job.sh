@@ -60,7 +60,7 @@ major="$(freebsd-version -u | cut -d. -f1)"
 programs="$(sed -n 's|^bin/||p' "$in/plist")"
 
 # links is "<link> <target>" a line, the links of the package as the host made them from the
-# links file of the program (package_freebsd_link_list in scripts/package-lib.sh).
+# links file of the program (package_link_list in scripts/package-lib.sh).
 
 # One package per CPU type. goarch is how the build names the binary, abiarch how pkg names
 # the CPU type in an ABI string, and the package of version $3 is written into the folder $4.
@@ -276,6 +276,8 @@ pkg_run delete -y "$name"
 # answers is one command whose status is the answer, so running it without set -e changes nothing.
 # shellcheck disable=SC2310
 if answers; then fail "the service still answers after the package was removed"; fi
+# The stop of the removal runs the stop_postcmd of the rc script, which takes the run folder away.
+[ ! -e "/var/run/$program" ] || { show; fail "stopping the service left /var/run/$program behind"; }
 for each in $programs; do
     [ ! -e "/usr/local/bin/$each" ] || fail "remove left $each behind"
 done

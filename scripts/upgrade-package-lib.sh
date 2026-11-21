@@ -44,6 +44,9 @@ reinstall_package() {
             fi
             ;;
         apk:file) reinstall_apk_file "$3" ;;
+        # pkg add refuses a file of the installed version unless it is forced, and runs the install
+        # scripts of the package again, as a reinstall must.
+        pkg:file) pkg add -f "$3" >/dev/null ;;
         *) apk fix -q --reinstall "$3" >/dev/null ;;
     esac
 }
@@ -88,6 +91,8 @@ upgrade_package_to_newer() {
             fi
             ;;
         apk:file) apk add -q --allow-untrusted "$3" >/dev/null ;;
+        # pkg add of a file of a newer version upgrades the installed package.
+        pkg:file) pkg add "$3" >/dev/null ;;
         *) apk add -q -u "$3" >/dev/null ;;
     esac
 }

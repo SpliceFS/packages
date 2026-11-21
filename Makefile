@@ -117,7 +117,7 @@ RUN_OPTS :=
 DOCKER_RUN = docker run --rm --user "$(shell id -u):$(shell id -g)" $(RUN_OPTS) -v "$(CURDIR)":/repo -w /repo \
 	-v "$(abspath $(BIN))":/in/bin:ro -v "$(abspath $(SRC))":/in/src:ro
 
-.PHONY: packages package-deb package-rpm package-apk package-freebsd freebsd-kvm package-inputs keys
+.PHONY: packages package-deb package-rpm package-apk package-freebsd package-test-freebsd freebsd-kvm package-inputs keys
 
 # The packages of every format. Each format is a target of its own. When all of them are built, the
 # version they were built as is recorded in dist/PROGRAM/version, which is where the tests that
@@ -163,6 +163,14 @@ package-freebsd: freebsd-kvm package-inputs keys ## Builds and checks the FreeBS
 		BIN="$(abspath $(BIN))" KEYS_DIR="$(CURDIR)/dist/keys" LINUX_IMAGE=$(GO_IMAGE) FREEBSD_IMAGE=$(FREEBSD_IMAGE) FREEBSD=$(FREEBSD) \
 		sh scripts/package-freebsd.sh $(PACKAGE_OUT)
 	$(RECORD_VARS) sh -c '. scripts/package-record.sh && write_package_record'
+
+# The package test (make package-test) for FreeBSD: a machine of each release in
+# packaging/freebsd/releases installs the packages of dist/PROGRAM/freebsd, which make package-freebsd
+# built, over the published ones, runs the services, restarts the machine, removes the packages as
+# the documentation says, and must find the system as it was (scripts/freebsd-package-test.sh). It
+# needs Docker and KVM. FREEBSD=15.1 limits the run to one release.
+package-test-freebsd: freebsd-kvm ## Runs the package test in a FreeBSD machine of every release (FREEBSD=15.1 for one)
+	VERSION=$(VERSION) FREEBSD_IMAGE=$(FREEBSD_IMAGE) FREEBSD=$(FREEBSD) scripts/freebsd-package-test.sh
 
 # First in every target that starts a FreeBSD machine, so that a computer that cannot is found
 # before anything is built.

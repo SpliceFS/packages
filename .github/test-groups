@@ -13,8 +13,9 @@
 #           (install-tests.yml). It needs only the setup script, its own tests and its own
 #           workflow: it builds no package, so no change to a package can affect it.
 
-# The setup script and its own tests, and nothing else.
-setup.sh.in                         install
+# The setup script and its own tests. The FreeBSD package test also writes its repository file
+# with the setup script's pkg_conf.
+setup.sh.in                         install freebsd
 tests/*                             install
 .github/workflows/install-tests.yml install
 # No test reads the pull request template or the settings of the dependency bot.

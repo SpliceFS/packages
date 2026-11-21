@@ -125,7 +125,7 @@ wait_for_client() {
     : > "$box/calls"
     echo 4242 > "$box/daemon.pid"
     sed -e "s|/etc/rc.subr|$tree/rc-wait.subr|" -e "s|/usr/local/bin/splicefsctl|$tree/splicefsctl|" \
-        -e "s|/var/run/splicefs/daemon.pid|$box/daemon.pid|" "$client_rc" > "$tree/rc.script"
+        -e "s|^rundir=.*|rundir=$box|" "$client_rc" > "$tree/rc.script"
     status=0
     box="$box" entry=splicefs_wait ANSWER_AT="$1" sh "$tree/rc.script" start > "$box/out" 2>&1 || status=$?
     asked="$(recorded ask)"
@@ -144,6 +144,35 @@ same "splicefs: a client that never answers fails the start after 30 tries and e
     "1 asks=30 sleeps=29 kill 4242;" "$wait_result"
 said="$(cat "$box/out")"
 holds "splicefs: a start that fails says why" "does not answer" "$said"
+
+# --- stopping leaves no run folder ----------------------------------------------------------
+
+# The run folder holds the pid files and, for the client, the control socket. rc.subr runs the
+# function that stop_postcmd names once the service has stopped, and that function takes the folder
+# away, so that a stopped service leaves nothing in /var/run. $1 the program, $2 its service. Runs
+# that function in a run folder of the test that holds what the service puts there, and sets
+# stop_status to its exit status and stop_left to what is left of the folder.
+run_stop_postcmd() {
+    box="$tree/stop-$2"
+    rm -rf "$box"
+    mkdir -p "$box/run"
+    : > "$box/run/daemon.pid"
+    : > "$box/run/$2.pid"
+    rc_file="programs/$1/freebsd/$2.rc"
+    function_name="$(sed -n 's/^stop_postcmd=//p' "$rc_file")"
+    sed -e "s|/etc/rc.subr|$tree/rc-wait.subr|" -e "s|^rundir=.*|rundir=$box/run|" "$rc_file" > "$tree/rc.script"
+    stop_status=0
+    box="$box" entry="$function_name" sh "$tree/rc.script" stop > "$box/out" 2>&1 || stop_status=$?
+    stop_left="$(ls -A "$box")"
+}
+
+while read -r program service; do
+    run_stop_postcmd "$program" "$service"
+    same "$service: the function that stop_postcmd names succeeds" 0 "$stop_status"
+    same "$service: stopping takes the run folder away" "out" "$stop_left"
+done <<PROGRAMS
+$programs
+PROGRAMS
 
 # --- the checks that the machine runs for the client ----------------------------------------
 
@@ -509,6 +538,8 @@ while read -r program service; do
     holds "$service: the upgrade message says how to restart it" "service $service restart" "$text"
     text="$(manifest_message "$manifest" "$service" remove)"
     holds "$service: the remove message says how to delete the setting" "sysrc -x ${service}_enable" "$text"
+    holds "$service: the remove message says the setting is deleted only if the service was turned on" \
+        "If you turned the service on, delete its setting:" "$text"
     if grep -q -e 'next boot' -e 'starts when the system boots' "$manifest"; then
         printf 'FAIL %s: the manifest still says that it runs by itself\n' "$service"
         failed=$((failed + 1))

@@ -34,18 +34,11 @@ health_answers() {
     fi
 }
 
-# The IPv4 address of this system that is not a loopback one: the name of the system resolves to it
-# (the container runtime and every installer write the name into /etc/hosts), and the server listens
-# on every interface, so a request to it comes in through a real interface and not through lo. getent
-# hosts is not used: on some systems it answers with ::1 for the name of the system.
-own_address() {
-    # A name that does not resolve gives no address, and the caller treats that as the answer.
-    # shellcheck disable=SC2312
-    getent ahostsv4 "$(uname -n)" | awk '$1 !~ /^127\./ { print $1; exit }'
-}
-
 # The same, asked inside the system that runs the service, which the argument names and does not
-# need: the server must listen beyond the loopback address.
+# need: the server must listen beyond the loopback address, so the request goes to the IPv4 address
+# of the system that is not a loopback one, through a real interface and not through lo. Which
+# command tells that address differs between systems, so own_address is a function of the adapter of
+# the package format (scripts/service-test-<format>.sh).
 answers() {
     address="$(own_address)"
     [ -n "$address" ] && health_answers "$address" "$port"

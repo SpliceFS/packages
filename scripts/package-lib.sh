@@ -8,11 +8,47 @@
 : "${VERSION:?VERSION is not set}"
 : "${PACKAGE_DATE:?PACKAGE_DATE is not set}"
 
+# The one table of where each package format puts things, chosen by FORMAT (deb, rpm, apk or pkg),
+# which is in the environment of every shell of a package test, child shells included, so that all
+# of them get the same folders. The packaging definitions cannot read it, so
+# scripts/package-table-test.sh compares it with them. With no FORMAT the variables stay unset: a
+# script that needs them says FORMAT, and a wrong folder is never taken for the right one.
+#   usrdir      what the links file calls /usr, and the folder the program folder is in
+#   bindir      the programs; a service definition names its program here
+#   confdir     the configuration folder of the program
+#   datadir     the state folder: what the program makes and what the administrator adds to it
+#   servicedir  the folder of the service definitions
+#   helperdir   the folder mount(8) looks in for the helper of a file system type, mount.TYPE
 # What program.conf sets is unknown to ShellCheck, which cannot follow it.
 # shellcheck disable=SC2154
-confdir="/etc/splicefs/${name#splicefs-}"
-# Where the program keeps what it makes and what the administrator adds to it (the state folder).
-datadir="/var/lib/splicefs/${name#splicefs-}"
+case "${FORMAT:-}" in
+    deb | rpm)
+        usrdir=/usr
+        bindir=/usr/bin
+        confdir="/etc/splicefs/${name#splicefs-}"
+        datadir="/var/lib/splicefs/${name#splicefs-}"
+        servicedir=/usr/lib/systemd/system
+        helperdir=/sbin
+        ;;
+    apk)
+        usrdir=/usr
+        bindir=/usr/bin
+        confdir="/etc/splicefs/${name#splicefs-}"
+        datadir="/var/lib/splicefs/${name#splicefs-}"
+        servicedir=/etc/init.d
+        helperdir=/sbin
+        ;;
+    pkg)
+        usrdir=/usr/local
+        bindir=/usr/local/bin
+        confdir="$usrdir/etc/splicefs/${name#splicefs-}"
+        datadir="/var/db/splicefs/${name#splicefs-}"
+        servicedir="$usrdir/etc/rc.d"
+        helperdir="$usrdir/sbin"
+        ;;
+    "") ;;
+    *) fail "FORMAT $FORMAT is not deb, rpm, apk or pkg" ;;
+esac
 # One folder name per line; see the file for why the package ships them empty.
 confsubdirs="$(grep -v -e '^#' -e '^$' "$defs/config-folders")"
 # The name of the file the package tests write into the first of those folders, as an administrator
@@ -21,18 +57,14 @@ confsubdirs="$(grep -v -e '^#' -e '^$' "$defs/config-folders")"
 administrator_file=local.yaml
 
 # Prints the links the program installs, "<link> <target>" a line. They are named in the links
-# file of the program, and a program without the file has none. The links are made and the
-# package tests check them from this list, so that the file is the one place that says them.
+# file of the program, which writes them under /usr; a format that installs under another folder
+# has them moved there (usrdir of the table), both the link and its target. A program without the
+# file has none. The links are made and the package tests check them from this list, so that the
+# file is the one place that says them.
 package_link_list() {
+    : "${usrdir:?FORMAT is not set}"
     [ -f "$defs/links" ] || return 0
-    grep -v -e '^#' -e '^$' "$defs/links"
-}
-
-# Prints the links of the FreeBSD package, "<link> <target>" a line: the same links, moved from /usr
-# to /usr/local, where that package installs. The links file stays the one place that says which
-# links there are.
-package_freebsd_link_list() {
-    package_link_list | sed -e 's|^/usr/|/usr/local/|' -e 's| /usr/| /usr/local/|'
+    grep -v -e '^#' -e '^$' "$defs/links" | sed -e "s|^/usr/|$usrdir/|" -e "s| /usr/| $usrdir/|"
 }
 
 # Makes the links the program installs under the folder $1, for the package formats that build a
@@ -67,8 +99,8 @@ package_docs() {
     echo "$list"
 }
 
-# Prints the packing list that pkg create reads for the FreeBSD package, paths relative to
-# /usr/local. Every line is made from a fact that program.conf, links and config-folders hold: the
+# Prints the packing list that pkg create reads for the FreeBSD package (FORMAT pkg), paths relative
+# to the usrdir of the table. Every line is made from a fact that program.conf, links and config-folders hold: the
 # programs, the links, the rc script that is named after the service program, and the
 # configuration folders.
 # A folder comes before the one that holds it, so that pkg removes the inner one first. The
@@ -78,18 +110,20 @@ package_docs() {
 # shellcheck disable=SC2154
 package_freebsd_plist() {
     for plist_program in $programs; do echo "bin/$plist_program"; done
-    package_freebsd_link_list | while read -r plist_link _; do echo "${plist_link#/usr/local/}"; done
-    echo "etc/rc.d/$program"
-    for plist_folder in $confsubdirs; do echo "@dir ${confdir#/}/$plist_folder"; done
-    echo "@dir ${confdir#/}"
-    echo "@dir $(dirname "${confdir#/}")"
+    package_link_list | while read -r plist_link _; do echo "${plist_link#"$usrdir"/}"; done
+    echo "${servicedir#"$usrdir"/}/$program"
+    for plist_folder in $confsubdirs; do echo "@dir ${confdir#"$usrdir"/}/$plist_folder"; done
+    echo "@dir ${confdir#"$usrdir"/}"
+    echo "@dir $(dirname "${confdir#"$usrdir"/}")"
 }
 
 # Writes the service unit as the packages ship it to the file $1. The unit in the repository
-# is written for a manual install under /usr/local; the packages put the program in /usr/bin.
+# is written for a manual install under /usr/local; the packages put the program in the bindir of
+# the table.
 package_unit() {
+    : "${bindir:?FORMAT is not set}"
     # shellcheck disable=SC2154
-    sed 's|/usr/local/bin/|/usr/bin/|' "$defs/systemd/$program.service" > "$1"
+    sed "s|/usr/local/bin/|$bindir/|" "$defs/systemd/$program.service" > "$1"
 }
 
 # Prints the file $2 (an install script of the program, or its rpm spec) with the service steps
@@ -282,6 +316,17 @@ package_release_of_debver() {
         *~*) printf 'v%s-%s\n' "${1%%~*}" "${1#*~}" ;;
         *) printf 'v%s\n' "$1" ;;
     esac
+}
+
+# Prints the deb version, which a baseline file holds, of the published FreeBSD package version $1 as
+# pkg writes it: package_versions read backwards for the FreeBSD format. A published package is a
+# release, whose FreeBSD and deb versions are the same text. A pre-release cannot be read back,
+# because rc.1 and rc1 are one FreeBSD version, and the others (the date of a build, a port
+# revision) are never published.
+package_debver_of_pkgver() {
+    printf '%s' "$1" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' ||
+        fail "$1 is not a FreeBSD package version this repository publishes"
+    printf '%s\n' "$1"
 }
 
 # The words of package_versions for the program version and date of this run. The call

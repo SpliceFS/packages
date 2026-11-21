@@ -65,6 +65,40 @@ holds "the hook runs after the version and the words of the program are set" "$g
 got="$(choose 1.2.2 'n=0; prepare_baseline() { n=$((n + 1)); }; use_program server; use_program server; use_program client; use_program server; echo "hook ran $n times"')"
 holds "choosing the program that is chosen already does nothing, another program is chosen again" "$got" "hook ran 3 times"
 
+# The baseline the host reads from the package site (save_baseline_version) is one function for every
+# host. The site is not asked in these cases: upgrade_from_version is replaced inside the hook, which
+# runs after the library sourced the real one.
+got="$(choose none 'prepare_baseline() { save_baseline_version && echo "saved:$(cat "$baselines/$PROGRAM")"; }; use_program server; echo "from:$from"')"
+holds "the baseline is read once into the file of the program, from the recorded version" "$got" "saved:1.2.2"
+
+got="$(choose 1.2.0 'prepare_baseline() { upgrade_from_version() { return 1; }; save_baseline_version && echo "saved:$(cat "$baselines/$PROGRAM")"; }; use_program server')"
+holds "a file that is there is kept, the site is not asked again" "$got" "saved:1.2.0"
+
+got="$(choose none 'prepare_baseline() { upgrade_from_version() { :; }; save_baseline_version && echo "saved:[$(cat "$baselines/$PROGRAM")]"; }; use_program server')"
+holds "nothing published makes an empty file" "$got" "saved:[]"
+
+got="$(choose none 'prepare_baseline() { upgrade_from_version() { return 1; }; save_baseline_version; }; use_program server; echo "not reached"')"
+holds "a site that cannot be read ends the caller and names the program and the site" "$got" "could not read the newest published package of server from https://packages.splicefs.org/server"
+case "$got" in *"not reached"*) printf 'FAIL the caller went on after a site that cannot be read\n'; failed=$((failed + 1)) ;; *) ;; esac
+
+# A system that fetches its published package itself (the FreeBSD machine) records the version of the
+# file it got (record_baseline_version): the file of the program takes the place of what the host
+# read, the words that follow are those of the recorded version, and the program chosen again later,
+# in this process or the next phase's, reads the recorded one.
+got="$(choose 1.2.1 'use_program server; record_baseline_version 1.2.2; echo "$(cat "$baselines/server") $from $old_tag $PUBLISHED_VERSION $old_debver"')"
+holds "a recorded version replaces the baseline of the program, and the words follow it" "$got" "1.2.2 1.2.2 v1.2.2 v1.2.2 1.2.2"
+
+got="$(choose 1.2.1 'use_program server; record_baseline_version 1.2.2; use_program client; use_program server; echo "$from $old_tag"')"
+holds "the program chosen again reads the recorded version, not the one of the host" "$got" "1.2.2 v1.2.2"
+
+got="$(choose 1.2.1 'use_program server; record_baseline_version 1.2.2; chosen_program=; use_program server; echo "$from"; ls "$baselines"')"
+holds "a recorded version is the file, so the next phase reads it" "$got" "1.2.2"
+case "$got" in *.new*) printf 'FAIL the temporary file of the record is left behind: %s\n' "$got"; failed=$((failed + 1)) ;; *) ;; esac
+
+got="$(choose 1.2.1 'use_program server; record_baseline_version 1.2.2.rc1; echo "not reached"')"
+holds "a recorded version that is not one of ours ends the caller and is named" "$got" "1.2.2.rc1 is not a package version this repository publishes"
+case "$got" in *"not reached"*) printf 'FAIL the caller went on after a version that is not one of ours\n'; failed=$((failed + 1)) ;; *) ;; esac
+
 got="$(choose 1.2.2 'given_version=v9.9.9; use_program server')"
 holds "a version given by the caller must be the recorded one" "$got" "is not the recorded v1.2.3"
 

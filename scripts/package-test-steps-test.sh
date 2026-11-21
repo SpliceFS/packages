@@ -48,6 +48,27 @@ on_system_as_root() {
     on_system "$@"
 }
 
+# A system the host cannot reach fetches its published package itself, with the hook of its format:
+# STAND_IN_FETCH makes this stand-in exist. It logs its call, fails when STAND_IN_FAIL holds its name, and
+# prints the path of the file it fetched, which is not the one the host would have put in /pkg. The
+# second hook reads the version of that file, as a baseline file writes it: STAND_IN_FETCHED_SERVER or
+# STAND_IN_FETCHED_CLIENT when set (the site listed a newer package when the system fetched than when
+# the host read it), else the version the host read.
+if [ -n "${STAND_IN_FETCH:-}" ]; then
+    fetch_published_package() {
+        echo "fetch_published_package $1" >>"$STAND_IN_DIR/log"
+        case "${STAND_IN_FAIL:-}" in *fetch_published_package*) return 1 ;; *) ;; esac
+        echo "/fetched/$PROGRAM/splicefs-$PROGRAM-published.deb"
+    }
+    published_baseline_version() {
+        echo "published_baseline_version $1 $2" >>"$STAND_IN_DIR/log"
+        case "${STAND_IN_FAIL:-}" in *published_baseline_version*) return 1 ;; *) ;; esac
+        case "$PROGRAM" in server) fetched_version="${STAND_IN_FETCHED_SERVER:-}" ;; *) fetched_version="${STAND_IN_FETCHED_CLIENT:-}" ;; esac
+        [ -n "$fetched_version" ] || read -r fetched_version <"$BASELINES/$PROGRAM"
+        echo "$fetched_version"
+    }
+fi
+
 # Nothing the stand-in does starts a process unless a command of a system does (cp, mv, rm): its
 # answers are made of builtins, because a call that runs in a few milliseconds is a stand-in worth
 # having and a process for each of hundreds of calls is not. So no function here prints a value for
@@ -202,6 +223,8 @@ curl() {
     if [ -f "$STAND_IN_DIR/active" ]; then printf 200; else printf 000; fi
 }
 STAND_IN
+# The lines of the steps file of FreeBSD that delete the setting of each service.
+sysrc_lines="$(printf '%s\n' 'sysrc -x splicefsd_enable' 'sysrc -x splicefs_enable')"
 # What every case starts from: only the server is built (v1.2.3, and its record names 1.2.2 as the
 # published version; the client is v1.4.0 and its record names 1.3.9), no call fails, no file
 # changes, and the system is of the format deb.
@@ -220,14 +243,22 @@ scenario() {
     zones=
     port_open=
     format=deb
+    fetch_hook=
+    fetched_server=
+    fetched_client=
+    removal_lines_added=
 }
 
 # Runs the case $1 with the settings of scenario: $built names the programs whose packages are in
 # dist, the snapshot of step 0 is $first, the snapshot of step 9 is $last, the one after each reinstall
 # is $reinstalled, $cores are the cores listed at the fourth look (before step 3 of a run of the
 # server alone), $late_cores those listed at the look after the last snapshot, $user is the user the
-# service runs as, $format the package format of the system. $firewalld, when not empty, makes the
-# system run firewalld, and $zones names the zone files it has before the test (public.xml and
+# service runs as, $format the package format of the system ($removal_lines_added, when not empty, is
+# added to the end of the steps file of the documented removal, as the file of FreeBSD has lines the
+# others do not). $firewalld, when not empty, makes the
+# system run firewalld ($fetch_hook, when not empty, gives the system a hook that fetches the published
+# package itself; $fetched_server and $fetched_client, when not empty, are the versions of the files it
+# fetches, which the site may have listed later than the host read it, else they are the host's), and $zones names the zone files it has before the test (public.xml and
 # public.xml.old, or neither); $port_open makes the port stay open in it. A call that holds the text
 # in $fail_on fails. The first phase runs, then the restart the host does (a service that is not
 # enabled does not come back), then the second phase, unless the first failed. Keeps the log of the
@@ -237,7 +268,13 @@ scenario() {
 launch() {
     case_dir="$t/cases/$1"
     mkdir -p "$case_dir/dir" "$case_dir/root/dist" "$case_dir/baselines"
-    ln -s "$t/farm/scripts" "$t/farm/programs" "$t/farm/steps" "$t/farm/keys" "$case_dir/root/"
+    ln -s "$t/farm/scripts" "$t/farm/programs" "$t/farm/keys" "$case_dir/root/"
+    if [ -n "$removal_lines_added" ]; then
+        cp -R "$root/steps" "$case_dir/root/steps"
+        printf '%s\n' "$removal_lines_added" >>"$case_dir/root/steps/uninstall-apt.sh"
+    else
+        ln -s "$t/farm/steps" "$case_dir/root/"
+    fi
     # The snapshots are taken in step 0, twice around the reinstall of each program built, and in step 9.
     printf '%s\n' "$first" >"$case_dir/dir/snapshot.1"
     taken=1
@@ -266,7 +303,8 @@ launch() {
     (
         status=0
         export STAND_IN_FAIL="$fail_on" STAND_IN_DIR="$case_dir/dir" STAND_IN_USER="$user" \
-            STAND_IN_FIREWALLD="$firewalld" STAND_IN_PORT_OPEN="$port_open" \
+            STAND_IN_FIREWALLD="$firewalld" STAND_IN_PORT_OPEN="$port_open" STAND_IN_FETCH="$fetch_hook" \
+            STAND_IN_FETCHED_SERVER="$fetched_server" STAND_IN_FETCHED_CLIENT="$fetched_client" \
             FORMAT="$format" PLATFORM=linux/amd64 PROGRAMS="$built" PACKAGE_TEST_OUT="$case_dir/out" BASELINES="$case_dir/baselines"
         steps="$case_dir/root/scripts/package-test-steps.sh"
         sh "$steps" phase1 || status=$?
@@ -464,6 +502,16 @@ scenario; built="server client"; fail_on="apt-get install -y -qq /pkg/client/pub
 scenario; built="server client"; fail_on="sh deb v1.3.9 v1.4.0"; launch client_upgrade_fails
 scenario; built="server client"; fail_on="apt-get remove -y -qq splicefs-client"; launch client_plain_removal_fails
 scenario; built="server client"; last="/etc/b"; launch both_snapshot_differs
+scenario; removal_lines_added="$sysrc_lines"; launch service_lines_server_only
+scenario; removal_lines_added="$sysrc_lines"; built=client; launch service_lines_client_only
+scenario; fetch_hook=1; launch hook_fetches
+scenario; fetch_hook=1; record=none; launch hook_nothing_published
+scenario; fetch_hook=1; fail_on=fetch_published_package; launch hook_fails
+scenario; fetch_hook=1; built="server client"; launch hook_both
+scenario; fetch_hook=1; record=1.2.1; fetched_server=1.2.2; launch hook_fetches_newer
+scenario; fetch_hook=1; record=1.2.1; fetched_server=1.2.3; launch hook_fetches_the_new_version
+scenario; fetch_hook=1; fail_on=published_baseline_version; launch hook_version_unreadable
+scenario; fetch_hook=1; built="server client"; record=1.2.1; client_record=1.3.0; fetched_server=1.2.2; fetched_client=1.3.9; launch hook_both_newer
 scenario; format=rpm; firewalld=1; zones="public.xml public.xml.old"; launch zones_existed
 scenario; format=rpm; firewalld=1; launch zones_missing
 scenario; format=rpm; firewalld=1; zones="public.xml.old"; launch one_zone_existed
@@ -510,6 +558,8 @@ expect "the plain removal checks the configuration and the data remain" sh -c "g
 expect "the install is of the package file under /pkg" sh -c "grep -q 'file /pkg/server/splicefs-server_' '$dir/log'"
 expect "no setup script and no repository are used" sh -c "! grep -q 'setup.sh\|apt-key\|sources.list' '$dir/log'"
 expect "the setup script's removal is not run" sh -c "! grep -q 'splicefs-setup.sh' '$dir/log'"
+expect "the documented removal traces its commands, so the log names the one that failed" \
+    sh -c "grep -q \"sh -c set -ex\" '$dir/log'"
 expect "the documented removal names the package the package manager still holds (dpkg keeps its configuration)" \
     sh -c "grep -q 'apt-get purge splicefs-server' '$dir/log'"
 expect "the documented removal leaves out the program that is not held" sh -c "! grep -q 'apt-get purge.*splicefs-client' '$dir/log'"
@@ -554,6 +604,68 @@ expect "step 1 says nothing is published" holds "nothing is published for server
 expect "no published file is installed" sh -c "! grep -q '/published/' '$dir/log'"
 expect "the new file is installed, and the configuration file and the data file are written" \
     in_order "apt-get install -y -qq /pkg/server/splicefs-server_1.2.3_amd64.deb" "write_markers deb" "sh deb v1.2.3 v1.2.3 file"
+
+# The hook of a system the host cannot reach (the FreeBSD machine): the published package is the file it
+# fetched, not the one in /pkg.
+use_case hook_fetches
+expect "a run whose system fetches the published package itself passes" passed_status
+expect "the hook is asked once, for the system, before the published file is installed" \
+    sh -c "[ \"\$(grep -c fetch_published_package '$dir/log')\" -eq 1 ]"
+expect "the file the hook fetched is installed as the published package" \
+    in_order "fetch_published_package system" "apt-get install -y -qq /fetched/server/splicefs-server-published.deb"
+expect "the file of the host is not used" sh -c "! grep -q '/pkg/server/published/' '$dir/log'"
+expect "the new file goes over the fetched one" in_order "apt-get install -y -qq /fetched/server/" "sh deb v1.2.2 v1.2.3 file"
+
+use_case hook_nothing_published
+expect "a run with nothing published and a hook passes" passed_status
+expect "nothing published asks no hook: there is nothing to fetch" sh -c "! grep -q fetch_published_package '$dir/log'"
+expect "step 1 says nothing is published, with a hook as without" holds "nothing is published for server"
+
+use_case hook_fails
+expect "a hook that fails fails step 1" failed_in 1
+expect "the failure of the hook is named" holds "fetching the published package failed"
+expect "nothing is installed after a failed fetch" sh -c "! grep -q 'apt-get install' '$dir/log'"
+
+# The site listed a newer package when the system fetched than when the host read it (the host read
+# 1.2.1, the file is 1.2.2): everything that needs the version of the published package, the check of
+# what the installed program reports and the decision of step 2 to upgrade or reinstall, has the
+# version of the file, read once, and the host's is not used.
+use_case hook_fetches_newer
+expect "a run whose published package is newer than the host read passes" passed_status
+expect "the version is read from the fetched file, after the fetch and before the install" \
+    in_order "fetch_published_package system" "published_baseline_version system /fetched/server/splicefs-server-published.deb" \
+    "apt-get install -y -qq /fetched/server/splicefs-server-published.deb"
+expect "the version is read once" sh -c "[ \"\$(grep -c published_baseline_version '$dir/log')\" -eq 1 ]"
+expect "step 1 says the version of the fetched file is installed" holds "ok: the published v1.2.2 is installed"
+expect "the installed program is asked for the version of the fetched file" \
+    sh -c "grep -q 'grep -qF .\$2. sh splicefsd v1.2.2' '$dir/log'"
+expect "the new file goes over the version of the fetched file" in_order "apt-get install -y -qq /fetched/server/" "sh deb v1.2.2 v1.2.3 file"
+expect "the version the host read is not used by any call" sh -c "! grep -q 'v1.2.1' '$dir/log'"
+
+use_case hook_fetches_the_new_version
+expect "a run whose fetched package is the version of the new one passes" passed_status
+expect "the same version is put over the fetched one with the reinstall, and again over itself" \
+    sh -c "[ \"\$(grep -c 'sh deb v1.2.3 v1.2.3 file' '$dir/log')\" -eq 2 ]"
+expect "no call upgrades from the version the host read" sh -c "! grep -q 'v1.2.1' '$dir/log'"
+
+use_case hook_version_unreadable
+expect "a hook that cannot read the version fails step 1" failed_in 1
+expect "the failure of the read is named" holds "reading the version of the fetched package failed"
+expect "nothing is installed when the version is not known" sh -c "! grep -q 'apt-get install' '$dir/log'"
+
+use_case hook_both_newer
+expect "a run of both programs, each with a published package newer than the host read, passes" passed_status
+expect "each program is upgraded from the version of its own fetched file" \
+    in_order "sh deb v1.2.2 v1.2.3 file" "sh deb v1.3.9 v1.4.0 file"
+expect "the version is read once for each program" sh -c "[ \"\$(grep -c published_baseline_version '$dir/log')\" -eq 2 ]"
+expect "no call names a version the host read" sh -c "! grep -q 'v1.2.1' '$dir/log' && ! grep -q 'v1.3.0' '$dir/log'"
+
+use_case hook_both
+expect "a run of both programs whose system fetches the published packages passes" passed_status
+expect "the hook is asked for the server and then for the client, and each file is installed as fetched" \
+    in_order "fetch_published_package system" "apt-get install -y -qq /fetched/server/splicefs-server-published.deb" \
+    "apt-get install -y -qq /fetched/client/splicefs-client-published.deb"
+expect "the hook is asked once for each program" sh -c "[ \"\$(grep -c fetch_published_package '$dir/log')\" -eq 2 ]"
 
 use_case file_check_fails
 expect "a failing file check fails the system" failed_status
@@ -692,6 +804,21 @@ expect "the published client file is installed, then the new one" \
     "sh deb v1.3.9 v1.4.0 file /pkg/client/splicefs-client_1.4.0_amd64.deb"
 expect "the documented removal names the client only" \
     sh -c "grep -q 'apt-get purge splicefs-client' '$dir/log' && ! grep -q 'apt-get purge.*splicefs-server' '$dir/log'"
+
+# The steps tell a person to leave out the line of a service never turned on; the test does, for
+# every service its steps did not turn on (those of steps 3 to 8, which only the server has), and says so.
+use_case service_lines_server_only
+expect "a run with the lines of the services passes" passed_status
+expect "the line of the service that was turned on runs" sh -c "grep -q 'sysrc -x splicefsd_enable' '$dir/log'"
+expect "the line of the service that was never turned on does not run" sh -c "! grep -q 'sysrc -x splicefs_enable' '$dir/log'"
+expect "the line that is left out is printed" holds 'step 9: deb: "sysrc -x splicefs_enable" is left out, as the steps say'
+expect "the line that runs is not printed as left out" lacks '"sysrc -x splicefsd_enable" is left out'
+
+use_case service_lines_client_only
+expect "a run of the client alone passes" passed_status
+expect "neither line runs: its service steps wait" sh -c "! grep -q 'sysrc -x' '$dir/log'"
+expect "both lines are printed as left out" \
+    sh -c "grep -q '\"sysrc -x splicefs_enable\" is left out' '$out' && grep -q '\"sysrc -x splicefsd_enable\" is left out' '$out'"
 
 use_case both_rpm
 expect "both programs pass on an rpm system" passed_status

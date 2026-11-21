@@ -5,6 +5,9 @@
 # or scripts/service-run-local.sh) before it sources this file.
 # shellcheck disable=SC2154 # those variables are set by the file that sources this one
 
+# shellcheck source=service-linux-lib.sh
+. scripts/service-linux-lib.sh
+
 package_file() {
     case "$platform" in
         linux/arm64) arch=aarch64 ;;
@@ -37,7 +40,7 @@ remove_package() {
 
 # The file that defines the service: the package puts it there.
 service_file() {
-    echo "/etc/init.d/$program"
+    echo "$servicedir/$program"
 }
 
 service_active() {
@@ -81,11 +84,11 @@ service_pid() {
     # shellcheck disable=SC2016
     on_system "$1" sh -c '
         for dir in /proc/[0-9]*; do
-            [ "$(readlink "$dir/exe" 2>/dev/null)" = "/usr/bin/$1" ] || continue
+            [ "$(readlink "$dir/exe" 2>/dev/null)" = "$2/$1" ] || continue
             echo "${dir#/proc/}"
             exit 0
         done
-        exit 1' sh "$program"
+        exit 1' sh "$program" "$bindir"
 }
 
 service_user() {
