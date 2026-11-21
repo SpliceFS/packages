@@ -11,10 +11,11 @@
 # system's process has ended, so they are never mixed. Order comes from waiting on each process.
 # Prints the counts and the names of the failed systems; status 1 when any failed.
 # Usage: run_systems FOLDER PREPARE TEST <LIST
-# FOLDER is an empty folder the caller removes. system_pids lists the processes still running, for
-# stop_systems.
+# FOLDER is an empty folder the caller removes. It is also where stop_systems looks for the systems
+# still running, so the caller calls stop_systems before it removes the folder.
 run_systems() {
     out="$1"
+    systems_folder="$1"
     prepare="$2"
     test="$3"
     count=0
@@ -28,7 +29,6 @@ run_systems() {
             : >"$out/$count.ready"
         fi
     done
-    system_pids=""
     each=0
     while [ "$each" -lt "$count" ]; do
         each=$((each + 1))
@@ -36,7 +36,6 @@ run_systems() {
         read -r format image <"$out/$each.name"
         "$test" "$format" "$image" "$each" >>"$out/$each.out" 2>&1 &
         echo "$!" >"$out/$each.pid"
-        system_pids="$system_pids $!"
     done
     report_systems "$out" "$count"
 }
@@ -65,7 +64,6 @@ report_systems() {
             echo "failed system: $name" >>"$1/failed"
         fi
     done
-    system_pids=""
     echo "passed: $passed  failed: $failed"
     cat "$1/failed"
     [ "$failed" -eq 0 ]
@@ -84,9 +82,15 @@ pull_system() {
 }
 
 # Ends the processes of the systems that are still running, for a run that is being stopped (its
-# time limit, Ctrl-C): the caller's cleanup calls it before it removes the containers.
+# time limit, Ctrl-C): the caller's cleanup calls it before it removes the containers. It reads the
+# shell's own list of background jobs, which already holds a system the moment it is started, and
+# not a list kept here: a stop that arrives between starting a system and noting its process id
+# would miss that system and leave it running. The list goes through a file because dash gives a
+# command substitution an empty one. Every background job of the caller is a system.
 stop_systems() {
-    for pid in ${system_pids:-}; do
+    [ -n "${systems_folder:-}" ] || return 0
+    jobs -p >"$systems_folder/jobs" || return 0
+    while read -r pid; do
         kill "$pid" 2>/dev/null || true
-    done
+    done <"$systems_folder/jobs"
 }
