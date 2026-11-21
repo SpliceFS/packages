@@ -81,8 +81,8 @@ fails_saying() {
     if said="$(in_fake_system "$1")"; then return 1; fi
     case "$said" in *"$2"*) return 0 ;; *) return 1 ;; esac
 }
-# Prints the user files of the state folder that name the user alice.
-files_of_alice() { grep -lxF "name: alice" "$state/shared/users/"*.yaml; }
+# Prints the user files of the state folder that name the user alice, none when there is none.
+files_of_alice() { grep -lxF "name: alice" "$state/shared/users/"*.yaml || :; }
 
 # The cases of every release: the share, the check of the configuration, and the removal.
 cases_of_every_release() {
@@ -117,7 +117,7 @@ cases_before_user_add() {
 
 # The user of a release with user add: a file named by an id, found by the name inside it.
 cases_with_user_add() {
-    file="$(files_of_alice || true)"
+    file="$(files_of_alice)"
     expect "the user is one file of the state folder" sh -c "[ -n '$file' ] && [ \$(echo '$file' | wc -l) -eq 1 ]"
     expect "no file is named by the user name" sh -c "[ ! -e '$state/shared/users/alice.yaml' ]"
     # The dollar signs of the hash are the text of the file, so the quotes are single on purpose.
