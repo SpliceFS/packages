@@ -18,8 +18,11 @@
 #   3. the service is enabled with the documented command, and the program's test configuration
 #      (programs/PROGRAM/test-config.sh: the server serves one share with one user) is written
 #      through the documented folders and found where the documentation says;
-#   4. the service is started with the documented command, runs as its own user and does its job
-#      (the service check of the program: the server answers its health endpoint from outside);
+#   4. on a system that runs firewalld, the zone files it changes for an open port (public.xml and
+#      public.xml.old) are saved, each as a copy or a note that it is missing, and the port of the
+#      service is opened; the service is started with the documented command, runs as its own user
+#      and does its job (the service check of the program: the server answers its health endpoint
+#      from outside);
 #   5. the service is restarted, then the container is, and the service is active and does its job
 #      again, because it is enabled;
 #   7. the service is stopped: no process of ours is left and the service no longer answers;
@@ -30,9 +33,10 @@
 #      removal command names only the packages the package manager still holds (dpkg keeps the
 #      configuration of a removed package, so apt-get purge still names it; the other package
 #      managers hold nothing, so the command is left out, as the steps tell a person to do):
-#      the data, the configuration, the user and the group; nothing of ours is installed or
-#      running, and the snapshot equals the one of step 0, apart from the paths of
-#      scripts/lifecycle-excluded.
+#      the data, the configuration, the user and the group; the saved zone files are put back byte
+#      for byte (a file that did not exist is deleted) and the port is closed in the firewall;
+#      nothing of ours is installed or running, and the snapshot equals the one of step 0, apart
+#      from the paths of scripts/lifecycle-excluded.
 # The numbers are those of the design of the test; the steps that are not built yet are not run
 # (6, the modes of the client, and the client's own configuration).
 # Before every step, the core dumps that appeared since the step before are printed with the program
@@ -295,10 +299,11 @@ run_steps() {
 
     step "3: the service is enabled, and the test configuration is written through the documented folders"
     check_enable "$c"
-    must "opening the port ${port:-} in the firewall failed" open_firewall "$c"
     write_and_check_test_config "$c"
 
     step "4: the service is started, runs as its own user and does its job"
+    must "saving the firewall zone files failed" save_firewall_zones "$c" "$own/firewall-zones"
+    must "opening the port ${port:-} in the firewall failed" open_firewall "$c"
     check_start "$c"
     check_user "$c"
     check_answers "$c"
@@ -319,6 +324,8 @@ run_steps() {
     check_plain_removal "$c"
     documented_removal "$c"
     remove_test_data_of_program "$c"
+    must "putting the firewall zone files back failed" restore_firewall_zones "$c" "$own/firewall-zones"
+    refuse "the port ${port:-} is still open in the firewall after the zone files were put back" port_open_in_firewall "$c"
     check_nothing_of_ours "$c"
     check_system_as_it_was "$c"
     note_new_cores "$c" "step 9"

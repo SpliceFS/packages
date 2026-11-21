@@ -7,15 +7,57 @@
 # functions come from those files, which ShellCheck cannot follow.
 # shellcheck disable=SC2154
 
-# A server that runs a firewall (firewalld on Rocky Linux) refuses the port of the service
-# until its owner opens it, so the test opens it the way a user of that system does, for good
-# so that it holds after the reboot. A system without a running firewalld has nothing to open,
-# and neither has a program that listens on no port.
+# A server that runs a firewall (firewalld on Rocky Linux) refuses the port of the service until its
+# owner opens it. Only a system that runs firewalld, with a program that listens on a port, has
+# anything to open; every function below changes nothing in any other.
+firewall_zone_dir=/etc/firewalld/zones
+# The zone files firewalld writes when a port is opened for good: the zone, and the copy it keeps of
+# the zone before the last change.
+firewall_zone_names="public.xml public.xml.old"
+
+firewall_in_use() {
+    [ -n "${port:-}" ] && docker exec "$1" firewall-cmd --state >/dev/null 2>&1
+}
+
+# The test opens the port the way a user of that system does, for good so that it holds after the reboot.
 open_firewall() {
-    [ -n "${port:-}" ] || return 0
-    docker exec "$1" sh -c '
-        firewall-cmd --state >/dev/null 2>&1 || exit 0
-        firewall-cmd --permanent --add-port="$1/tcp" >/dev/null && firewall-cmd --reload >/dev/null' sh "$port"
+    firewall_in_use "$1" || return 0
+    docker exec "$1" firewall-cmd --permanent --add-port="$port/tcp" >/dev/null &&
+        docker exec "$1" firewall-cmd --reload >/dev/null
+}
+
+# What the test changes in the firewall is undone from a copy, not by the reverse command, which
+# leaves a zone file behind that the system did not have. Before the port is opened, each of the zone
+# files is copied into the folder $2, in the folder of the test and outside the system, and a note
+# is written for each that does not exist. Usage: save_firewall_zones CONTAINER FOLDER.
+save_firewall_zones() {
+    firewall_in_use "$1" || return 0
+    mkdir -p "$2" || return 1
+    for zone_name in $firewall_zone_names; do
+        if docker exec "$1" test -f "$firewall_zone_dir/$zone_name"; then
+            docker cp "$1:$firewall_zone_dir/$zone_name" "$2/$zone_name" || return 1
+        else
+            : >"$2/$zone_name.missing" || return 1
+        fi
+    done
+}
+
+# Puts each zone file back byte for byte, deletes each that did not exist, and has firewalld read
+# them. Usage: restore_firewall_zones CONTAINER FOLDER (the folder save_firewall_zones wrote).
+restore_firewall_zones() {
+    firewall_in_use "$1" || return 0
+    for zone_name in $firewall_zone_names; do
+        if [ -f "$2/$zone_name.missing" ]; then
+            docker exec "$1" rm -f "$firewall_zone_dir/$zone_name" || return 1
+        else
+            docker cp "$2/$zone_name" "$1:$firewall_zone_dir/$zone_name" || return 1
+        fi
+    done
+    docker exec "$1" firewall-cmd --reload >/dev/null
+}
+
+port_open_in_firewall() {
+    firewall_in_use "$1" && docker exec "$1" firewall-cmd --query-port="$port/tcp" >/dev/null
 }
 
 active_and_answering() {

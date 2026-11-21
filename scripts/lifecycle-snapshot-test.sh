@@ -39,18 +39,3 @@ for file in fstab hosts.allow; do
     cp "$t/kept" "$sys/etc/$file"
 done
 echo "ok: a change to another file of /etc is found, also one whose name starts like a left-out one"
-
-# firewalld writes the file of the public zone, and the copy of the one before it, when the test
-# opens the port of the service (Rocky Linux): they are not what the package left, but another
-# file of that folder still is a difference.
-mkdir -p "$sys/etc/firewalld/zones"
-snapshot before
-echo "zone with the port" >"$sys/etc/firewalld/zones/public.xml"
-echo "zone before" >"$sys/etc/firewalld/zones/public.xml.old"
-snapshot after
-diff "$t/before" "$t/after" >/dev/null || fail "the zone file firewalld writes counted as a change"
-echo "ok: the zone files firewalld writes for the open port do not count"
-echo "another zone" >"$sys/etc/firewalld/zones/work.xml"
-snapshot changed
-if diff "$t/after" "$t/changed" >/dev/null; then fail "another file of the firewalld zones was not found"; fi
-echo "ok: another file of the firewalld zones is found"

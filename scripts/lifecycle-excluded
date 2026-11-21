@@ -17,7 +17,6 @@
 /var/lib/update-motd  the temporary files of the message-of-the-day updater, which runs on its own timer (Amazon Linux)
 /var/tmp/systemd-private-*  the private temporary folders systemd makes for its services, named at random
 /etc/ld.so.cache*  the cache ldconfig writes of the libraries it finds; it is rewritten when any package installs a library
-/etc/firewalld/zones/public.xml*  the zone file firewalld writes, and the copy of the one before it, when the test opens the port of the service (Rocky Linux)
 /etc/passwd-*     the backup that useradd and userdel make of the account file: it holds the state before the last change, so it differs after any user was added and deleted
 /etc/shadow-*     the same backup of the password file
 /etc/group-*      the same backup of the group file

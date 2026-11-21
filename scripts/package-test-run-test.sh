@@ -74,12 +74,18 @@ cat >"$t/bin/docker" <<'STAND_IN'
 # the systems of one case, which run at the same time, do not share what the stand-in remembers. The
 # package manager and service manager commands of the three formats change that state; a container
 # that restarts runs the service again when it is enabled, as a booted system does. STAND_IN_USER is
-# the user the service runs as.
+# the user the service runs as. STAND_IN_FIREWALLD, when set, makes every system run firewalld: its
+# zone files are the folder zones.SYSTEM, which starts as a copy of zones-initial, are what docker cp
+# and test -f and rm -f of /etc/firewalld/zones see, and --add-port writes the zone with the port and
+# the zone before it; the port counts as open while the file public.xml says so, or always when
+# STAND_IN_PORT_OPEN is set.
 echo "docker $*" >>"$STAND_IN_DIR/log"
 # A pattern removed from $* is removed from each argument, so the call is joined first.
 call="$*"
 rest="${call#*splicefs-package-test-}"
 system="${rest%% *}"
+# A path in the container, as docker cp names it, is CONTAINER:/path.
+system="${system%%:*}"
 next_number() {
     n=$(($(cat "$STAND_IN_DIR/$1.$system.count" 2>/dev/null || echo 0) + 1))
     echo "$n" >"$STAND_IN_DIR/$1.$system.count"
@@ -89,15 +95,43 @@ case "$1" in
     version) echo linux/amd64; exit 0 ;;
     inspect) echo true; exit 0 ;;
     port) echo "127.0.0.1:$((20000 + ${system##*-}))"; exit 0 ;;
-    exec | restart) ;;
+    exec | restart | cp) ;;
     *) exit 0 ;;
 esac
+# The zone files of the system, made when a call first asks for them.
+zone_folder() {
+    [ -d "$STAND_IN_DIR/zones.$system" ] || cp -R "$STAND_IN_DIR/zones-initial" "$STAND_IN_DIR/zones.$system"
+    echo "$STAND_IN_DIR/zones.$system"
+}
+# The path on this machine of a path that docker cp names: a zone file of the container is in the folder.
+host_path() {
+    case "$1" in
+        *:/etc/firewalld/zones/*) echo "$(zone_folder)/${1##*/}" ;;
+        *) echo "$1" ;;
+    esac
+}
 if [ -n "${STAND_IN_FAIL:-}" ]; then
     case "$*" in *"$STAND_IN_FAIL"*) exit 1 ;; *) ;; esac
 fi
 case "$*" in
     *is-system-running*) echo running ;;
     *rc-status*) echo default ;;
+    "cp "*) cp "$(host_path "$2")" "$(host_path "$3")" ;;
+    *"firewall-cmd --state") [ -n "${STAND_IN_FIREWALLD:-}" ] ;;
+    *"test -f /etc/firewalld/zones/"*) [ -f "$(zone_folder)/${call##*/}" ] ;;
+    *"rm -f /etc/firewalld/zones/"*) rm -f "$(zone_folder)/${call##*/}" ;;
+    *"firewall-cmd --permanent --add-port="*)
+        echo "zone before the last change" >"$(zone_folder)/public.xml.old"
+        echo "zone with the port ${call##*=}" >"$(zone_folder)/public.xml"
+        ;;
+    *"firewall-cmd --query-port="*)
+        if [ -n "${STAND_IN_PORT_OPEN:-}" ] || grep -q "with the port ${call##*=}" "$(zone_folder)/public.xml" 2>/dev/null; then
+            echo yes
+        else
+            echo no
+            exit 1
+        fi
+        ;;
     restart*) [ -f "$STAND_IN_DIR/enabled.$system" ] || rm -f "$STAND_IN_DIR/active.$system" ;;
     *"systemctl enable"* | *"rc-update add"*) : >"$STAND_IN_DIR/enabled.$system" ;;
     *"systemctl disable"* | *"rc-update del"*) rm -f "$STAND_IN_DIR/enabled.$system" ;;
@@ -141,13 +175,18 @@ scenario() {
     last="/etc/a"
     cores=
     user=splicefs
+    firewalld=
+    zones=
+    port_open=
     target=ghcr.io/splicefs/server-debian-12:v1.0
 }
 
 # Starts the case $1 in the background with the settings of scenario: the snapshot of step 0 is
 # $first, the snapshot of step 9 is $last, the one after the reinstall is $reinstalled, $cores are
 # the cores listed at the fourth look (before step 3), $user is the user the service runs as, $target
-# the image or format. A call that
+# the image or format. $firewalld, when not empty, makes the systems run firewalld, and $zones names the
+# zone files it has before the test (public.xml and public.xml.old, or neither); $port_open makes the
+# port stay open in it. A call that
 # holds the text in $fail_on fails. Keeps the output in $t/cases/$1/out, the calls in
 # $t/cases/$1/dir/log and the status in $t/cases/$1/status; the cases are read with use_case, after
 # wait.
@@ -161,10 +200,14 @@ launch() {
     printf '%s\n' "$reinstalled" >"$case_dir/dir/snapshot.3"
     printf '%s\n' "$last" >"$case_dir/dir/snapshot.4"
     [ -z "$cores" ] || printf '%s\n' "$cores" >"$case_dir/dir/cores.4"
+    # Bytes a copy by line would change: a carriage return and no newline at the end.
+    mkdir -p "$case_dir/dir/zones-initial"
+    for zone in $zones; do printf 'zone %s\r\nas shipped' "$zone" >"$case_dir/dir/zones-initial/$zone"; done
     (
         status=0
         STAND_IN_FAIL="$fail_on" STAND_IN_DIR="$case_dir/dir" PATH="$t/bin:$PATH" PROGRAM=server ONLY="$target" \
             STAND_IN_UNPROVEN="$unproven" STAND_IN_NO_SITE="$no_site" STAND_IN_USER="$user" \
+            STAND_IN_FIREWALLD="$firewalld" STAND_IN_PORT_OPEN="$port_open" \
             sh "$case_dir/root/scripts/package-test.sh" >"$case_dir/out" 2>&1 || status=$?
         echo "$status" >"$case_dir/status"
     ) &
@@ -233,6 +276,31 @@ test_data_removed_before_the_last_snapshot() {
     removed="$(line_of remove_test_data)"
     [ "$purge" -gt 0 ] && [ "$removed" -gt "$purge" ] && [ "$removed" -lt "$last" ]
 }
+# The line number of the last call in the log that holds the text $1, or 0.
+last_line_of() {
+    n="$(grep -n -F -e "$1" "$dir/log" | tail -n 1 | cut -d: -f1)"
+    echo "${n:-0}"
+}
+# On a system that runs firewalld: step 4 saves the zone files, then opens the port, then starts the
+# service; step 9 puts the files back with the call whose text is $1, after the test data is removed,
+# reloads the firewall, and asks whether the port is closed, all before the last snapshot, which is the
+# last call of the log that takes one.
+firewall_zones_saved_then_put_back_by() {
+    saved="$(line_of 'test -f /etc/firewalld/zones/public.xml')"
+    opened="$(line_of '--add-port=8480/tcp')"
+    started="$(line_of 'systemctl start')"
+    removed="$(line_of remove_test_data)"
+    restored="$(last_line_of "$1")"
+    reloaded="$(last_line_of 'firewall-cmd --reload')"
+    queried="$(last_line_of '--query-port=8480/tcp')"
+    last="$(last_line_of lifecycle-snapshot.sh)"
+    [ "$saved" -gt 0 ] && [ "$opened" -gt "$saved" ] && [ "$started" -gt "$opened" ] &&
+        [ "$restored" -gt "$removed" ] && [ "$removed" -gt "$started" ] && [ "$reloaded" -gt "$restored" ] &&
+        [ "$queried" -gt "$reloaded" ] && [ "$queried" -lt "$last" ]
+}
+# The zone files of the system are what they were before the test, byte for byte, and no file is left
+# that was not there.
+zones_as_they_were() { diff -r "$dir/zones-initial" "$dir"/zones.* >/dev/null; }
 steps_run() {
     # The line that says the removal command is left out starts like a step and is no step.
     steps_seen="$(grep '^step ' "$out" | cut -c1-7 | uniq | tr '\n' ' ')"
@@ -274,6 +342,12 @@ scenario; fail_on="verify_markers_kept plain removal"; launch plain_removal_take
 scenario; fail_on=check_programs_removed; launch plain_removal_keeps_program
 scenario; last="/etc/b"; launch snapshot_differs
 scenario; cores="/core pid 7 program splicefsd: /usr/bin/splicefsd"; launch core_dump
+rocky=ghcr.io/splicefs/server-rocky-9:v1.0
+scenario; target=$rocky; firewalld=1; zones="public.xml public.xml.old"; launch zones_existed
+scenario; target=$rocky; firewalld=1; launch zones_missing
+scenario; target=$rocky; firewalld=1; zones="public.xml.old"; launch one_zone_existed
+scenario; target=$rocky; firewalld=1; port_open=1; launch port_stays_open
+scenario; target=$rocky; firewalld=1; zones="public.xml public.xml.old"; fail_on="firewall-zones/public.xml.old"; launch zone_not_saved
 wait
 
 use_case good
@@ -305,6 +379,8 @@ expect "after the stop the service is silent and nothing of ours runs" holds "ok
 expect "after the stop no process of ours is left" holds "ok: no process of ours is running after the stop"
 expect "after the disable the service is not enabled" holds "ok: the service is not enabled"
 expect "the test data is removed after the documented removal, before the last snapshot" test_data_removed_before_the_last_snapshot
+expect "a system without firewalld has nothing changed in its firewall" \
+    sh -c "! grep -q -e '--add-port' -e '--reload' -e 'docker cp' '$dir/log'"
 expect "the removals fall between the first and the last snapshot" four_snapshots_around_the_removals
 expect "the package file is not installed again between the plain removal and the documented removal" \
     no_install_after_the_plain_removal_of 'apt-get install' 'apt-get remove'
@@ -323,7 +399,6 @@ expect "a removal command with names does not say it is left out" lacks "the rem
 expect "every other line of the steps file runs as written" \
     sh -c "grep -q 'apt-get autoremove --purge' '$dir/log' && grep -q 'userdel splicefs' '$dir/log'"
 
-rocky=ghcr.io/splicefs/server-rocky-9:v1.0
 alpine=ghcr.io/splicefs/server-alpine-3.22:v1.0
 use_case rpm_holds_nothing
 expect "an rpm run passes" passed_status
@@ -442,6 +517,40 @@ expect "the difference is shown" holds "/etc/b"
 
 use_case core_dump
 expect "a core dump is named with the step before which it was found" holds "core dump after step 2: /core pid 7"
+
+# Step 4 opens the port in the firewall and changes zone files that did not exist before; step 9 puts
+# each file back as it was, or deletes it when it was not there.
+use_case zones_existed
+expect "a run on a system with firewalld passes" passed_status
+expect "the zone files are saved, the port opened, and the saved files put back before the last snapshot" \
+    firewall_zones_saved_then_put_back_by 'firewall-zones/public.xml splicefs-package-test-'
+expect "both zone files are put back" sh -c "grep -q 'firewall-zones/public.xml.old splicefs-package-test-' '$dir/log'"
+expect "the zone files are as they were, byte for byte" zones_as_they_were
+expect "no zone file is deleted when it existed" sh -c "! grep -q 'rm -f /etc/firewalld' '$dir/log'"
+
+use_case zones_missing
+expect "a run on a system with firewalld and no zone files passes" passed_status
+expect "the missing zone files are deleted after the removals, before the last snapshot" \
+    firewall_zones_saved_then_put_back_by 'rm -f /etc/firewalld/zones/public.xml.old'
+expect "both zone files are deleted" sh -c "grep -q 'rm -f /etc/firewalld/zones/public.xml\$' '$dir/log'"
+expect "no zone file is left that was not there" zones_as_they_were
+expect "nothing is copied back into the system" sh -c "! grep -q 'firewall-zones/public.xml.* splicefs-package-test-' '$dir/log'"
+
+use_case one_zone_existed
+expect "a run where one zone file existed passes" passed_status
+expect "the file that existed is put back and the file that did not is deleted" \
+    sh -c "grep -q 'firewall-zones/public.xml.old splicefs-package-test-' '$dir/log' && grep -q 'rm -f /etc/firewalld/zones/public.xml\$' '$dir/log'"
+expect "a file that existed is not deleted" sh -c "! grep -q 'rm -f /etc/firewalld/zones/public.xml.old' '$dir/log'"
+expect "the zone files are as they were" zones_as_they_were
+
+use_case port_stays_open
+expect "a port that is still open after the zone files are put back fails the run" failed_status
+expect "that is step 9" holds "FAIL rpm $rocky (step 9)"
+expect "the open port is named" holds "the port 8480 is still open in the firewall"
+
+use_case zone_not_saved
+expect "a zone file that cannot be saved fails step 4" holds "FAIL rpm $rocky (step 4)"
+expect "the port is not opened before the zone files are saved" sh -c "! grep -q -e '--add-port' '$dir/log'"
 
 if [ "$failed" -ne 0 ]; then
     echo "$failed package-test case(s) failed"
