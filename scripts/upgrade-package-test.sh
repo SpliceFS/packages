@@ -93,5 +93,23 @@ calls "pkg, same version: the file is added again by force" "$work/bin" pkg v1.2
 calls "pkg, newer version: the file is added over the old one" "$work/bin" pkg v1.2.3 v1.2.4 file \
     "pkg add pkg-or-file"
 
+# What pkg says while it puts a package in place is the upgrade message of the package, which the caller
+# keeps and checks, so it is not thrown away. $1 case name, $2 the installed and $3 the new version.
+mkdir "$work/bin-says"
+printf '#!/bin/sh\necho "pkg says: upgrade message"\n' >"$work/bin-says/pkg"
+chmod 755 "$work/bin-says/pkg"
+pkg_says() {
+    printed="$(PATH="$work/bin-says:/usr/bin:/bin" sh -c \
+        '. scripts/upgrade-package-lib.sh; upgrade_package "$@"' sh pkg "$2" "$3" file x)"
+    if [ "$printed" = "pkg says: upgrade message" ]; then
+        printf 'ok   %s\n' "$1"
+    else
+        printf 'FAIL %s: got "%s"\n' "$1" "$printed"
+        failed=$((failed + 1))
+    fi
+}
+pkg_says "pkg, same version: what pkg says reaches the caller" v1.2.3 v1.2.3
+pkg_says "pkg, newer version: what pkg says reaches the caller" v1.2.3 v1.2.4
+
 [ "$failed" -eq 0 ] || { echo "$failed failed"; exit 1; }
 echo "upgrade package: all cases as expected"

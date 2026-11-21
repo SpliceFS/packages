@@ -23,6 +23,10 @@
 #      of step 2, which carry a throwaway signature, skip it). When nothing is published, the step
 #      says so and installs nothing. A system the host cannot reach fetches the file itself, and the
 #      version of the baseline is the one of the file it got (record_fetched_version);
+#   1a. for a program whose service steps are built and that has a published package, its service is
+#      enabled, configured and started, the way steps 3 and 4 do it (one set of functions), and its
+#      process id and the version its health endpoint reports are written down. With nothing published
+#      the step says that the upgrade under a running service is not tested;
 #   2. the new package FILE is put over it the way scripts/upgrade-package-lib.sh says (an upgrade,
 #      or a reinstall when the version is the same, and a published package newer than the package under
 #      test, which a release published during the run makes, fails the step: it never goes down); with no
@@ -35,10 +39,6 @@
 #      upgrade message names, which is then run. Then the file is put
 #      over itself once more: the files, the configuration and the state of the service stay as
 #      they were;
-#   1a. for a program whose service steps are built and that has a published package, its service is
-#      enabled, configured and started, the way steps 3 and 4 do it (one set of functions), and its
-#      process id and the version its health endpoint reports are written down. With nothing published
-#      the step says that the upgrade under a running service is not tested;
 #   3. the service is enabled with the documented command, and the program's test configuration
 #      (programs/PROGRAM/test-config.sh: the server serves one share with one user) is written
 #      through the documented folders and found where the documentation says;
@@ -64,6 +64,9 @@
 #      byte for byte (a file that did not exist is deleted) and the port is closed in the firewall,
 #      and nothing of ours is installed or running; and the snapshot equals the one of step 0, apart
 #      from the paths of scripts/lifecycle-excluded.
+# On pkg, which prints messages (deb, rpm and apk print none), what the package printed in step 1 (or 2 when
+# nothing is published), in step 2 and in step 9 holds its install, upgrade and remove message, as the manifest
+# of the package file says (scripts/package-message-lib.sh).
 # The numbers are those of the design of the test. The steps 3, 4, 5, 7 and 8 are built for the
 # server only: for the client each prints "service steps wait for the client's certificate trust
 # setting" and does nothing. Step 6, the modes of the client, is not built yet.
@@ -101,6 +104,7 @@ cd "$root"
 . scripts/package-test-program-lib.sh
 . scripts/service-check-lib.sh
 . scripts/service-upgrade-lib.sh
+. scripts/package-message-lib.sh
 . scripts/documented-removal-lib.sh
 . scripts/service-run-local.sh
 . scripts/system-state-lib.sh
@@ -194,6 +198,24 @@ record_fetched_version() {
     record_baseline_version "$fetched_version"
 }
 
+# Runs the command $2... and shows what it printed, and keeps it in the file $1 too, for the checks of the
+# messages a package prints.
+keep_output() {
+    kept="$1"
+    shift
+    kept_status=0
+    "$@" >"$kept" 2>&1 || kept_status=$?
+    cat "$kept"
+    return "$kept_status"
+}
+
+# The message of the type $1 that the package printed into the file $2 is the one in the manifest of the new
+# package file, which is the one that was installed, upgraded to or removed.
+check_message_of_new_package() {
+    new_file="$(package_file)"
+    check_package_message "$1" "$2" "$new_file"
+}
+
 # Step 1. The published package is what people have installed. It is the one the record of the
 # build names, or the newest on the site; nothing is installed when none is published.
 install_baseline() {
@@ -203,7 +225,8 @@ install_baseline() {
     fi
     published_file="$(published_file_of_system)"
     record_fetched_version "$published_file"
-    must "installing the published package failed" install_published_package "$1" "$published_file"
+    must "installing the published package failed" keep_output "$own/baseline-output" install_published_package "$1" "$published_file"
+    check_package_message install "$own/baseline-output" "$published_file"
     must "the package manager does not list the published package as installed" package_installed "$1"
     # The quotes are single on purpose: the variables are those of the shell that sh -c starts.
     # shellcheck disable=SC2016
@@ -239,12 +262,14 @@ refuse_downgrade() {
 install_new_package() {
     if [ -n "$from" ]; then
         refuse_downgrade
-        must "putting the new package over the published one failed" put_new_package_over "$1" "$old_tag"
+        must "putting the new package over the published one failed" keep_output "$own/upgrade-output" put_new_package_over "$1" "$old_tag"
+        check_message_of_new_package upgrade "$own/upgrade-output"
         must "the upgrade did not keep the configuration file and the data file" \
             in_upgrade_lib "$1" verify_markers_kept "upgrade"
         return 0
     fi
-    must "installing the package failed" install_package "$1"
+    must "installing the package failed" keep_output "$own/install-output" install_package "$1"
+    check_message_of_new_package install "$own/install-output"
     must "writing the configuration file and the data file failed" in_upgrade_lib "$1" write_markers "$format"
 }
 
@@ -311,7 +336,8 @@ documented_removal() {
 # The package manager's plain removal takes the programs and leaves what the administrator and the
 # running server wrote, which only a purge or a person deletes.
 check_plain_removal() {
-    must "the plain removal failed" remove_package "$1"
+    must "the plain removal failed" keep_output "$own/removal-output" remove_package "$1"
+    check_message_of_new_package remove "$own/removal-output"
     refuse "the package is still installed after the plain removal" package_installed "$1"
     must "the plain removal left a program of the package behind" in_system "$1" check_programs_removed
     must "a process of ours is still running after the plain removal" no_process_of_ours "$1"
