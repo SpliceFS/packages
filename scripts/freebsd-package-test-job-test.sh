@@ -11,8 +11,31 @@ root="$(cd "$(dirname "$0")/.." && pwd)"
 t="$(mktemp -d)"
 trap 'rm -rf "$t"' EXIT
 failed=0
-# The path of a root login on FreeBSD: the path capability of the default class of /etc/login.conf.
-root_path="/sbin:/bin:/usr/sbin:/usr/bin:/usr/local/sbin:/usr/local/bin:/root/bin"
+# The path of a root login on FreeBSD: the path capability of the default class of the machine's own
+# /etc/login.conf, written here by login_files in the syntax of that file, with a folder that no
+# real system has, so that only a path read from the file can be the one the steps run with. The
+# other classes and the setenv capability name a PATH of their own, which is never the one taken.
+root_path="/sbin:/bin:/usr/sbin:/usr/bin:/standin/bin:/standin-home/bin"
+login_files() {
+    mkdir -p "$1/etc"
+    cat >"$1/etc/login.conf" <<'LOGIN'
+# A comment line.
+standard:\
+	:path=/wrong/standard:\
+	:tc=default:
+
+default:\
+	:passwd_format=sha512:\
+	:setenv=MAIL=/var/mail/$,PATH=/wrong/setenv:\
+	:path=/sbin /bin /usr/sbin /usr/bin /standin/bin ~/bin:\
+	:nologin=/var/run/nologin:
+
+root:\
+	:path=/wrong/root:\
+	:tc=default:
+LOGIN
+    printf 'daemon:*:1:1:Owner of many system processes:/root:/usr/sbin/nologin\nroot:*:0:0:Charlie &:/standin-home:/bin/sh\n' >"$1/etc/passwd"
+}
 
 # The input the host makes: the library of the repository and a stand-in for the steps.
 mkdir -p "$t/input/src/scripts"
@@ -61,6 +84,7 @@ same() {
 first_boot() {
     rm -rf "$1"
     mkdir -p "$1/machine" "$1/results"
+    login_files "$1/machine"
     status=0
     PACKAGE_TEST_ROOT="$1/machine" PACKAGE_TEST_INPUT="$t/input.tar" \
         sh "$root/scripts/freebsd-package-test-job.sh" "$t/jobfolder" "$1/results" server client >"$1/said" 2>&1 || status=$?

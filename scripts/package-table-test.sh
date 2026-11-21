@@ -6,6 +6,8 @@
 # FreeBSD packing list and rc script, the service files) cannot read it, so this test finds each
 # folder of the table in them. A folder that changed in one place and not the other fails here and
 # not in a package test on a distribution. Runs on the host, no Docker (make package-table-test).
+# What program.conf sets (name, program, programs) is unknown to ShellCheck, which cannot follow it.
+# shellcheck disable=SC2154
 set -eu
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -85,6 +87,7 @@ for program_name in server client; do
                     holds "$defs/freebsd/$program.rc" "statedir=$datadir" "$label: the rc script keeps its state in $datadir"
                 fi
                 ;;
+            *) echo "FAIL the format $format has no case in this test"; failed=$((failed + 1)) ;;
         esac
     done
 done

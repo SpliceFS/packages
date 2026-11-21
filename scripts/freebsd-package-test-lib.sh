@@ -10,12 +10,37 @@ root_dir="${PACKAGE_TEST_ROOT:-}"
 # environment of the steps and their output.
 state="$root_dir/var/tmp/package-test"
 
-# Sets PATH to the one a root login gets on FreeBSD: the path capability of the default class of
-# /etc/login.conf as the image ships it (the root class takes it from default), with ~/bin as the
-# /root/bin of root. The machine starts the job and the one-shot script from rc, whose path has no
-# /usr/local, where the packages put their programs; the steps look for the programs as a root user does.
+# Prints the path capability of the default class of the login.conf file $1, as a PATH: the entries
+# of a class are joined by ":" and continue on the next line after a backslash, the folders of path
+# are separated by spaces, and ~ is the home folder $2 of the user.
+login_class_path() {
+    awk -F: '
+        sub(/\\$/, "") { record = record $0; next }
+        { record = record $0 }
+        record ~ /^default[:|]/ {
+            count = split(record, entries, ":")
+            for (i = 1; i <= count; i++) {
+                gsub(/^[ \t]+/, "", entries[i])
+                if (entries[i] ~ /^path=/) { print substr(entries[i], 6); exit }
+            }
+        }
+        { record = "" }
+    ' "$1" | tr ' ' ':' | sed "s|~|$2|g"
+}
+
+# Sets PATH to the one a root login gets on FreeBSD: the path capability of the default class of the
+# machine's own /etc/login.conf (the root class takes it from default). The machine starts the job
+# and the one-shot script from rc, whose path has no /usr/local, where the packages put their
+# programs; the steps look for the programs as a root user does. No path is written in this
+# script, so a machine that changes its own default changes the steps with it.
 set_root_login_path() {
-    PATH=/sbin:/bin:/usr/sbin:/usr/bin:/usr/local/sbin:/usr/local/bin:/root/bin
+    root_home="$(awk -F: '$1 == "root" { print $6 }' "$root_dir/etc/passwd")"
+    login_path="$(login_class_path "$root_dir/etc/login.conf" "$root_home")"
+    [ -n "$login_path" ] || {
+        echo "FAIL: no path in the default class of $root_dir/etc/login.conf" >&2
+        return 1
+    }
+    PATH="$login_path"
     export PATH
 }
 
