@@ -59,15 +59,26 @@ check_still_running() {
 # place that says it. Usage: upgrade_effect OLD NEW (the program versions, v1.2.3), prints one of
 #   restarts   the package restarts the service itself: deb and rpm always (their scripts run on a reinstall
 #              of the same version too), apk on an upgrade
-#   keeps      the old process keeps running until the administrator restarts it: pkg, which ends every
-#              program a package script starts, so the upgrade message names the restart
-#   untouched  the service is not touched at all: apk on a reinstall of the same version, because apk
-#              runs no package script on a reinstall of the same version
+#   keeps      the old process keeps running until the administrator restarts it: pkg on an upgrade, which
+#              ends every program a package script starts, so the upgrade message names the restart
+#   untouched  the service is not touched at all: apk and pkg on a reinstall of the same version. apk runs
+#              no package script on it. pkg add -f is a forced install, not an upgrade, and the service
+#              keeps its process
 upgrade_effect() {
     case "$format:$1" in
+        apk:"$2" | pkg:"$2") echo untouched ;;
         pkg:*) echo keeps ;;
-        apk:"$2") echo untouched ;;
         *) echo restarts ;;
+    esac
+}
+
+# The message pkg prints when the new package is put over the installed one, for the same arguments as
+# upgrade_effect: pkg add -f of the same version is a forced install, which prints the install message,
+# not the upgrade message. The other formats print no message, so the answer for them is not looked at.
+put_over_message() {
+    case "$format:$1" in
+        pkg:"$2") echo install ;;
+        *) echo upgrade ;;
     esac
 }
 
@@ -93,9 +104,9 @@ check_same_process_and_version() {
 # Step 2, after the new package was put over the service that step 1a started: what the package of the
 # format does to it (upgrade_effect). A service the package restarted runs in a new process as the new
 # version. On pkg the old process keeps running as the old version until the restart the upgrade message
-# names, which is then run, and the service runs the new version. On apk, for a package of the version
-# that is installed, the same process keeps running as the same version. A new process is the proof of a
-# restart, so it also shows one when the new package has the published version (a change to the
+# names, which is then run, and the service runs the new version. On apk and pkg, for a package of the
+# version that is installed, the same process keeps running as the same version. A new process is the
+# proof of a restart, so it also shows one when the new package has the published version (a change to the
 # packaging alone).
 check_upgrade_of_running_service() {
     # ran_before_the_package is one test whose status is the answer, so set -e being off inside it changes nothing.
@@ -109,8 +120,8 @@ check_upgrade_of_running_service() {
             echo "ok: the package restarted the service (process $old_pid, then $new_pid), which reports $VERSION"
             ;;
         untouched)
-            check_same_process_and_version "$1" "$old_pid" "$VERSION" "a reinstall of the same version on apk"
-            echo "ok: the service kept running as process $old_pid, which reports $VERSION: apk runs no package script on a reinstall of the same version"
+            check_same_process_and_version "$1" "$old_pid" "$VERSION" "a reinstall of the same version on $format"
+            echo "ok: the service kept running as process $old_pid, which reports $VERSION: a reinstall of the same version leaves it alone on $format"
             ;;
         *)
             check_same_process_and_version "$1" "$old_pid" "$old_version" "the upgrade, before its restart,"

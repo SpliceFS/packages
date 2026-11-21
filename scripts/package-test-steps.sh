@@ -66,7 +66,9 @@
 #      from the paths of scripts/lifecycle-excluded.
 # On pkg, which prints messages (deb, rpm and apk print none), what the package printed in step 1 (or 2 when
 # nothing is published), in step 2 and in step 9 holds its install, upgrade and remove message, as the manifest
-# of the package file says (scripts/package-message-lib.sh).
+# of the package file says (scripts/package-message-lib.sh). Step 2 puts the new file over the published one:
+# that is an upgrade, with the upgrade message, unless the version is the same, which pkg installs again as a
+# forced install, with the install message (put_over_message of scripts/service-upgrade-lib.sh).
 # The numbers are those of the design of the test. The steps 3, 4, 5, 7 and 8 are built for the
 # server only: for the client each prints "service steps wait for the client's certificate trust
 # setting" and does nothing. Step 6, the modes of the client, is not built yet.
@@ -263,7 +265,8 @@ install_new_package() {
     if [ -n "$from" ]; then
         refuse_downgrade
         must "putting the new package over the published one failed" keep_output "$own/upgrade-output" put_new_package_over "$1" "$old_tag"
-        check_message_of_new_package upgrade "$own/upgrade-output"
+        put_over_type="$(put_over_message "$old_tag" "$VERSION")"
+        check_message_of_new_package "$put_over_type" "$own/upgrade-output"
         must "the upgrade did not keep the configuration file and the data file" \
             in_upgrade_lib "$1" verify_markers_kept "upgrade"
         return 0
