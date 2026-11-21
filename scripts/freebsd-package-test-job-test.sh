@@ -47,6 +47,7 @@ own="$PACKAGE_TEST_OUT"
 mkdir -p "$own"
 exec >>"$own/log" 2>&1
 echo "step for $1: $PROGRAMS $FORMAT $PLATFORM $BASELINES $PACKAGE_FILES"
+echo "fixtures for $1: [$FIXTURES]"
 echo "path $PATH"
 # A step is printed to the log and is also the line the result names, as the real steps do.
 echo "step for $1" | tee "$own/step-line"
@@ -57,6 +58,8 @@ if [ "${FAIL_PHASE:-}" = "$1" ]; then
 fi
 echo ok >"$own/result"
 STAND_IN
+# The host names the fixtures of the run in a file of the archive, none or server.
+printf server >"$t/input/fixtures"
 tar -cf "$t/input.tar" -C "$t/input" .
 mkdir -p "$t/jobfolder"
 cp "$root/scripts/freebsd-package-test-second.sh" "$t/jobfolder/"
@@ -95,6 +98,8 @@ first_boot "$t/good"
 same "the first boot passes" 0 "$first_status"
 grep -q "^step for phase1: server client pkg freebsd/amd64 " "$t/good/said" && found=yes || found=no
 same "the first boot runs phase 1 for the programs, the format and the platform of FreeBSD, with the input where it unpacked" yes "$found"
+grep -qxF "fixtures for phase1: [server]" "$t/good/said" && found=yes || found=no
+same "the steps get the fixtures the host named, from the input" yes "$found"
 grep -q "phase2\|phase3" "$t/good/said" && found=yes || found=no
 same "the first boot runs no later phase" no "$found"
 second="$t/good/machine/usr/local/etc/rc.d/second_boot"

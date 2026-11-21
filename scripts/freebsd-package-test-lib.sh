@@ -45,12 +45,16 @@ set_root_login_path() {
 }
 
 # The environment the steps need (scripts/package-test-steps.sh), written once by the first boot so
-# that the second boot has the same. Usage: write_package_test_env PROGRAM...
+# that the second boot has the same. The programs that are fixtures of the run (a published package a
+# program under test needs, which the machine fetches itself) are named by the host in a file of its
+# input. Usage: write_package_test_env PROGRAM...
 write_package_test_env() {
+    fixtures="$(cat "$state/input/fixtures")" || return 1
     cat >"$state/env" <<ENV
 FORMAT=pkg
 PLATFORM=freebsd/amd64
 PROGRAMS="$*"
+FIXTURES="$fixtures"
 PACKAGE_TEST_OUT=$state/out
 BASELINES=$state/input/baselines
 PACKAGE_FILES=$state/input/pkg
@@ -65,7 +69,7 @@ run_package_test_phases() {
         (
             # shellcheck source=/dev/null
             . "$state/env"
-            export FORMAT PLATFORM PROGRAMS PACKAGE_TEST_OUT BASELINES PACKAGE_FILES
+            export FORMAT PLATFORM PROGRAMS FIXTURES PACKAGE_TEST_OUT BASELINES PACKAGE_FILES
             sh "$state/input/src/scripts/package-test-steps.sh" "$phase"
         ) || phase_status=$?
         [ "$phase_status" -eq 0 ] || return "$phase_status"

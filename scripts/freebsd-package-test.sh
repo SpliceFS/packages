@@ -9,8 +9,9 @@
 #   second boot  the one-shot script runs phase 2 and phase 3 and powers off.
 # The step that fails, and its lines, are printed by the machine; this script prints what came back.
 # Every program whose package of the release is in dist/PROGRAM/freebsd/FreeBSD-MAJOR-amd64 is tested, the
-# server first. Asking the server from outside is not possible here: the machine's steps ask from inside,
-# and say so in their line. Environment: FREEBSD limits the run to one release, FREEBSD_IMAGE is the image
+# server first; a run of the client alone has the newest published server as its fixture, which the machine
+# fetches (the client mounts from the server of its own system). Asking the server from outside is not
+# possible here: the machine's steps ask from inside, and say so in their line. Environment: FREEBSD limits the run to one release, FREEBSD_IMAGE is the image
 # of a release, with @RELEASE@ where it goes, VM_TIMEOUT is the most seconds one boot may take, and a
 # VERSION given must be the recorded one of every program, as for the other formats.
 # shellcheck disable=SC2154
@@ -42,6 +43,16 @@ trap 'rm -rf "$work" 2>/dev/null || true' EXIT
 
 all_programs="server client"
 
+# The records of the builds are read from a copy, which also holds the record of a fixture, a published package
+# that is no build (choose_fixtures), so that no build is needed for it and dist is not written.
+records="$work/records"
+for recorded in $all_programs; do
+    [ -f "dist/$recorded/version" ] || continue
+    mkdir -p "$records/$recorded"
+    cp "dist/$recorded/version" "$records/$recorded/version"
+done
+record_folder="$records"
+
 # The hook of scripts/package-test-program-lib.sh: the machine fetches the package itself, so the host
 # says only whether a package is published (an empty file is none) and what the site listed when the run
 # began, which is read once for the whole run, as scripts/package-test.sh does. The machine replaces
@@ -65,6 +76,9 @@ test_release() {
         fi
     done
     [ -n "$present" ] || fail "no FreeBSD package of release $release in dist/server/freebsd or dist/client/freebsd: run make package-freebsd first"
+    # A run of the client alone mounts from the newest published server, which the machine fetches itself.
+    choose_fixtures
+    write_fixture_records
     job="$out/job-$release"
     # present is a list of words on purpose.
     # shellcheck disable=SC2086

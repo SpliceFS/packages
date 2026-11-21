@@ -9,7 +9,7 @@
 # Prints the package file of the program $1 for the release major version $2, or nothing.
 package_of() {
     # A program that was not built has no record of its build, which use_program refuses.
-    [ -f "dist/$1/version" ] || return 0
+    [ -f "$(record_file "$1")" ] || return 0
     use_program "$1"
     candidate="dist/$1/freebsd/FreeBSD-$2-amd64/$name-$pkgver.pkg"
     [ ! -f "$candidate" ] || echo "$candidate"
@@ -18,7 +18,8 @@ package_of() {
 # Writes the input archive of the machine, $2, for the programs named by the other arguments and the
 # release major version $1: the repository files the steps read (setup.sh.in is the setup script's text,
 # which the repository file of the test is taken from), the package files, and the version of each
-# baseline. The Mac's own attributes are left out: FreeBSD's tar reports them as errors.
+# baseline. A fixture (choose_fixtures) has no package file in the archive, because the machine fetches the
+# published one itself: only its record, its baseline and its name go along. The Mac's own attributes are left out: FreeBSD's tar reports them as errors.
 make_input() {
     major="$1"
     archive="$2"
@@ -32,9 +33,18 @@ make_input() {
     for each in "$@"; do
         use_program "$each"
         mkdir -p "$stage/src/dist/$each" "$stage/pkg/$each"
-        cp "$root/dist/$each/version" "$stage/src/dist/$each/version"
+        cp "$(record_file "$each")" "$stage/src/dist/$each/version"
         package_path="$(package_of "$each" "$major")"
         cp "$package_path" "$stage/pkg/$each/"
+        cp "$baselines/$each" "$stage/baselines/$each"
+    done
+    printf '%s' "${fixtures:-}" >"$stage/fixtures"
+    # The fixtures are a list of words on purpose.
+    # shellcheck disable=SC2086
+    for each in ${fixtures:-}; do
+        use_program "$each"
+        mkdir -p "$stage/src/dist/$each"
+        cp "$(record_file "$each")" "$stage/src/dist/$each/version"
         cp "$baselines/$each" "$stage/baselines/$each"
     done
     COPYFILE_DISABLE=1 tar -cf "$archive" -C "$stage" .

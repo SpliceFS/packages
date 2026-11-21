@@ -153,6 +153,26 @@ lacks "an archive for the server holds no baseline of the client" "$only" "basel
 got="$(host 'make_input 14 "$work/none.tar" client')"
 holds "an archive for a program with no package of the release is refused" "$got" "status"
 
+# A run of the client alone has no server package to put in: the machine fetches the newest published server as the
+# fixture, so the archive holds its record (made in the folder of the records, no build made one), its baseline
+# and the word that names it, and no package file. The records are read from the folder the host names.
+rm -rf "$t/records" "$t/unpacked-fixture"
+mkdir -p "$t/records/client" "$t/records/server"
+cp "$t/repo/dist/client/version" "$t/records/client/version"
+printf 'VERSION=v9.9.9\nPACKAGE_DATE=20260101\nUPGRADE_FROM=1.1.0\n' >"$t/records/server/version"
+echo 1.1.0 >"$t/baselines/server"
+host "record_folder=$t/records; fixtures=server; make_input 15 \"\$work/fixture.tar\" client" >"$t/made"
+mkdir "$t/unpacked-fixture"
+tar -xf "$t/work/fixture.tar" -C "$t/unpacked-fixture"
+holds_file "the fixture is named in the archive" "$t/unpacked-fixture/fixtures" server
+holds_file "the record of the fixture goes along, from the folder of the records" "$t/unpacked-fixture/src/dist/server/version" "VERSION=v9.9.9"
+holds_file "the baseline of the fixture is its newest published version" "$t/unpacked-fixture/baselines/server" 1.1.0
+check "the fixture has no package file in the archive" test ! -e "$t/unpacked-fixture/pkg/server"
+holds_file "the program under test is still in the archive" "$t/unpacked-fixture/pkg/client/$client_package" client15
+check "a run with no fixture names none" sh -c "[ -f '$unpacked/fixtures' ] && [ ! -s '$unpacked/fixtures' ]"
+got="$(host "record_folder=$t/records; package_of client 15")"
+holds "the record of a program is read from the folder of the records" "$got" "dist/client/freebsd/FreeBSD-15-amd64/$client_package"
+
 # --- make_job_folder ---
 
 host 'make_job_folder 15.1 "$work/job" server client' >"$t/made"
