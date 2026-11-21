@@ -1,9 +1,9 @@
 #!/bin/sh
 # check: service-test-pkg.sh: the FreeBSD adapter installs, fetches, starts, stops and removes with pkg, sysrc and service
-# Test of scripts/service-test-pkg.sh and scripts/package-test-pkg.sh. pkg, sysrc, service and ps are
-# stand-ins on the PATH that write their arguments to a file, so the test needs no FreeBSD and runs in
-# milliseconds (part of make check). What the real tools do is proved in the machine
-# (scripts/freebsd-package-test.sh).
+# Test of scripts/service-test-pkg.sh and scripts/package-test-pkg.sh. pkg, sysrc, service, ps, route,
+# ifconfig and curl are stand-ins on the PATH that write their arguments to a file, so the test needs
+# no FreeBSD and runs in milliseconds (part of make check). What the real tools do is proved in the
+# machine (scripts/freebsd-package-test.sh).
 set -eu
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -51,6 +51,27 @@ case "$1" in
     *) exec /bin/cat "$@" ;;
 esac
 STAND_IN
+# route and ifconfig print what FreeBSD's print: the files $ROUTE_OUT and $IFCONFIG_OUT, which each case
+# writes. A route command without a file has no default route and says so as FreeBSD's does.
+cat >"$work/bin/route" <<'STAND_IN'
+#!/bin/sh
+echo "route $*" >> "$CALLS"
+[ -f "$ROUTE_OUT" ] || { echo "route: route has not been found" >&2; exit 1; }
+cat "$ROUTE_OUT"
+STAND_IN
+cat >"$work/bin/ifconfig" <<'STAND_IN'
+#!/bin/sh
+echo "ifconfig $*" >> "$CALLS"
+cat "$IFCONFIG_OUT"
+STAND_IN
+# curl answers with the status code in FAKE_CODE, as the real one does for -w '%{http_code}', and
+# writes only the address it was asked for.
+cat >"$work/bin/curl" <<'STAND_IN'
+#!/bin/sh
+for url; do :; done
+echo "curl $url" >> "$CALLS"
+printf '%s' "$FAKE_CODE"
+STAND_IN
 chmod 755 "$work"/bin/*
 
 # $1 case name, $2 the calls wanted, one to a line, $3 the status wanted, then the shell text to run,
@@ -58,7 +79,8 @@ chmod 755 "$work"/bin/*
 runs() {
     : >"$work/calls"
     status=0
-    CALLS="$work/calls" INSTALLED="$work/installed" PATH="$work/bin:/usr/bin:/bin" PROGRAM=server name=splicefs-server \
+    CALLS="$work/calls" INSTALLED="$work/installed" ROUTE_OUT="$work/route-out" IFCONFIG_OUT="$work/ifconfig-out" \
+        PATH="$work/bin:/usr/bin:/bin" PROGRAM=server name=splicefs-server defs=programs/server \
         program=splicefsd pkgver=1.2.3 servicedir=/usr/local/etc/rc.d platform=freebsd/amd64 own="$work/own" site_root=https://packages.example.org \
         sh -c "fail() { echo \"\$*\" >&2; exit 1; }; . scripts/service-run-local.sh; . scripts/service-test-pkg.sh; . scripts/package-test-pkg.sh; $4" \
         >"$work/out" 2>&1 || status=$?
@@ -129,6 +151,77 @@ runs "the service definition is the rc script of the package" "" 0 \
 # shellcheck disable=SC2016
 runs "the user of the service is the owner of its process, found by the pid file of the service" \
     "ps -o user= -p 4242" 0 '[ "$(service_user system)" = splicefs ]'
+
+# The address the server is asked on is the machine's own, which FreeBSD's getent cannot tell (it has no
+# ahostsv4): the interface of the default route and the first inet address of that interface, in the
+# format of FreeBSD's route and ifconfig.
+cat >"$work/route-out" <<'OUTPUT'
+   route to: default
+destination: default
+       mask: default
+    gateway: 10.0.2.2
+        fib: 0
+  interface: vtnet0
+      flags: <UP,GATEWAY,DONE,STATIC>
+ recvpipe  sendpipe  ssthresh  rtt,msec    mtu        weight    expire
+       0         0         0         0      1500         1         0
+OUTPUT
+cat >"$work/ifconfig-out" <<'OUTPUT'
+vtnet0: flags=1008843<UP,BROADCAST,RUNNING,SIMPLEX,MULTICAST,LOWER_UP> metric 0 mtu 1500
+	options=4c07bb<RXCSUM,TXCSUM,VLAN_MTU,VLAN_HWTAGGING,JUMBO_MTU,VLAN_HWCSUM,TSO4,TSO6,LRO,VLAN_HWTSO,LINKSTATE,TXCSUM_IPV6>
+	ether 52:54:00:12:34:56
+	inet 10.0.2.15 netmask 0xffffff00 broadcast 10.0.2.255
+OUTPUT
+# shellcheck disable=SC2016
+runs "the machine's own address is the first inet address of the interface of the default route" \
+    "route -n get default
+ifconfig vtnet0 inet" 0 '[ "$(own_address)" = 10.0.2.15 ]'
+cat >"$work/ifconfig-out" <<'OUTPUT'
+vtnet0: flags=1008843<UP,BROADCAST,RUNNING,SIMPLEX,MULTICAST,LOWER_UP> metric 0 mtu 1500
+	ether 52:54:00:12:34:56
+	inet 10.0.2.15 netmask 0xffffff00 broadcast 10.0.2.255
+	inet 10.0.2.16 netmask 0xffffffff broadcast 10.0.2.16
+	inet6 fe80::5054:ff:fe12:3456%vtnet0 prefixlen 64 scopeid 0x1
+OUTPUT
+# shellcheck disable=SC2016
+runs "an interface with more addresses gives the first inet one, and an inet6 address is not one" \
+    "route -n get default
+ifconfig vtnet0 inet" 0 '[ "$(own_address)" = 10.0.2.15 ]'
+cat >"$work/ifconfig-out" <<'OUTPUT'
+vtnet0: flags=1008843<UP,BROADCAST,RUNNING,SIMPLEX,MULTICAST,LOWER_UP> metric 0 mtu 1500
+	ether 52:54:00:12:34:56
+OUTPUT
+runs "an interface of the default route without an inet address fails and names the interface" \
+    "route -n get default
+ifconfig vtnet0 inet" 1 'own_address'
+said "the failure names the interface that has no address" "own_address: vtnet0 has no inet address"
+mv "$work/route-out" "$work/route-out.kept"
+runs "a machine without a default route fails before ifconfig is asked, and says so" \
+    "route -n get default" 1 'own_address'
+said "the failure says there is no default route" "own_address: no default route"
+mv "$work/route-out.kept" "$work/route-out"
+cat >"$work/ifconfig-out" <<'OUTPUT'
+vtnet0: flags=1008843<UP,BROADCAST,RUNNING,SIMPLEX,MULTICAST,LOWER_UP> metric 0 mtu 1500
+	inet 10.0.2.15 netmask 0xffffff00 broadcast 10.0.2.255
+OUTPUT
+
+# The service check of the server asks its health endpoint on that address, through the function of
+# the adapter: no glibc database is in it.
+# shellcheck disable=SC2016
+runs "the server is asked on the machine's own address, and the answer 200 is a working service" \
+    "route -n get default
+ifconfig vtnet0 inet
+curl https://10.0.2.15:8480/api/v1/health" 0 '. programs/server/service-check.sh; export FAKE_CODE=200; answers'
+# shellcheck disable=SC2016
+runs "any other answer is a service that does not work" \
+    "route -n get default
+ifconfig vtnet0 inet
+curl https://10.0.2.15:8480/api/v1/health" 1 '. programs/server/service-check.sh; export FAKE_CODE=503; answers'
+mv "$work/route-out" "$work/route-out.kept"
+# shellcheck disable=SC2016
+runs "a machine without an address is not asked, and the service does not answer" "route -n get default" 1 \
+    '. programs/server/service-check.sh; export FAKE_CODE=200; answers'
+mv "$work/route-out.kept" "$work/route-out"
 
 # The published file is fetched by pkg from the repository that the setup script writes, which is then
 # taken away again: the system is as it was apart from the file.

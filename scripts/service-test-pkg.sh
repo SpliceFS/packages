@@ -132,6 +132,21 @@ service_user() {
     on_system "$1" ps -o user= -p "$pid"
 }
 
+# The IPv4 address of this machine that is not a loopback one, which the system itself knows: the
+# first inet address of the interface the default route leaves through. FreeBSD's getent has no
+# ahostsv4, and the name of the machine need not resolve. A line on stderr says what is missing, so
+# that a log tells a machine without a network from a server that does not answer.
+own_address() {
+    # A command that fails gives no output, and the line below says so.
+    # shellcheck disable=SC2312
+    interface="$(route -n get default 2>/dev/null | awk '$1 == "interface:" { print $2; exit }')"
+    [ -n "$interface" ] || { echo "own_address: no default route, so no interface to ask" >&2; return 1; }
+    # shellcheck disable=SC2312
+    address="$(ifconfig "$interface" inet 2>/dev/null | awk '$1 == "inet" { print $2; exit }')"
+    [ -n "$address" ] || { echo "own_address: $interface has no inet address" >&2; return 1; }
+    echo "$address"
+}
+
 service_report() {
     on_system "$1" service "$program" onestatus || true
     on_system "$1" tail -n 30 "/var/log/$program.log" || true
