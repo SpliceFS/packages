@@ -929,7 +929,8 @@ expect "the plain removal of the server, then of the client, then one documented
     in_order "apt-get remove -y -qq splicefs-server" "apt-get remove -y -qq splicefs-client" "apt-get purge"
 expect "the documented removal names both programs, in one command" \
     sh -c "[ \"\$(grep -c 'apt-get purge' '$dir/log')\" -eq 1 ] && grep -q 'apt-get purge splicefs-server splicefs-client' '$dir/log'"
-expect "the test data is removed once" sh -c "[ \"\$(grep -c 'remove_test_data' '$dir/log')\" -eq 1 ]"
+expect "the test data is removed once for each program that has a test configuration" \
+    sh -c "[ \"\$(grep -c 'remove_test_data' '$dir/log')\" -eq 2 ]"
 
 use_case client_only
 expect "a run of the client alone passes" passed_status

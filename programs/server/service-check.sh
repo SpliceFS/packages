@@ -7,8 +7,10 @@
 # The default listener of the server (docs/configuration.md): every interface, TLS with a
 # certificate the server makes for itself. The API lives under the default base path /api
 # and the health endpoint is /v1/health (api/routes.go).
-port=8480
-health_path=/api/v1/health
+# shellcheck source=../../scripts/test-config-lib.sh
+. scripts/test-config-lib.sh
+port="$server_port"
+health_path="$server_api_path/v1/health"
 answers_text="answers 200 on $health_path from inside"
 
 # program and defs are set by scripts/package-lib.sh before it sources this file.
