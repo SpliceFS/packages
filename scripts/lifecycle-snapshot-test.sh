@@ -39,3 +39,26 @@ for file in fstab hosts.allow; do
     cp "$t/kept" "$sys/etc/$file"
 done
 echo "ok: a change to another file of /etc is found, also one whose name starts like a left-out one"
+
+# What the FreeBSD machine writes by itself while the package test runs (scripts/freebsd-package-test.sh):
+# pkg's database and catalogs, the file the second boot runs and the one-shot rc.d script that starts it,
+# and the job folders of the machine's own boot hook. Every one of them is left out, and a folder of
+# ours next to them is not.
+# The folders themselves are compared, so they are in the snapshot before, with nothing in them yet.
+for left_out in var/db/pkg var/db/second-boot tmp/out tmp/in usr/local/etc/rc.d; do
+    mkdir -p "$sys/$left_out"
+done
+snapshot before-machine
+for left_out in var/db/pkg var/db/second-boot tmp/out tmp/in; do
+    echo "written by the machine" >"$sys/$left_out/state"
+done
+echo "one-shot" >"$sys/usr/local/etc/rc.d/second_boot"
+echo "ok" >"$sys/tmp/status"
+snapshot after-machine
+diff "$t/before-machine" "$t/after-machine" >/dev/null || fail "what the FreeBSD machine writes by itself counted as a change"
+echo "ok: the files of pkg, of the second boot and of the machine's job folders do not count"
+
+mkdir -p "$sys/var/db/splicefs"
+snapshot ours
+if diff "$t/after-machine" "$t/ours" >/dev/null; then fail "a folder of ours next to the left-out ones was not found"; fi
+echo "ok: a folder of ours below /var/db is found"

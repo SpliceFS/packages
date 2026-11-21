@@ -57,8 +57,8 @@ holds "rpm: rpm -q finds it" rpm 0 yes
 holds "rpm: rpm -q does not find it" rpm 1 no
 holds "apk: apk info -e finds it" apk 0 yes
 holds "apk: apk info -e does not find it" apk 1 no
-holds "freebsd: pkg info -e finds it" freebsd 0 yes
-holds "freebsd: pkg info -e does not find it" freebsd 1 no
+holds "pkg: pkg info -e finds it" pkg 0 yes
+holds "pkg: pkg info -e does not find it" pkg 1 no
 
 # A format nobody wrote a case for is an error that names it, so it is never read as "not held".
 # shellcheck disable=SC2016

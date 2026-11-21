@@ -12,7 +12,7 @@ trap 'rm -rf "$work"' EXIT
 failed=0
 
 mkdir "$work/bin" "$work/bin-dnf" "$work/bin-repo" "$work/bin-fix-fails"
-for manager in apt-get zypper apk; do
+for manager in apt-get zypper apk pkg; do
     # The stand-in expands its own variables when it runs. apk also says its CPU type, which the
     # repository of a package file is named by.
     # shellcheck disable=SC2016
@@ -120,6 +120,11 @@ calls "apk, newer version: the file is added over the old one" "$work/bin" apk v
     "apk add -q --allow-untrusted pkg-or-file"
 calls "apk, newer version: the repository package is upgraded" "$work/bin" apk v1.2.3 v1.2.4 repo \
     "apk add -q -u pkg-or-file"
+
+calls "pkg, same version: the file is added again by force" "$work/bin" pkg v1.2.3 v1.2.3 file \
+    "pkg add -f pkg-or-file"
+calls "pkg, newer version: the file is added over the old one" "$work/bin" pkg v1.2.3 v1.2.4 file \
+    "pkg add pkg-or-file"
 
 [ "$failed" -eq 0 ] || { echo "$failed failed"; exit 1; }
 echo "upgrade package: all cases as expected"

@@ -62,7 +62,7 @@
 # The log of both phases and the result ("ok", or the line of the step that failed) are written into
 # the folder PACKAGE_TEST_OUT, which the host collects; so are the files the phases pass on to each
 # other. The folder is on the system's own disk, which a restart keeps, and its path is left out of
-# the snapshots (scripts/lifecycle-excluded). Environment: FORMAT (deb, rpm or apk), PLATFORM
+# the snapshots (scripts/lifecycle-excluded). Environment: FORMAT (deb, rpm, apk or pkg), PLATFORM
 # (linux/amd64 or linux/arm64), PROGRAMS (the programs to test, in order) and PACKAGE_TEST_OUT.
 #
 # What differs between package formats is in scripts/service-test-<format>.sh (install_package,
@@ -154,6 +154,17 @@ check_installed_files() {
     check_idle_after_install "$1"
 }
 
+# Where the published package file is: on a system the host reaches (a container) the host put it
+# there, and on one it cannot reach (the FreeBSD machine) the system fetches it itself, with the
+# function of its format that does that.
+published_file_of_system() {
+    if command -v fetch_published_package >/dev/null 2>&1; then
+        fetch_published_package "$system" || fail "fetching the published package failed"
+    else
+        published_package_file
+    fi
+}
+
 # Step 1. The published package is what people have installed. It is the one the record of the
 # build names, or the newest on the site; nothing is installed when none is published.
 install_baseline() {
@@ -161,7 +172,7 @@ install_baseline() {
         echo "nothing is published for $PROGRAM: there is no baseline, and nothing is installed in this step"
         return 0
     fi
-    published_file="$(published_package_file)"
+    published_file="$(published_file_of_system)"
     must "installing the published package failed" install_published_package "$1" "$published_file"
     must "the package manager does not list the published package as installed" package_installed "$1"
     # The quotes are single on purpose: the variables are those of the shell that sh -c starts.
