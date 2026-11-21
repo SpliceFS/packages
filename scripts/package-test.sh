@@ -11,7 +11,9 @@
 # restart it, ask the server from outside and read what the steps wrote. The steps themselves, and
 # what each of them checks, are in scripts/package-test-steps.sh, which runs inside the system with
 # what the system has. Per system:
-#   1. the container is started with the repository (read only) at /src, the package folders at
+#   1. the container is started with a copy of the repository (read only) at /src, made when the run
+#      began, so that a change of the working tree during the run (a file replaced, a branch changed)
+#      is not what a later phase reads; the package folders at
 #      /pkg/PROGRAM (they hold the published baseline files, which this script fetched once for the
 #      whole run from the package site and proved by its signed index, scripts/published-verify.sh),
 #      the public signing keys at /keys, and the version of each baseline at /baselines;
@@ -189,7 +191,7 @@ test_system() {
     log="$own/log"
     started=0
     # The folder of each program is mounted at /pkg/PROGRAM.
-    set -- --name "$container" --platform "$platform" -v "$root":/src:ro -v "$keys_dir":/keys:ro \
+    set -- --name "$container" --platform "$platform" -v "$repository_copy":/src:ro -v "$keys_dir":/keys:ro \
         -v "$baselines":/baselines:ro
     for system_program in $present; do
         set -- "$@" -v "$root/dist/$system_program":"/pkg/$system_program":ro
@@ -283,6 +285,20 @@ fetch_baselines() {
     done
 }
 fetch_baselines
+
+# What the steps read of the repository, copied once, before any system starts: the systems read it in
+# every phase, minutes apart, and a repository that changes in between (an editor or git replacing a
+# file) would fail a phase with a file that is not there. The package files are not in it: they are
+# mounted from dist/PROGRAM, and only the record of each build is read from the repository.
+repository_copy="$work/repository"
+mkdir -p "$repository_copy/dist"
+for copied in scripts programs steps keys packaging; do
+    cp -RL "$root/$copied" "$repository_copy/$copied"
+done
+for copied in $present; do
+    mkdir "$repository_copy/dist/$copied"
+    cp "$root/dist/$copied/version" "$repository_copy/dist/$copied/version"
+done
 
 run_systems "$work" pull_system test_system <<LIST
 $selected

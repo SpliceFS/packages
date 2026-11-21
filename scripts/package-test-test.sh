@@ -82,8 +82,17 @@ case "$1" in
         case "$call" in *IPAddress*) echo "bridge 172.17.0.2" ;; *) echo true ;; esac
         ;;
     run)
-        # The probe container, which asks the server from the network of the system.
         case "$call" in
+            *":/src:ro"*)
+                # The boot: what is mounted at /src has what the steps read at the moment the system starts.
+                src="${call%%:/src:ro*}"
+                src="${src##* }"
+                for read_file in scripts/package-test-steps.sh scripts/service-run-local.sh dist/server/version; do
+                    [ ! -f "$src/$read_file" ] || echo "the folder at /src has $read_file" >>"$STAND_IN_DIR/log"
+                done
+                echo "the folder at /src is $src" >>"$STAND_IN_DIR/log"
+                ;;
+            # The probe container, which asks the server from the network of the system.
             *"go:v1 curl"*)
                 if grep -q 'package-test-steps.sh phase2' "$STAND_IN_DIR/log"; then
                     printf '%s' "${STAND_IN_OUTSIDE_AFTER_2:-200}"
@@ -262,7 +271,10 @@ use_case good
 expect "a good run passes" passed_status
 expect "the system is named as passed" holds "ok   deb $debian"
 expect "the system is booted once" sh -c "[ \"\$(grep -c 'docker run -d' '$dir/log')\" -eq 1 ]"
-expect "the repository is mounted read only at /src" sh -c "grep -q 'docker run.* -v $t/cases/good/root:/src:ro' '$dir/log'"
+expect "a copy of the repository is mounted read only at /src, so that a change of the repository during the run is not seen by the system" \
+    sh -c "grep -q 'docker run.* -v .*/repository:/src:ro' '$dir/log' && ! grep -q 'the folder at /src is $t/cases/good/root' '$dir/log'"
+expect "the copy has the steps, the way to run commands in the system and the record of the build when the system starts" \
+    sh -c "grep -q 'the folder at /src has scripts/package-test-steps.sh' '$dir/log' && grep -q 'the folder at /src has scripts/service-run-local.sh' '$dir/log' && grep -q 'the folder at /src has dist/server/version' '$dir/log'"
 expect "the keys of the site are mounted read only at /keys" sh -c "grep -q 'docker run.* -v .*/keys:/keys:ro' '$dir/log'"
 expect "the baselines are mounted read only at /baselines" sh -c "grep -q 'docker run.* -v .*/baselines:/baselines:ro' '$dir/log'"
 expect "the package folder of the program is mounted at /pkg/PROGRAM" \
