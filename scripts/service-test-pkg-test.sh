@@ -65,13 +65,13 @@ cat >"$work/bin/ifconfig" <<'STAND_IN'
 echo "ifconfig $*" >> "$CALLS"
 cat "$IFCONFIG_OUT"
 STAND_IN
-# curl answers with the status code in FAKE_CODE, as the real one does for -w '%{http_code}', and
-# writes only the address it was asked for.
+# curl answers with the status code in FAKE_CODE on its last line, as the real one does for
+# -w '\n%{http_code}', and writes only the address it was asked for.
 cat >"$work/bin/curl" <<'STAND_IN'
 #!/bin/sh
 for url; do :; done
 echo "curl $url" >> "$CALLS"
-printf '%s' "$FAKE_CODE"
+printf '\n%s' "$FAKE_CODE"
 STAND_IN
 chmod 755 "$work"/bin/*
 

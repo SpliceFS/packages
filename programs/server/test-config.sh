@@ -10,6 +10,8 @@
 . "$defs/service-check.sh"
 
 share_name=media
+# The file of the configuration folder the test writes, which the file checks of the package leave out.
+test_config_file=$share_name.yaml
 # The folder the share serves is the test's own, outside what the package owns, so
 # remove_test_data takes it away again, with the folders above it that the test had to make.
 share_dir=/srv/media
@@ -72,14 +74,14 @@ write_test_config() {
     missing_folders "$share_dir" >>"$(made_folders_file)"
     mkdir -p "$share_dir" "$confdir/shares.d" "$datadir/shared/users"
     printf '%s\n' "$share_text" >"$share_dir/$share_file"
-    printf 'path: %s\n' "$share_dir" >"$confdir/shares.d/$share_name.yaml"
+    printf 'path: %s\n' "$share_dir" >"$confdir/shares.d/$test_config_file"
     write_test_user
     chown -R "$expected_user" "$datadir/shared"
 }
 
 # The files are where the documentation says they are, with what the documentation says they hold.
 check_test_config() {
-    share_conf="$confdir/shares.d/$share_name.yaml"
+    share_conf="$confdir/shares.d/$test_config_file"
     user_conf="$(find_test_user_file)"
     [ -f "$share_conf" ] || fail "$share_conf is missing"
     grep -qxF "path: $share_dir" "$share_conf" || fail "$share_conf does not name the folder $share_dir"

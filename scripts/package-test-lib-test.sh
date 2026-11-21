@@ -100,6 +100,37 @@ helper_runs "a mount helper that succeeds without arguments is found" "$work/hel
     "mount.splicefs without arguments succeeded"
 helper_runs "a mount helper that prints no usage is found" "$work/helper-silent" "mount.splicefs does not print its usage"
 
+# The configuration folders are empty after an install, apart from the files the tests write as an
+# administrator: the file of the upgrade test and the file of the test configuration of a program whose
+# service runs before the upgrade. $1 case name, $2 the folder of the test configuration file that
+# is made (or none), $3 the name test_config_file is set to (or empty), $4 what the check must answer: ok,
+# or the text of its refusal.
+config_cases=0
+config_runs() {
+    config_cases=$((config_cases + 1))
+    config="$work/config-$config_cases"
+    mkdir "$config"
+    while IFS= read -r folder; do
+        case "$folder" in "#"*) ;; *) mkdir "$config/$folder" ;; esac
+    done <programs/server/config-folders
+    if [ -n "$2" ]; then : >"$config/shares.d/$2"; fi
+    got="$(FORMAT=pkg PROGRAM=server VERSION=v1.2.3 PACKAGE_DATE=20261112 test_config_file="$3" sh -c \
+        '. scripts/package-lib.sh; . scripts/package-test-lib.sh; confdir="$1"; check_config_folders' sh "$config" 2>&1)" &&
+        status=ok || status="$got"
+    case "$status" in
+        *"$4"*) printf 'ok   %s\n' "$1" ;;
+        *)
+            printf 'FAIL %s: wanted "%s" got "%s"\n' "$1" "$4" "$status"
+            failed=$((failed + 1))
+            ;;
+    esac
+}
+
+config_runs "empty configuration folders pass" "" "" ok
+config_runs "a file the test configuration wrote passes when the program names it" media.yaml media.yaml ok
+config_runs "a file in a configuration folder that no test wrote is found" media.yaml "" "shares.d must be empty after an install"
+config_runs "another file than the one the program names is found" other.yaml media.yaml "shares.d must be empty after an install"
+
 if [ "$failed" -ne 0 ]; then
     echo "$failed package-test-lib case(s) failed"
     exit 1
