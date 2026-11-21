@@ -84,9 +84,22 @@ published_baseline_version() {
     package_debver_of_pkgver "$pkg_version"
 }
 
-# pkg delete runs the pre-deinstall script of the package, which stops the service.
+# pkg delete runs the pre-deinstall script of the package, which stops the service. What it says is the
+# remove message of the package, which the caller keeps and checks.
 remove_package() {
-    on_system "$1" pkg delete -y "$name" >/dev/null
+    on_system "$1" pkg delete -y "$name"
+}
+
+# The command the message of the type $1 of the package names, the one the service functions below run:
+# the install message gives the two of turning the service on and starting it, the upgrade message the
+# restart of the running old version, the remove message the deletion of the setting in rc.conf.
+message_command() {
+    case "$1" in
+        install) echo "sysrc ${program}_enable=YES && service $program start" ;;
+        upgrade) echo "service $program restart" ;;
+        remove) echo "sysrc -x ${program}_enable" ;;
+        *) fail "the package has no $1 message" ;;
+    esac
 }
 
 # The file that defines the service: the package puts it there.
