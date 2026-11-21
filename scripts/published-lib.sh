@@ -1,7 +1,6 @@
 # shellcheck shell=sh
 # What the scripts that read the package site have in common (scripts/published-newest.sh,
-# scripts/next-revision.sh, scripts/upgrade-test.sh, scripts/lifecycle-repo.sh,
-# scripts/revision-listings.sh): where the site is, what the published files are called and where
+# scripts/upgrade-test.sh, scripts/lifecycle-repo.sh): where the site is, what the published files are called and where
 # they are, and how they are downloaded and proven. What people have installed is what the site serves, so
 # nothing here asks GitHub. Sourced after scripts/package-lib.sh (or scripts/program-conf.sh for the
 # scripts that only read the index), which says what the program and its versions are called. The
@@ -24,8 +23,7 @@ nothing_published=none
 
 # Writes the apt index of the program, which lists every version ever published, into the file
 # $1. INDEX_FILE is a test hook that names a local index file and replaces the download. A failed
-# download must never read as "nothing is published": the packages would then be built as
-# revision 0 over a published one, or the upgrade test skipped.
+# download must never read as "nothing is published": the upgrade test would then be skipped.
 fetch_apt_index() {
     if [ -n "${INDEX_FILE:-}" ]; then
         cp "$INDEX_FILE" "$1" 2>/dev/null || fail "could not read the index $INDEX_FILE"
@@ -36,9 +34,8 @@ fetch_apt_index() {
 }
 
 # Prints the versions of the package of the program that the apt index in the file $1 lists, one
-# for each stanza, as the index writes them: 1.2.3 for revision 0 and 1.2.3-N for revision N. A
-# revision is the same in every format (scripts/package-lib.sh), so one format is enough to read
-# the published versions from.
+# for each stanza, as the index writes them: 1.2.3. A version is the same in every format
+# (scripts/package-lib.sh), so one format is enough to read the published versions from.
 published_debvers() {
     awk -v name="$name" '
         $1 == "Package:" { package = $2 }
@@ -48,17 +45,14 @@ published_debvers() {
 
 # Prints the newest of the deb versions on the standard input, or nothing when there is none. The
 # order is the one the package managers use: the parts of the version as numbers, a pre-release
-# (1.2.3~rc.1) before its release and after the version before it, then the revision as a number.
-# A line that is not a version of ours is not counted, as package_release_of_debver refuses it.
+# (1.2.3~rc.1) before its release and after the version before it. A line that is not a version
+# of ours is not counted, as package_release_of_debver refuses it: that includes a name with a
+# revision (1.2.3-1), which this repository does not publish.
 newest_debver() {
     LC_ALL=C awk '
         {
             version = $0
-            revision = 0
-            if (match(version, /-[0-9]+$/)) {
-                revision = substr(version, RSTART + 1) + 0
-                version = substr(version, 1, RSTART - 1)
-            }
+            if (version ~ /-[0-9]+$/) next
             pre = ""
             if (index(version, "~") > 0) {
                 pre = substr(version, index(version, "~") + 1)
@@ -78,7 +72,7 @@ newest_debver() {
                 rank = (word == "alpha") ? 1 : (word == "beta") ? 2 : (word == "pre") ? 3 : 4
             }
             # Digits of one width, so that a comparison of the text is a comparison of the numbers.
-            key = sprintf("%09d%09d%09d%d%09d%09d", part[1], part[2], part[3], rank, number, revision)
+            key = sprintf("%09d%09d%09d%d%09d", part[1], part[2], part[3], rank, number)
             if (best == "" || key > best) {
                 best = key
                 newest = $0
@@ -103,16 +97,13 @@ upgrade_from_version() {
     [ "$uf_version" = "$nothing_published" ] || printf '%s\n' "$uf_version"
 }
 
-# Sets old_tag and old_revision (the program version and the revision of the published package
-# whose deb version is $1), and old_debver, old_rpmver, old_rpmrel, old_apkver and old_apkrel,
-# what package_versions makes of them. Ends the caller with a message for a version that is not
-# one of ours: call it as a simple command.
+# Sets old_tag (the program version of the published package whose deb version is $1), and
+# old_debver, old_rpmver, old_rpmrel, old_apkver and old_apkrel, what package_versions makes of
+# it. Ends the caller with a message for a version that is not one of ours: call it as a simple
+# command.
 use_published_version() {
-    up_release="$(package_release_of_debver "$1")" || exit 1
-    read -r old_tag old_revision <<LIST
-$up_release
-LIST
-    up_names="$(package_versions "$old_tag" "$old_revision" "$PACKAGE_DATE")" || exit 1
+    old_tag="$(package_release_of_debver "$1")" || exit 1
+    up_names="$(package_versions "$old_tag" "$PACKAGE_DATE")" || exit 1
     read -r old_debver old_rpmver old_rpmrel old_apkver old_apkrel _ <<LIST
 $up_names
 LIST

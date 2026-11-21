@@ -6,8 +6,9 @@ on:
     branches: [main]
   pull_request:
   schedule:
-    # Weekly, because the systems under test change underneath an unchanged script.
-    - cron: "33 4 * * 3"
+    # Daily, because the systems under test change underneath an unchanged script, and because
+    # it proves the public mirror every day.
+    - cron: "33 4 * * *"
 
 permissions:
   contents: read
@@ -17,12 +18,10 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # Which test groups the run needs (changes.yml): a pull request that cannot affect the install
-  # skips these tests; main and the schedule run them always. It also says where they get the
-  # setup script and the packages: a change that touches what is packaged builds the packages
-  # of the branch (as does a run of main or the schedule, which test everything), and any other
-  # change is tested against the published site, with its real keys and its published packages,
-  # and builds nothing.
+  # Which test groups the run needs (changes.yml): a pull request runs these tests only when the
+  # setup script or these tests changed (.github/test-groups); main and the schedule run them
+  # always. They run against the published site, with its real keys and its published packages,
+  # and build nothing.
   changes:
     name: Changes
     uses: ./.github/workflows/changes.yml
@@ -42,35 +41,13 @@ jobs:
           - runner: ubuntu-24.04-arm
             arch: arm64
     steps:
-      # The repositories sit side by side, as the tests expect them. The other two are needed
-      # only to build the programs, which are packaged here.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          path: packages
-      - if: needs.changes.outputs.install_source == 'built'
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: SpliceFS/server
-          path: server
-      - if: needs.changes.outputs.install_source == 'built'
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: SpliceFS/client
-          path: client
-      - name: Build the programs and both package repositories with one set of test keys
-        if: needs.changes.outputs.install_source == 'built'
-        working-directory: packages
-        run: make e2e-prepare
       - name: Run the setup script on every supported system
-        working-directory: packages
-        env:
-          SOURCE: ${{ needs.changes.outputs.install_source }}
         run: make e2e
 
   # The same on FreeBSD, which cannot run in a container: a virtual machine of each release
-  # runs the setup script (the one of this commit, or the published one, as above), checks what
-  # it wrote, and then installs both packages from the published repositories with the signature
-  # check on. The machine is amd64 and needs the hardware virtualization that ubuntu-latest
+  # runs the published setup script, checks what it wrote, and then installs both packages from
+  # the published repositories with the signature check on. The machine is amd64 and needs the hardware virtualization that ubuntu-latest
   # offers; no job needs an arm64 runner.
   freebsd:
     name: FreeBSD (${{ matrix.release }}, amd64)
@@ -85,9 +62,27 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Run the setup script on FreeBSD and install from the published repositories
-        env:
-          SOURCE: ${{ needs.changes.outputs.install_source }}
         run: make e2e-freebsd FREEBSD=${{ matrix.release }}
+
+  # The one check of this workflow that branch protection requires. A matrix job that is skipped
+  # reports under its unexpanded name ("Install tests (${{ matrix.arch }})"), so its own names
+  # cannot be required; this job always runs and passes when every test passed or was not needed.
+  result:
+    name: Install tests result
+    needs: [changes, install, freebsd]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Every test passed or was not needed
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          printf '%s\n' "$NEEDS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
+          if printf '%s\n' "$NEEDS" | jq -e 'any(.[]; .result != "success" and .result != "skipped")' >/dev/null; then
+            echo "::error::At least one job did not succeed."
+            exit 1
+          fi
 
   # A failed run of this workflow opens an issue assigned to the account in the repository
   # variable ALERT_ASSIGNEE, so that someone gets an email; GitHub sends none for runs the

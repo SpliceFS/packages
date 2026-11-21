@@ -228,7 +228,9 @@ holds "the machine refuses a plain mount -a that runs a late line" "FAIL: mount 
 # user_mode_machine sets user_mode_status and user_mode_said, and puts the settings back.
 um_fail='' um_client=ready um_socket='alice 700' um_fuse_stat='crw-rw---- operator' um_fuse=file um_cache=home
 
-# Writes the stand-ins of the tools into the folder $1. The tools that are only called share one
+# Writes the stand-ins of the tools into the folder $1, except the client and its control program,
+# which go into $2, the /usr/local/bin of the machine: the PATH of root does not hold it, and the
+# PATH of the user must. The tools that are only called share one
 # script, which records the call, fails when it is named in FAIL_TOOL, and prints what the check
 # asks of the few that answer. The client stand-in tells the control stand-in over a FIFO whether
 # it is ready: the first status waits for that word, so that no step waits for time to pass.
@@ -250,9 +252,15 @@ STANDIN
     for tool in pw sysctl sysrc kldload kldstat service id; do ln -s standin "$1/$tool"; done
     cat > "$1/su" <<'SU'
 #!/bin/sh
-# su -l USER -c COMMAND: the command runs with the home folder a login sets and no XDG settings.
-[ "$1" = -l ] && [ "$3" = -c ] || exit 2
-exec env -u XDG_CONFIG_HOME -u XDG_CACHE_HOME HOME="$box/home/$2" sh -c "$4"
+# su [-l] USER -c COMMAND: the command runs with the home folder su sets and the PATH of the caller,
+# as the su of FreeBSD does without -l. A login shell reads the profile of the user, and the profile
+# that FreeBSD gives a new user prints a fortune, so the output of a command run in a login starts
+# with a line that is not the command's.
+login=no
+if [ "$1" = -l ]; then login=yes; shift; fi
+[ "$2" = -c ] || exit 2
+[ "$login" = no ] || echo 'If you do not want to get beeps in X11 (X Windows), you can turn them off with'
+exec env HOME="$box/home/$1" sh -c "$3"
 SU
     cat > "$1/stat" <<'STAT'
 #!/bin/sh
@@ -266,12 +274,12 @@ STAT
 #!/bin/sh
 [ -f "$box/client.pid" ] && cat "$box/client.pid"
 PGREP
-    cat > "$1/splicefsctl" <<'CTL'
+    cat > "$2/splicefsctl" <<'CTL'
 #!/bin/sh
 [ -f "$box/state" ] || { read -r word < "$box/state.fifo"; echo "$word" > "$box/state"; }
 [ "$(cat "$box/state")" = ready ]
 CTL
-    cat > "$1/splicefs" <<'CLIENT'
+    cat > "$2/splicefs" <<'CLIENT'
 #!/bin/sh
 if [ "$1" = config ]; then
     dir="$HOME/.cache/splicefs"
@@ -293,7 +301,7 @@ trap 'rm -f "$box/client.pid"; echo stopped > "$box/state"; kill "$sleeper"; exi
 echo ready > "$box/state.fifo"
 wait "$sleeper"
 CLIENT
-    chmod 755 "$1/standin" "$1/su" "$1/stat" "$1/pgrep" "$1/splicefsctl" "$1/splicefs"
+    chmod 755 "$1/standin" "$1/su" "$1/stat" "$1/pgrep" "$2/splicefsctl" "$2/splicefs"
 }
 
 # Ends the process $1 and returns once it is gone; a process that already ended is fine. Gives up
@@ -315,13 +323,14 @@ end_left_over() {
 user_mode_machine() {
     box="$tree/user"
     rm -rf "$box"
-    mkdir -p "$box/bin" "$box/etc" "$box/dev" "$box/work" "$box/stat"
+    mkdir -p "$box/bin" "$box/usr/local/bin" "$box/etc" "$box/dev" "$box/work" "$box/stat"
     mkfifo "$box/state.fifo"
     : > "$box/calls"
-    write_user_mode_tools "$box/bin"
+    write_user_mode_tools "$box/bin" "$box/usr/local/bin"
     if [ "$um_fuse" = dir ]; then mkdir "$box/dev/fuse"; else : > "$box/dev/fuse"; fi
-    # The steps append to files of /etc, and the check opens /dev/fuse: both move into the folder.
-    sed -e "s| /etc/| $box/etc/|g" -e "s|/dev/fuse|$box/dev/fuse|g" \
+    # The steps append to files of /etc, the check opens /dev/fuse, and the PATH of the user names
+    # /usr/local/bin: all three move into the folder.
+    sed -e "s| /etc/| $box/etc/|g" -e "s|/dev/fuse|$box/dev/fuse|g" -e "s|/usr/local/bin|$box/usr/local/bin|g" \
         "$root/programs/client/freebsd/check-lib.sh" > "$box/check-lib.sh"
     cat > "$box/run.sh" <<'RUN'
 fail() { echo "FAIL: $1"; exit 1; }
@@ -335,7 +344,8 @@ RUN
     # running leaves the client (and its sleep) holding the output open, and $(...) would wait for
     # them while they wait to be ended below.
     status=0
-    env box="$box" PATH="$box/bin:$PATH" FAIL_TOOL="$um_fail" CLIENT="$um_client" \
+    # The root of the machine has no XDG settings, and the stand-in su leaves the environment as it is.
+    env -u XDG_CONFIG_HOME -u XDG_CACHE_HOME box="$box" PATH="$box/bin:$PATH" FAIL_TOOL="$um_fail" CLIENT="$um_client" \
         SOCKET_STAT="$um_socket" FUSE_STAT="$um_fuse_stat" CACHE="$um_cache" \
         sh "$box/run.sh" "$box/check-lib.sh" > "$box/said" 2>&1 < /dev/null || status=$?
     user_mode_status="$status"

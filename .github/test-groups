@@ -4,27 +4,61 @@
 # checks alone. The first line that matches a path decides, so a narrow pattern comes before a
 # wide one. A path that no line matches needs every group.
 #
-# packages  the version order, the packages of both programs, their tests on every system and
-#           CPU type, and the lifecycle test (ci.yml)
-# install   the setup script run on every system and on FreeBSD (install-tests.yml)
+# deb       the deb packages of both programs, and their tests on every system and CPU type
+# rpm       the rpm packages, the same
+# apk       the Alpine packages, the same
+# freebsd   the FreeBSD packages, built and checked in a machine of each release
+#           (deb, rpm and apk are tested with the lifecycle test and the version order too: ci.yml)
+# install   the setup script run on every system and on FreeBSD, against the published site
+#           (install-tests.yml). It needs only the setup script, its own tests and its own
+#           workflow: it builds no package, so no change to a package can affect it.
 
-# What is packaged, how, and how it is tested.
-programs/*                          packages install
-packaging/*                         packages install
-scripts/*                           packages install
-Makefile                            packages install
-# The lifecycle and user mode tests run the manual steps.
-steps/*                             packages install
-# The lifecycle test runs the setup script built from the template.
-setup.sh.in                         packages install
-# The release archives are proven with the published key before they are packaged.
-keys/*                              packages install
+# The setup script and its own tests, and nothing else.
+setup.sh.in                         install
+tests/*                             install
+.github/workflows/install-tests.yml install
 # No test reads the pull request template or the settings of the dependency bot.
 .github/PULL_REQUEST_TEMPLATE.md
 .github/dependabot.yml
-.github/*                           packages install
-# The install tests and the systems they run on.
-tests/*                             install
+
+# One package format.
+programs/*/deb/*                    deb
+scripts/*-deb.sh                    deb
+scripts/repo-apt.sh                 deb
+scripts/service-test-host*          deb
+steps/uninstall-apt.sh              deb
+programs/*/rpm/*                    rpm
+scripts/*-rpm.sh                    rpm
+steps/uninstall-dnf.sh              rpm
+steps/uninstall-zypper.sh           rpm
+programs/*/alpine/*                 apk
+programs/*/openrc/*                 apk
+packaging/service/openrc/*          apk
+scripts/*-apk.sh                    apk
+scripts/apk-resign*                 apk
+steps/uninstall-apk.sh              apk
+programs/*/freebsd/*                freebsd
+packaging/freebsd/*                 freebsd
+scripts/freebsd-*                   freebsd
+scripts/*-freebsd.sh                freebsd
+steps/uninstall-pkg.sh              freebsd
+
+# Shared by two formats.
+programs/*/systemd/*                deb rpm
+packaging/service/systemd/*         deb rpm
+packaging/test-systems              deb rpm apk
+
+# What every format uses: the programs, the scripts, the Makefile, the manual steps that the
+# lifecycle and user mode tests run, the workflows, the actions, and the published keys that prove
+# the release archives before they are packaged.
+programs/*                          deb rpm apk freebsd
+packaging/*                         deb rpm apk freebsd
+scripts/*                           deb rpm apk freebsd
+Makefile                            deb rpm apk freebsd
+steps/*                             deb rpm apk freebsd
+keys/*                              deb rpm apk freebsd
+.github/*                           deb rpm apk freebsd
+
 # Read by make check alone, or by no test.
 site/*
 *.md

@@ -50,29 +50,20 @@ publish: sign ## Signs, then uploads the site files
 publish-check: ## Lists the remote root to prove the upload credentials, changing nothing
 	sh scripts/publish.sh check
 
-# Builds the programs of ../server and ../client in their repositories (make build-all), packages
-# them here (make packages, make repo) with one set of throwaway keys. Separate from e2e because
-# the build takes minutes and the test can be repeated against the same packages. Only a run
-# with SOURCE=built needs it.
-e2e-prepare: ## Builds the programs of ../server and ../client and packages them with throwaway keys into dist/e2e
-	sh tests/prepare.sh
-
-# Runs the setup script in a container of every system in tests/systems. SOURCE=built (the
-# default) runs it against a site built from the packages of e2e-prepare and served over local HTTP;
-# SOURCE=published runs the published setup script against the published site, with its real keys
-# and its published packages, and needs no e2e-prepare. scripts/install-source.sh says which one a
-# run needs. Needs docker.
-e2e: ## Runs the setup script in a container of every system in tests/systems (needs Docker; SOURCE=published for the published site)
-	SOURCE=$(SOURCE) sh tests/run.sh
+# Runs the setup script in a container of every system in tests/systems, against the published
+# site: its published setup script, its real keys and its published packages. Nothing is built.
+# Needs docker.
+e2e: ## Runs the published setup script in a container of every system in tests/systems (needs Docker)
+	sh tests/run.sh
 
 # Runs the setup script as root in a virtual machine of every FreeBSD release in
 # packaging/freebsd/releases, which has no Linux container. The machine runs under QEMU in the
 # prepared image of its release (FREEBSD_IMAGE); this needs Docker and KVM (Linux on amd64), and
 # a computer without /dev/kvm stops at once, because an emulated machine takes many times as
-# long. FREEBSD=15.1 limits the run to one release. SOURCE is the one of e2e.
+# long. FREEBSD=15.1 limits the run to one release.
 .PHONY: e2e-freebsd
 e2e-freebsd: freebsd-kvm ## Runs the setup script in a FreeBSD machine of every release (FREEBSD=15.1 for one)
-	LINUX_IMAGE=$(GO_IMAGE) FREEBSD_IMAGE=$(FREEBSD_IMAGE) FREEBSD=$(FREEBSD) SOURCE=$(SOURCE) tests/freebsd.sh
+	LINUX_IMAGE=$(GO_IMAGE) FREEBSD_IMAGE=$(FREEBSD_IMAGE) FREEBSD=$(FREEBSD) tests/freebsd.sh
 
 # --- The packages of a program ------------------------------------------------------------------
 # The package definitions of each program are in programs/PROGRAM, with its program.conf. What is
@@ -84,13 +75,8 @@ e2e-freebsd: freebsd-kvm ## Runs the setup script in a FreeBSD machine of every 
 #   SRC       the source tree of the program at this version. Its LICENSE and the documents named
 #             in program.conf go into the packages; they change with every version.
 #   VERSION   the version of the program, as it was released: v1.2.3 or v1.2.3-rc.1.
-#   REVISION  the revision of the packages, 0 (the default) or more. A change to the packaging
-#             alone, with the same release of the program, is packaged as the next revision of
-#             that release: the way distributions number it (deb 1.2.3-1, rpm release 2, Alpine
-#             -r1, FreeBSD 1.2.3_1). Revision 0 is named as the packages published before
-#             revisions existed. scripts/package-lib.sh says how each format writes it.
 #   UPGRADE_FROM  the version of the newest package of the program on the package site, as the apt
-#             index writes it (0.5.34-1; scripts/published-newest.sh prints it), which the upgrade
+#             index writes it (0.5.34; scripts/published-newest.sh prints it), which the upgrade
 #             tests start from. A run reads it once and gives it here, so that every job of the run
 #             upgrades from it, also when a newer package is published meanwhile. The word none says
 #             the site lists no package of the program, so the tests have nothing to start from and
@@ -110,25 +96,21 @@ GO_IMAGE ?= ghcr.io/splicefs/go:v1
 FREEBSD_IMAGE ?= ghcr.io/splicefs/freebsd-@RELEASE@:v2
 # Empty runs every release in the list; 15.1, for example, only that one.
 FREEBSD ?=
-# Where the end to end tests (e2e, e2e-freebsd) take the setup script and the packages from: built
-# (the default) or published. See scripts/published-site-lib.sh.
-SOURCE ?= built
 RPM_IMAGE ?= ghcr.io/splicefs/rpm-build:v1
 APK_IMAGE ?= ghcr.io/splicefs/apk-build:v1
 PROGRAM ?=
 BIN ?=
 SRC ?=
 VERSION ?=
-REVISION ?= 0
 UPGRADE_FROM ?=
 # Alpine versions cannot carry a commit, so a build with uncommitted changes carries the date of
 # its commit: here, of the commit of SRC.
 PACKAGE_DATE ?= $(shell git -C "$(SRC)" log -1 --format=%cd --date=format:%Y%m%d 2>/dev/null || date +%Y%m%d)
 PACKAGE_OUT = dist/$(PROGRAM)
 # What the package scripts read, with the folders where the image sees BIN and SRC.
-PACKAGE_VARS = PROGRAM=$(PROGRAM) VERSION=$(VERSION) PACKAGE_DATE=$(PACKAGE_DATE) REVISION=$(REVISION) BIN=/in/bin SRC=/in/src
+PACKAGE_VARS = PROGRAM=$(PROGRAM) VERSION=$(VERSION) PACKAGE_DATE=$(PACKAGE_DATE) BIN=/in/bin SRC=/in/src
 # What the version record is written from.
-RECORD_VARS = PROGRAM=$(PROGRAM) VERSION=$(VERSION) PACKAGE_DATE=$(PACKAGE_DATE) REVISION=$(REVISION) UPGRADE_FROM=$(UPGRADE_FROM)
+RECORD_VARS = PROGRAM=$(PROGRAM) VERSION=$(VERSION) PACKAGE_DATE=$(PACKAGE_DATE) UPGRADE_FROM=$(UPGRADE_FROM)
 # The signing keys, read only, for the steps that sign or check with them.
 KEYS_MOUNT := -v "$(CURDIR)/dist/keys":/keys:ro
 RUN_OPTS :=
@@ -177,7 +159,7 @@ package-apk: package-inputs keys ## Builds the Alpine packages (same variables)
 # release: FreeBSD packages hold no documents) and VERSION, and it records the version the way
 # make packages does.
 package-freebsd: freebsd-kvm package-inputs keys ## Builds and checks the FreeBSD packages in a FreeBSD machine (needs Docker and KVM)
-	scripts/part.sh package-freebsd env PROGRAM=$(PROGRAM) VERSION=$(VERSION) PACKAGE_DATE=$(PACKAGE_DATE) REVISION=$(REVISION) \
+	scripts/part.sh package-freebsd env PROGRAM=$(PROGRAM) VERSION=$(VERSION) PACKAGE_DATE=$(PACKAGE_DATE) \
 		BIN="$(abspath $(BIN))" KEYS_DIR="$(CURDIR)/dist/keys" LINUX_IMAGE=$(GO_IMAGE) FREEBSD_IMAGE=$(FREEBSD_IMAGE) FREEBSD=$(FREEBSD) \
 		sh scripts/package-freebsd.sh $(PACKAGE_OUT)
 	$(RECORD_VARS) sh -c '. scripts/package-record.sh && write_package_record'
@@ -286,9 +268,8 @@ upgrade-diff-test: ## Checks, without Docker, how the upgrade test decides that 
 # exists, the new version is installed and every file the new package lists is there. It runs only
 # for a format whose packaging changed since that package: a version that differs only in the
 # programs and the changelog cannot break an upgrade. When the packaging changed and the version is
-# the published one, the packages must be a later revision (make packages REVISION=N): the test says
-# so when they are not. scripts/next-revision.sh prints the revision that follows the highest one
-# published. It needs Docker and the network.
+# the published one, the new package is reinstalled over the old one (scripts/upgrade-package-lib.sh).
+# It needs Docker and the network.
 upgrade-test: built-packages ## Upgrades from the newest published package to dist/PROGRAM, when the packaging changed
 	$(TEST_VARS) scripts/upgrade-test.sh
 

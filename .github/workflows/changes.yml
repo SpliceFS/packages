@@ -2,21 +2,20 @@ name: Changes
 # Every job has a time limit: 3 times its longest run, so a hang fails in minutes.
 
 # Says which test groups a run needs, as a JSON array that the if of each job reads
-# (scripts/changed-groups.sh, .github/test-groups). A pull request needs the groups of the files
+# (scripts/changed-groups.sh, .github/test-groups), and which of the Linux package formats
+# (deb, rpm, apk) are among them, which the matrix of a job reads. A pull request needs the groups of the files
 # its merge commit changes against its first parent, the tip of the branch it merges into: what
 # the merge would change. Every other run (main, a tag, the schedule) tests everything, and so
 # does a commit that is no merge, because its first parent is not the base of the change.
-# It also says where the install tests get the setup script and the packages (scripts/install-source.sh):
-# built from the branch when the change touches what is packaged, and the published site otherwise.
 on:
   workflow_call:
     outputs:
       groups:
         description: The test groups the run needs, as a JSON array
         value: ${{ jobs.changes.outputs.groups }}
-      install_source:
-        description: Where the install tests take the setup script and the packages from, built or published
-        value: ${{ jobs.changes.outputs.install_source }}
+      formats:
+        description: The Linux package formats among the groups, as a JSON array
+        value: ${{ jobs.changes.outputs.formats }}
 
 permissions:
   contents: read
@@ -28,12 +27,12 @@ jobs:
     timeout-minutes: 10
     outputs:
       groups: ${{ steps.groups.outputs.groups }}
-      install_source: ${{ steps.groups.outputs.install_source }}
+      formats: ${{ steps.groups.outputs.formats }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 2
-      - name: The test groups of the changed files, and the source of the install tests
+      - name: The test groups of the changed files
         id: groups
         env:
           EVENT: ${{ github.event_name }}
@@ -46,7 +45,7 @@ jobs:
             groups="$(scripts/changed-groups.sh all)"
           fi
           echo "groups: $groups"
-          install_source="$(scripts/install-source.sh "$groups")"
-          echo "install source: $install_source"
+          formats="$(printf '%s' "$groups" | jq -c 'map(select(IN("deb", "rpm", "apk")))')"
+          echo "formats: $formats"
           echo "groups=$groups" >> "$GITHUB_OUTPUT"
-          echo "install_source=$install_source" >> "$GITHUB_OUTPUT"
+          echo "formats=$formats" >> "$GITHUB_OUTPUT"

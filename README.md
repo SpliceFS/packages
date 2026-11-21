@@ -74,7 +74,9 @@ The source tree and the version are the caller's own, at the commit under test. 
 `bin-artifact` the workflow tests the newest release of the program instead (`scripts/release-bin.sh`
 proves its archives with the signature and `SHA256SUMS` and unpacks them into the `BIN` layout);
 the CI of this repository does that for both programs, so a packaging change is tested on its own.
-It calls the two halves of the workflow itself, `build-packages.yml` and then `check-packages.yml`, so
+That publishes nothing: a package is published only for a new release of its program, and that
+release is published with the packaging as it is by then.
+The workflow calls its two halves itself, `build-packages.yml` and then `check-packages.yml`, so
 that the lifecycle test starts when both programs are built and does not wait for their tests.
 The jobs run the scripts of this repository at the commit of the `uses` line, never at a ref the
 caller chooses: the workflows check this repository out at `job.workflow_sha`, and
@@ -82,13 +84,30 @@ caller chooses: the workflows check this repository out at `job.workflow_sha`, a
 or ref from an input.
 
 A run reads the newest package of a program on the package site once (`scripts/published-newest.sh`,
-which prints a version such as `0.5.34-1`) and gives it to `make packages` as `UPGRADE_FROM`. The
+which prints a version such as `0.5.34`) and gives it to `make packages` as `UPGRADE_FROM`. The
 version record in `dist/<program>/version` keeps it, and the upgrade and lifecycle tests download that
 package from the site and start from it, so a package published while the run is going never turns
 the upgrade into a downgrade. A release on GitHub carries no packages: what people have installed is
 what the site serves. Without `UPGRADE_FROM` (a build by hand) the tests ask the site when they run,
 and a program with no package on the site yet has nothing to upgrade from, so the upgrade test says so
 and skips.
+
+### What runs when
+
+A pull request runs `make check` and then only the tests of what its files change.
+`.github/test-groups` maps each path to the groups it needs, and `scripts/changed-groups.sh` reads it:
+
+- `deb`, `rpm`, `apk` and `freebsd`: the build and the tests of that package format. A file that
+  one format uses (a package definition, a format's script) needs that group alone; a file that every
+  format uses (`programs/`, `scripts/package-lib.sh`, the `Makefile`) needs all four. The version
+  order test and the lifecycle test run when any of deb, rpm and apk is needed, the lifecycle test
+  for those formats only.
+- `install`: the setup script run against the published site, on every system and on FreeBSD
+  (`install-tests.yml`). It builds no package, so it runs when `setup.sh.in`, `tests/` or its own
+  workflow changes, on its schedule, and on main, never for a change to a package.
+
+A path that no line of the file matches needs every group, so a new file is tested in full until it is
+named there. Runs of main, of a tag and of the schedule test everything.
 
 `make check` needs `python3`. It also uses `dash` and `bash` when they are installed.
 

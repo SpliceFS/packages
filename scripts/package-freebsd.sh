@@ -12,7 +12,7 @@
 # repo/FreeBSD:<major>:<cpu>/ with the new package and the catalog pkg repo wrote. They are merged
 # into OUTPUT_DIR/repo/freebsd/, which scripts/publish.sh sends.
 #
-# Environment: PROGRAM, VERSION, PACKAGE_DATE and REVISION as for every package; BIN is the folder of
+# Environment: PROGRAM, VERSION and PACKAGE_DATE as for every package; BIN is the folder of
 # the compiled programs on this computer, laid out <os>-<arch>/<program> (the programs of
 # every system are in it; here the freebsd ones are used); KEYS_DIR is the folder of the
 # signing keys (scripts/signing-keys.sh), dist/keys when not given; FREEBSD limits the run to

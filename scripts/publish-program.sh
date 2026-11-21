@@ -162,7 +162,7 @@ if [ -n "$BAD" ]; then
 fi
 
 # A published package is never replaced by a file with other content under the same name. A
-# change of the packaging is published as a new revision, which has a new name, so the file that
+# change of the packaging is not published for a release that is published, so the file that
 # clients and the signatures of the indexes were made from stays what it was. An existing file
 # that the upload would change shows in the dry run as ">f" followed by something other than
 # the "+" of a new file; the index files are the only ones a new build rewrites.
@@ -170,7 +170,7 @@ REPLACED=$(awk '$1 ~ /^>f[^+]/ { $1 = ""; sub(/^ +/, ""); print }' "$DRY" |
   grep -Ev "$INDEX_REGEX" || true)
 if [ -n "$REPLACED" ]; then
   echo "refusing to send: it would replace published files with other content under the same name" >&2
-  echo "(a change to a package needs a new revision, which has a new name):" >&2
+  echo "(a package of a published release is never changed):" >&2
   echo "$REPLACED" | sed 's/^/  /' >&2
   exit 1
 fi

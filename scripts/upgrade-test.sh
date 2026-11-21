@@ -4,11 +4,11 @@
 # newest on the package site when it recorded nothing) to the one in dist/PROGRAM, but only when the
 # packaging changed: a version whose packages differ from the published ones only in the programs
 # and the content of the documents (both come from the source of the program) cannot break an
-# upgrade, so there is nothing to test. When the packaging
-# changed and the new packages are of the same program version as the published ones, they must be
-# a later revision of it (make packages REVISION=N), because a package of the same version and
-# revision is no upgrade: rpm refuses it, and deb and apk reinstall it without a word, which would
-# hide the problem. Runs on the host after make packages (make upgrade-test, CI). For each
+# upgrade, so there is nothing to test. When the packaging changed and the new packages are of
+# the same program version as the published ones (a change to the packaging alone is tested with
+# the latest release and publishes nothing), the new package is reinstalled over the old one with
+# the package manager's own command, which runs the upgrade scripts
+# (scripts/upgrade-package-lib.sh). Runs on the host after make packages (make upgrade-test, CI). For each
 # package format, for this machine's CPU type, it
 #   1. downloads the published package of that format from the package site, which is what people
 #      have installed (scripts/published-lib.sh), into dist/PROGRAM/published, and proves it by
@@ -19,7 +19,7 @@
 #   3. when they differ, installs the published package in a clean container, writes a
 #      configuration line and a data file, installs the new package over it the way a user
 #      upgrades, and checks that both survived, the service user exists, the new version is
-#      installed, with the version and revision that were built, and every file the new package
+#      installed, with the version that was built, and every file the new package
 #      lists is there (scripts/upgrade-test-<format>.sh).
 # Environment: PROGRAM; the version comes from dist/PROGRAM/version, which make packages wrote
 # (scripts/package-record.sh), and a VERSION given must be that one; PLATFORM (linux/amd64 or
@@ -53,12 +53,15 @@ esac
 from="$(upgrade_from_version)" ||
     fail "could not read the newest published package of $PROGRAM from $site_url"
 
-# What the published files are called is what package-lib.sh makes of the version and the revision
-# of the published package.
+# What the published files are called is what package-lib.sh makes of the version of the published
+# package.
 published_dir="$root/dist/$PROGRAM/published"
 if [ -n "$from" ]; then
     # A version that package_release_of_debver refuses ends the script here, with its message.
     use_published_version "$from"
+    # The in-container scripts decide from it whether the new package is a reinstall or an upgrade.
+    PUBLISHED_VERSION="$old_tag"
+    export PUBLISHED_VERSION
 fi
 
 # The documents are installed under their own names, whatever folder they have in the source.
@@ -88,7 +91,7 @@ in_container() {
     # Each step runs only when the one before it worked; the conditions are tests whose
     # status is the answer.
     # shellcheck disable=SC2310
-    if boot_system --name "$container" --platform "$platform" -e PROGRAM -e VERSION -e PACKAGE_DATE -e REVISION \
+    if boot_system --name "$container" --platform "$platform" -e PROGRAM -e VERSION -e PACKAGE_DATE -e PUBLISHED_VERSION \
         -v "$root":/src:ro -v "$root/dist/$PROGRAM":/out:ro -w /src "$image" &&
         wait_booted "$format" "$container"; then
         status=0
@@ -177,19 +180,12 @@ for format in deb rpm apk; do
     fi
     echo "$format: the packaging changed since $from, running the upgrade test:"
     printf '%s\n' "$differences"
-    # The same program version needs a later revision, or the format sees no upgrade.
-    if [ "$VERSION" = "$old_tag" ] && [ "$REVISION" -le "$old_revision" ]; then
-        echo "FAIL $format: the packaging changed since $from, which is the version of these packages too, but their revision is $REVISION and the published ones are revision $old_revision: build them with REVISION=$((old_revision + 1)) or more"
-        failed=$((failed + 1))
-        continue
-    fi
-
     set +e
     in_container "upgrade-test-$format.sh" upgrade "/out/published/$old_file" "/out/$new_file" > "$log" 2>&1
     upgraded=$?
     set -e
     if [ "$upgraded" -eq 0 ]; then
-        echo "ok   $format $image: $from upgraded to $VERSION revision $REVISION"
+        echo "ok   $format $image: $from upgraded to $VERSION"
         passed=$((passed + 1))
     else
         echo "FAIL $format $image"

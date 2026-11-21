@@ -4,9 +4,9 @@
 #
 # The contract:
 # - The input archive is the machine's fourth disk (/dev/vtbd3). The job unpacks it into
-#   /tmp/input first, and from then on the site is at /tmp/input/site. It was built for the
-#   base address file:///tmp/input/site, so the setup script reads the published setup.sh
-#   from there. For a published site the address is the published one.
+#   /tmp/input first, and from then on the site is at /tmp/input/site: the published setup
+#   script and the keys of the repository. The script's base address is the published site,
+#   which its self-check reads on the web.
 # - The job runs as root.
 # - Everything it prints (standard output and standard error) comes back to the host.
 # - Its last line must be FREEBSD-SETUP-OK when all checks passed.
@@ -30,9 +30,6 @@ setup=$site/setup.sh
 keyfile=/usr/local/etc/pkg/keys/splicefs.rsa.pub
 repofile=/usr/local/etc/pkg/repos/splicefs.conf
 published_url=https://packages.splicefs.org
-# The address the setup script was built for, read from the script itself: a folder of the
-# machine, or the published site.
-base_url=$(sed -n "s/^BASE_URL='\\(.*\\)'\$/\\1/p" "$setup")
 failed=0
 status=0
 out=$(mktemp /tmp/setup-out.XXXXXX)
@@ -144,7 +141,7 @@ heading "e. the real run"
 run_sh "$setup"
 expect_status 0 "the real run"
 cmp -s "$site/keys/splicefs.rsa.pub" "$keyfile" || note_fail "$keyfile is not the published key"
-for word in splicefs-server splicefs-client 'signature_type: "pubkey"' "$base_url"; do
+for word in splicefs-server splicefs-client 'signature_type: "pubkey"' "$published_url"; do
   grep -q -F -e "$word" "$repofile" || note_fail "$repofile does not contain '$word'"
 done
 # pkg fills in the ABI itself, so the file must keep the text, once per repository.
@@ -161,14 +158,8 @@ if grep -q '^updated' "$out"; then
   note_fail "the second run rewrote a file"
 fi
 
-# Until here the repositories may have been the site folder inside the machine. The published
-# repositories must verify with the key the script installed, so they are used from here on.
+# The published repositories must verify with the key the script installed.
 heading "g. install both packages from the published repositories"
-sed -i '' "s|$base_url|$published_url|g" "$repofile" || note_fail "cannot change the base address"
-grep -q -F -e "$published_url" "$repofile" || note_fail "$repofile does not name $published_url"
-if grep -q -F -e 'file://' "$repofile"; then
-  note_fail "$repofile still reads from a folder, so the published repositories would not be tested"
-fi
 # Without this pkg asks before it sets itself up on a new system.
 ASSUME_ALWAYS_YES=yes
 export ASSUME_ALWAYS_YES

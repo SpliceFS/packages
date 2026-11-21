@@ -36,7 +36,7 @@ for arch in amd64 arm64; do
     for script in "$defs/alpine/$name".*; do
         package_script openrc "$script" > "$work/$(basename "$script")"
     done
-    sed -e "s/@NAME@/$name/" -e "s/@VERSION@/$apkver/" -e "s/@REVISION@/$apkrel/" "$defs/alpine/APKBUILD" > "$work/APKBUILD"
+    sed -e "s/@NAME@/$name/" -e "s/@VERSION@/$apkver/" -e "s/@PKGREL@/$apkrel/" "$defs/alpine/APKBUILD" > "$work/APKBUILD"
     (
         cd "$work"
         # CARCH labels the package for the CPU type of the binary inside it; nothing is

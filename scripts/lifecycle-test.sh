@@ -73,19 +73,21 @@ trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-# Runs the command in a shell of its own that knows the program $1 at the version $2 and the
-# revision $3: what package-lib.sh says about them, what the program's service check says, and
-# the functions of the package format. The shell ends this system's run when the command fails,
-# because every check reports with fail. Usage: as_program PROGRAM VERSION REVISION COMMAND
-# [ARGUMENT...].
+# Runs the command in a shell of its own that knows the program $1 at the version $2: what
+# package-lib.sh says about it, what the program's service check says, and the functions of the
+# package format. PUBLISHED_VERSION is the version of the published package of the program, which
+# decides how the new one is put over it. The shell ends this system's run when the command fails,
+# because every check reports with fail. Usage: as_program PROGRAM VERSION COMMAND [ARGUMENT...].
+# The subshell is what keeps one program's words from the next one's.
+# shellcheck disable=SC2030
 as_program() {
     (
         PROGRAM="$1"
         VERSION="$2"
-        REVISION="$3"
-        shift 3
+        shift 2
         PACKAGE_DATE="$(sed -n 's/^PACKAGE_DATE=//p' "dist/$PROGRAM/version")"
-        export PROGRAM VERSION REVISION PACKAGE_DATE
+        PUBLISHED_VERSION="$(sed -n 's/^TAG=//p' "dist/lifecycle/$PROGRAM/published")"
+        export PROGRAM VERSION PACKAGE_DATE PUBLISHED_VERSION
         # shellcheck source=/dev/null
         . scripts/package-lib.sh
         # shellcheck source=/dev/null
@@ -98,22 +100,30 @@ as_program() {
     ) || exit 1
 }
 
-# The same for the program $1 as it was built (new, the version and revision of the record that
-# make packages wrote) or as it was published (the version and revision that
-# scripts/lifecycle-repo.sh wrote down), as v1.2.3.
+# The same for the program $1 as it was built (new, the version of the record that make packages
+# wrote) or as it was published (the version that scripts/lifecycle-repo.sh wrote down), as
+# v1.2.3.
 as_new() {
     version="$(sed -n 's/^VERSION=//p' "dist/$1/version")"
-    revision="$(sed -n 's/^REVISION=//p' "dist/$1/version")"
     program_name="$1"
     shift
-    as_program "$program_name" "$version" "$revision" "$@"
+    as_program "$program_name" "$version" "$@"
 }
 as_published() {
     version="$(sed -n 's/^TAG=//p' "dist/lifecycle/$1/published")"
-    revision="$(sed -n 's/^REVISION=//p' "dist/lifecycle/$1/published")"
     program_name="$1"
     shift
-    as_program "$program_name" "$version" "$revision" "$@"
+    as_program "$program_name" "$version" "$@"
+}
+
+# Puts the new package over the published one in the container $1, the way a user upgrades from
+# the repository: an upgrade when the new version is higher, a reinstall when it is the same (a
+# change to the packaging alone), as scripts/upgrade-package-lib.sh says. It runs inside
+# as_program, which sets the words it reads.
+# shellcheck disable=SC2031
+repo_upgrade() {
+    docker exec -e DEBIAN_FRONTEND=noninteractive -w /src "$1" sh -c \
+        '. scripts/upgrade-package-lib.sh; upgrade_package "$@"' sh "$format" "$PUBLISHED_VERSION" "$VERSION" repo "$name"
 }
 
 # Runs the package checks of scripts/package-test-lib.sh, which look at the system they run in,
@@ -122,7 +132,7 @@ as_published() {
 in_system() {
     container_name="$1"
     shift
-    docker exec -e PROGRAM -e VERSION -e REVISION -e PACKAGE_DATE -w /src "$container_name" sh -c \
+    docker exec -e PROGRAM -e VERSION -e PACKAGE_DATE -w /src "$container_name" sh -c \
         '. scripts/package-lib.sh; . scripts/package-test-lib.sh; for check in "$@"; do "$check"; done' sh "$@"
 }
 
