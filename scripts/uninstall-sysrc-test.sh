@@ -59,7 +59,7 @@ case_of() {
     if [ "$status" -eq 0 ] && [ "$left" -eq 0 ] && grep -q '^hostname=' "$RC_CONF"; then
         printf 'ok   %s\n' "$label"
     else
-        printf 'FAIL %s: status %s, %s settings of the services left, said "%s"\n' "$label" "$status" "$left" "$(cat "$work/out")"
+        printf 'FAIL %s: status %s, %s settings of the services left, said "%s"\n' "$label" "$status" "$left" "$(cat "$work/out" || true)"
         failed=$((failed + 1))
     fi
 }

@@ -1,9 +1,11 @@
 #!/bin/sh
 # check: own_address of the Linux adapters: the address is the first one getent gives that is not a loopback one
-# Test of own_address in scripts/service-systemd-lib.sh (deb and rpm) and scripts/service-test-apk.sh
-# (Alpine), which are the same one question to the same database. getent is a stand-in on the PATH that
-# prints the text of glibc's and musl's ahostsv4, so the test needs no container and runs in
-# milliseconds (part of make check). FreeBSD asks its own tools: scripts/service-test-pkg-test.sh.
+# Test of own_address as the Linux adapters scripts/service-systemd-lib.sh (deb and rpm) and
+# scripts/service-test-apk.sh (Alpine) have it. It is one question to the same database, so the
+# function is one copy, in scripts/service-linux-lib.sh, which both of them source. getent is a
+# stand-in on the PATH that prints the text of glibc's and musl's ahostsv4, so the test needs no
+# container and runs in milliseconds (part of make check). FreeBSD asks its own tools:
+# scripts/service-test-pkg-test.sh.
 set -eu
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -41,8 +43,20 @@ check_address() {
     fi
 }
 
+# The one copy is in the shared file, and the adapters hold none of their own.
+shared=scripts/service-linux-lib.sh
+for adapter in scripts/service-systemd-lib.sh scripts/service-test-apk.sh; do
+    if grep -q '^own_address()' "$adapter" || ! grep -q '^own_address()' "$shared"; then
+        printf 'FAIL %s: own_address is not the one copy of %s\n' "$adapter" "$shared"
+        failed=$((failed + 1))
+    else
+        printf 'ok   %s: own_address is the one copy of %s\n' "$adapter" "$shared"
+    fi
+done
+
 # The cases are the same for each adapter, which is sourced by name: the files a script sources are
-# proven to exist by scripts/sourced-files.sh, which cannot read a variable.
+# proven to exist by scripts/sourced-files.sh, which cannot read a variable. The function is taken
+# away before each adapter is sourced, so that each one has to bring it.
 cases() {
     adapter="$1"
     printf '172.17.0.2      STREAM box\n172.17.0.2      DGRAM\n172.17.0.2      RAW\n' >"$GETENT_OUT"
@@ -61,8 +75,10 @@ cases() {
     check_address "a name that does not resolve is no address" ""
 }
 
+unset -f own_address
 . scripts/service-systemd-lib.sh
 cases scripts/service-systemd-lib.sh
+unset -f own_address
 . scripts/service-test-apk.sh
 cases scripts/service-test-apk.sh
 
