@@ -39,11 +39,11 @@ printf 'deb ghcr.io/splicefs/server-debian-12:v1.0\ndeb ghcr.io/splicefs/server-
     >"$t/farm/packaging/test-systems"
 printf 'rpm ghcr.io/splicefs/server-rocky-9:v1.0\napk ghcr.io/splicefs/server-alpine-3.22:v1.0\n' \
     >>"$t/farm/packaging/test-systems"
-# The stand-in commands are functions of one file that the script under test is started after, so
-# that a call starts no process: the script calls docker and curl by name, and there are a few dozen
-# calls in each of the cases. Every name they set starts with stand_in_, because the functions run
-# in the shell of the script and must not change a variable of it. The two small scripts of bin
-# answer a command that is started by its name and not run by the shell (xargs).
+# The stand-in commands are functions that stand before the script under test in the copy of it the
+# cases run, so that a call starts no process: the script calls docker and curl by name, and there
+# are a few dozen calls in each of the cases. Every name they set starts with stand_in_, because the
+# functions run in the shell of the script and must not change a variable of it. The two small
+# scripts of bin answer a command that is started by its name and not run by the shell (xargs).
 cat >"$t/stand-ins.sh" <<'STAND_IN'
 # Stand-in curl: every address is logged and writes a file for the output name. The site serves the
 # keys of the repository, or another key when STAND_IN_OTHER_KEY is set.
@@ -138,6 +138,8 @@ stand_in_phase() {
     fi
 }
 STAND_IN
+rm "$t/farm/scripts/package-test.sh"
+cat "$t/stand-ins.sh" "$root/scripts/package-test.sh" >"$t/farm/scripts/package-test.sh"
 for stand_in_command in curl docker; do
     printf '#!/bin/sh\n. "%s/stand-ins.sh"\n%s "$@"\n' "$t" "$stand_in_command" >"$t/bin/$stand_in_command"
     chmod 755 "$t/bin/$stand_in_command"
@@ -189,7 +191,7 @@ launch() {
             STAND_IN_OTHER_KEY="$other_key" STAND_IN_FAILED_PHASE="$failed_phase" STAND_IN_RESULT="$result" \
             STAND_IN_NO_RESULT="$no_result" STAND_IN_OUTSIDE_AFTER_1="$outside_after_1" \
             STAND_IN_OUTSIDE_AFTER_2="$outside_after_2" GO_IMAGE=ghcr.io/splicefs/go:v1 \
-            sh -c '. "$1"; shift; . "$0"' "$case_dir/root/scripts/package-test.sh" "$t/stand-ins.sh" >"$case_dir/out" 2>&1 || status=$?
+            sh "$case_dir/root/scripts/package-test.sh" >"$case_dir/out" 2>&1 || status=$?
         echo "$status" >"$case_dir/status"
     ) &
 }
