@@ -26,9 +26,16 @@ install_package() {
     install_file "$1" "$pkg"
 }
 
-# The published package file $2 is signed by the release key, which apt does not check for a file.
+# The published package file $2. The release key is put where the install page puts it, for this
+# install only: it is not there for the new package, nor when the system is compared with how it was.
+# apt checks no signature of a file (it checks the index of a repository), so the signature of this
+# file is proven by the signed index of the site, on the host (scripts/published-verify.sh).
 install_published_package() {
-    install_file "$1" "$2"
+    docker exec "$1" install -m 0644 /keys/splicefs.asc /etc/apt/keyrings/splicefs.asc || return 1
+    install_status=0
+    install_file "$1" "$2" || install_status=$?
+    docker exec "$1" rm -f /etc/apt/keyrings/splicefs.asc || return 1
+    return "$install_status"
 }
 
 # The same file over the installed one: the upgrade path, with the old version's prerm and the new

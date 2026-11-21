@@ -12,9 +12,10 @@
 # shellcheck source=fetch-lib.sh
 . scripts/fetch-lib.sh
 
-# The address of the folder of the program PROGRAM on the package site. PACKAGE_SITE
-# (https://packages.splicefs.org) is the site.
-site_url="${PACKAGE_SITE:-https://packages.splicefs.org}/$PROGRAM"
+# The address of the package site, PACKAGE_SITE (https://packages.splicefs.org), and of the folder of
+# the program PROGRAM on it.
+site_root="${PACKAGE_SITE:-https://packages.splicefs.org}"
+site_url="$site_root/$PROGRAM"
 
 # What scripts/published-newest.sh prints, and the version record keeps (UPGRADE_FROM), when the
 # site was read and lists no package of the program. A record that is empty says the site was not
@@ -144,4 +145,22 @@ download_published_file() {
         rm -f "$dl_file"
         return 1
     }
+}
+
+# Downloads the public signing keys of the site into the folder $1 and proves that they are the keys of
+# this repository (keys/), the ones scripts/published-verify.sh proves the signed index with: a
+# package manager that trusts the key from the site then trusts the key that proves the index. The
+# files are the OpenPGP key (splicefs.asc: apt, dnf, zypper) and the RSA key (splicefs.rsa.pub: apk).
+# A key that does not prove is removed. Status 1 when a download failed or a key does not prove, with
+# the reason on the standard error.
+download_published_keys() {
+    mkdir -p "$1"
+    for dk_name in splicefs.asc splicefs.rsa.pub; do
+        fetch_site_file "$site_root/keys/$dk_name" "$1/$dk_name" || return 1
+        cmp -s "keys/$dk_name" "$1/$dk_name" || {
+            echo "$site_root/keys/$dk_name is not keys/$dk_name of this repository" >&2
+            rm -f "$1/$dk_name"
+            return 1
+        }
+    done
 }

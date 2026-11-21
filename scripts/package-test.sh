@@ -11,7 +11,11 @@
 #   1. the baseline: the previous published package FILE of the program, fetched once for the whole
 #      run from the package site and proven by its signed index (scripts/published-verify.sh), is
 #      installed with the system's package manager, and a configuration file and a data file are
-#      written. When nothing is published, the step says so and installs nothing;
+#      written. The signing key of the project, fetched once from the site and proven to be the
+#      key of keys/, is given to the package manager as the install page tells a person, and the
+#      package manager checks the signature of the file (no flag turns that off; only the new files
+#      of step 2, which carry a throwaway signature, skip it). When nothing is published, the step
+#      says so and installs nothing;
 #   2. the new package FILE is put over it the way scripts/upgrade-package-lib.sh says (an upgrade,
 #      or a reinstall when the version is the same); with no baseline it is installed. Every file the
 #      package promises is in its place (scripts/package-test-lib.sh), installing enabled and
@@ -70,6 +74,10 @@ cd "$root"
 # at the other CPU type, and an empty setting would then silently test the wrong one.
 platform="${PLATFORM:-$(docker version --format '{{.Server.Os}}/{{.Server.Arch}}')}"
 work="$(mktemp -d)"
+# The public signing keys of the package site, which step 1 gives the package managers of the systems:
+# mounted at /keys, filled by fetch_baselines.
+keys_dir="$work/keys"
+mkdir "$keys_dir"
 # Every container of this run carries the process id of this run in its name, so the cleanup finds
 # all of them and no other run's.
 prefix="splicefs-package-test-$$"
@@ -489,7 +497,7 @@ test_system() {
     # The folder of each program is mounted at /pkg/PROGRAM. What the service check of a program says
     # the container needs to be reached is given to docker run: the server publishes its port, so
     # that the health endpoint is asked from outside.
-    set -- --name "$container" --platform "$platform" -v "$root":/src:ro
+    set -- --name "$container" --platform "$platform" -v "$root":/src:ro -v "$keys_dir":/keys:ro
     options=""
     for system_program in $present; do
         use_program "$system_program"
@@ -553,14 +561,20 @@ published_package_file() {
     echo "/pkg/$PROGRAM/published/$(basename "$published_site_path")"
 }
 
-# Downloads the published package file of every format that is tested, for each program of the run,
-# once for all the systems of the format, and proves it by the signed index of the site. A download
-# that fails ends the run before any system starts: it is not a failure of the package. Choosing the
-# program is what reads its baseline from the site, for the systems too.
+# Downloads the signing keys of the site once, and the published package file of every format that is
+# tested, for each program of the run, once for all the systems of the format. The keys are proven to
+# be the repository's keys, a package file by the signed index of the site. A download that fails ends
+# the run before any system starts: it is not a failure of the package. Choosing the program is what
+# reads its baseline from the site, for the systems too.
 fetch_baselines() {
     for baseline_program in $present; do
         use_program "$baseline_program"
         [ -n "$from" ] || continue
+        # The keys are needed once, by the first program that has a published package.
+        # download_published_keys is a test whose status is the answer, so set -e being off inside it changes nothing.
+        # shellcheck disable=SC2310
+        [ -f "$keys_dir/splicefs.asc" ] || download_published_keys "$keys_dir" ||
+            fail "could not download and verify the signing keys at $site_root/keys"
         for baseline_format in $(printf '%s\n' "$selected" | awk 'NF { print $1 }' | LC_ALL=C sort -u); do
             baseline_path="$(published_path "$baseline_format" "$old_debver" "$old_rpmver" "$old_rpmrel" "$old_apkver" "$old_apkrel")"
             # download_published_file is a test whose status is the answer, so set -e being off inside it

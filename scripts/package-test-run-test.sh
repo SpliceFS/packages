@@ -21,6 +21,7 @@ failed=0
 mkdir -p "$t/farm/scripts" "$t/farm/packaging" "$t/bin"
 ln -s "$root/programs" "$t/farm/programs"
 ln -s "$root/steps" "$t/farm/steps"
+ln -s "$root/keys" "$t/farm/keys"
 for each in "$root"/scripts/* "$root"/packaging/*; do
     ln -s "$each" "$t/farm/${each#"$root"/}"
 done
@@ -57,8 +58,14 @@ case "$*" in
 esac
 echo "curl $*" >>"$STAND_IN_DIR/log"
 [ -z "${STAND_IN_NO_SITE:-}" ] || exit 22
+# The site serves the keys of the repository, or another key when STAND_IN_OTHER_KEY is set.
+for url; do :; done
 while [ "$#" -gt 0 ]; do
-    case "$1" in -o) echo published >"$2" ;; *) ;; esac
+    case "$1:$url" in
+        -o:*/keys/*) if [ -n "${STAND_IN_OTHER_KEY:-}" ]; then echo other >"$2"; else cp "$STAND_IN_KEYS/${url##*/}" "$2"; fi ;;
+        -o:*) echo published >"$2" ;;
+        *) ;;
+    esac
     shift
 done
 STAND_IN
@@ -191,6 +198,7 @@ scenario() {
     reinstalled="/etc/a"
     unproven=
     no_site=
+    other_key=
     first="/etc/a"
     last="/etc/a"
     cores=
@@ -214,7 +222,7 @@ scenario() {
 launch() {
     case_dir="$t/cases/$1"
     mkdir -p "$case_dir/dir" "$case_dir/root/dist"
-    for each in scripts packaging programs steps; do ln -s "$t/farm/$each" "$case_dir/root/$each"; done
+    for each in scripts packaging programs steps keys; do ln -s "$t/farm/$each" "$case_dir/root/$each"; done
     # The snapshots are taken in step 0, twice around the reinstall of each program built, and in step 9.
     printf '%s\n' "$first" >"$case_dir/dir/snapshot.1"
     taken=1
@@ -238,6 +246,7 @@ launch() {
         status=0
         STAND_IN_FAIL="$fail_on" STAND_IN_DIR="$case_dir/dir" PATH="$t/bin:$PATH" ONLY="$target" \
             STAND_IN_UNPROVEN="$unproven" STAND_IN_NO_SITE="$no_site" STAND_IN_USER="$user" \
+            STAND_IN_KEYS="$root/keys" STAND_IN_OTHER_KEY="$other_key" \
             STAND_IN_FIREWALLD="$firewalld" STAND_IN_PORT_OPEN="$port_open" \
             sh "$case_dir/root/scripts/package-test.sh" >"$case_dir/out" 2>&1 || status=$?
         echo "$status" >"$case_dir/status"
@@ -349,6 +358,25 @@ steps_run() {
 failed_status() { [ "$status" -ne 0 ]; }
 passed_status() { [ "$status" -eq 0 ]; }
 
+# The published rpm is installed by the package manager after the key was imported, and the line of
+# that install holds no flag that switches the check off.
+published_rpm_checked() {
+    imported="$(line_of 'rpm --import /keys/splicefs.asc')"
+    installed="$(line_of 'dnf install -y -q --setopt=localpkg_gpgcheck=1 /pkg/server/published/')"
+    [ "$imported" -gt 0 ] && [ "$installed" -gt "$imported" ] &&
+        ! grep -F '/pkg/server/published/' "$dir/log" | grep -q -e nogpgcheck -e allow-unsigned -e allow-untrusted -e 'rpm -i'
+}
+# The published apk is installed after the key of the site was put in place, with no flag that
+# switches the check off, and the key is gone before the new package is put over it.
+published_apk_checked() {
+    placed="$(line_of 'cp /keys/splicefs.rsa.pub /etc/apk/keys/')"
+    installed="$(line_of 'apk add -q /pkg/server/published/')"
+    removed="$(line_of 'rm -f /etc/apk/keys/splicefs.rsa.pub')"
+    new_package="$(line_of 'sh apk v1.2.2 v1.2.3 file')"
+    [ "$placed" -gt 0 ] && [ "$installed" -gt "$placed" ] && [ "$removed" -gt "$installed" ] && [ "$new_package" -gt "$removed" ] &&
+        ! grep -F '/pkg/server/published/' "$dir/log" | grep -q -e allow-untrusted -e nogpgcheck
+}
+
 debian=ghcr.io/splicefs/server-debian-12:v1.0
 old_file=apt/pool/main/s/splicefs-server/splicefs-server_1.2.2_amd64.deb
 
@@ -359,6 +387,7 @@ scenario; record=1.2.3; launch same_version
 scenario; record=none; launch nothing_published
 scenario; no_site=1; launch no_site
 scenario; unproven=.deb; launch unproven
+scenario; other_key=1; launch other_key
 scenario; fail_on=check_links; launch file_check_fails
 scenario; fail_on="apt-get install"; launch baseline_install_fails
 scenario; record=none; fail_on="apt-get install"; launch install_fails
@@ -405,6 +434,11 @@ use_case good
 expect "a good run passes" passed_status
 expect "the steps run in order: 0, 1, 2, 3, 4, 5, 7, 8, 9" \
     steps_run 'step 0: step 1: step 2: step 3: step 4: step 5: step 7: step 8: step 9: '
+expect "the signing keys are fetched from the site once, and the package files after them" \
+    sh -c "[ \"\$(grep -c 'curl.*/keys/splicefs.asc' '$dir/log')\" -eq 1 ] && [ \"\$(grep -c 'curl.*/keys/splicefs.rsa.pub' '$dir/log')\" -eq 1 ]"
+expect "the keys of the site are mounted read only at /keys" sh -c "grep -q 'docker run.* -v .*/keys:/keys:ro' '$dir/log'"
+expect "the key is in place for the install of the published file only" \
+    in_order "install -m 0644 /keys/splicefs.asc /etc/apt/keyrings/splicefs.asc" "apt-get install -y -qq /pkg/server/published/" "rm -f /etc/apt/keyrings/splicefs.asc"
 expect "the published package file is fetched from the site" sh -c "grep -q 'curl.*/server/$old_file' '$dir/log'"
 expect "the published package file is proven by the signed index" sh -c "grep -q 'verify $old_file ' '$dir/log'"
 expect "the first snapshot is taken before the published package is installed" \
@@ -458,6 +492,8 @@ expect "the service steps are those of the server" holds "step 3: server: "
 
 use_case rpm_holds_nothing
 expect "an rpm run passes" passed_status
+expect "the published rpm is installed with the key imported first, and no flag that skips the check" \
+    published_rpm_checked
 expect "the system is named as passed" holds "ok   rpm $rocky"
 expect "the documented removal says its removal command is left out, with the format" \
     holds "step 9: rpm: nothing installed, the removal command is left out, as the steps say"
@@ -468,6 +504,8 @@ expect "the package file is not installed again" no_install_after_the_plain_remo
 
 use_case apk_holds_nothing
 expect "an apk run passes" passed_status
+expect "the published apk is installed with the site's key in place for that install only, and no flag that skips the check" \
+    published_apk_checked
 expect "the system is named as passed" holds "ok   apk $alpine"
 expect "the documented removal says its removal command is left out, with the format" \
     holds "step 9: apk: nothing installed, the removal command is left out, as the steps say"
@@ -495,6 +533,11 @@ expect "nothing is fetched or proven" sh -c "! grep -q 'curl\|verify ' '$dir/log
 expect "no published file is installed" sh -c "! grep -q '/published/' '$dir/log'"
 expect "the new file is installed, and the configuration file and the data file are written" \
     in_order "apt-get install -y -qq /pkg/server/splicefs-server_1.2.3_amd64.deb" "write_markers deb" "sh deb v1.2.3 v1.2.3 file"
+
+use_case other_key
+expect "a signing key on the site that is not the repository's key fails the run" failed_status
+expect "the keys are named" holds "could not download and verify the signing keys"
+expect "no system is started when the keys do not prove" sh -c "! grep -q 'docker run' '$dir/log'"
 
 use_case no_site
 expect "a download that fails fails the run" failed_status

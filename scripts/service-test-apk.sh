@@ -35,15 +35,14 @@ upgrade_package() {
 }
 
 # The published package file $2 is signed by the release key, which apk checks when it installs a
-# file: the key is put in place for the install only. The new package is signed with the key of
-# its own build, which has the same name, so the release key must be gone before it is installed.
+# file: the key of the site is put in place for the install only. The new package is signed with the
+# key of its own build, which has the same name, so the release key must be gone before it is installed.
 install_published_package() {
-    docker exec "$1" sh -c '
-        cp /src/keys/splicefs.rsa.pub /etc/apk/keys/ || exit 1
-        status=0
-        apk add -q "$1" || status=$?
-        rm -f /etc/apk/keys/splicefs.rsa.pub
-        exit "$status"' sh "$2" >/dev/null
+    docker exec "$1" cp /keys/splicefs.rsa.pub /etc/apk/keys/ || return 1
+    install_status=0
+    docker exec "$1" apk add -q "$2" >/dev/null || install_status=$?
+    docker exec "$1" rm -f /etc/apk/keys/splicefs.rsa.pub || return 1
+    return "$install_status"
 }
 
 remove_package() {
