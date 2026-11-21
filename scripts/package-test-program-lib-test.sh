@@ -6,6 +6,8 @@
 # the version in a file of the folder $baselines. The host (scripts/package-test.sh) and the steps
 # (scripts/package-test-steps.sh) both source it. Each case runs in a folder of its own with a record
 # of a build, so it needs no Docker and no network.
+# The dollar signs of the cases are the text of a script, not ours.
+# shellcheck disable=SC2016
 set -eu
 
 root="$(cd "$(dirname "$0")/.." && pwd)"

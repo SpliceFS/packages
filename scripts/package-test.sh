@@ -148,8 +148,10 @@ check_from_outside() {
         use_program "$outside_program"
         [ -n "${port:-}" ] || continue
         # The names of the networks of the container, each with its address there; the first is used.
+        networks="$(docker inspect -f '{{range $name, $net := .NetworkSettings.Networks}}{{$name}} {{$net.IPAddress}} {{end}}' "$container")" ||
+            fail "docker inspect failed"
         read -r network address _ <<ADDRESS
-$(docker inspect -f '{{range $name, $net := .NetworkSettings.Networks}}{{$name}} {{$net.IPAddress}} {{end}}' "$container")
+$networks
 ADDRESS
         url="https://$address:$port$health_path"
         asked="answers 200 on $health_path from outside, after $1"

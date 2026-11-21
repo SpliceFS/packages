@@ -225,7 +225,11 @@ expect() {
 holds() { grep -q -F -e "$1" "$out"; }
 # The calls of the phases, the restarts, the probes and the first boot, in the order they were made, as
 # one line.
-sequence_of() { grep -o -e 'docker run -d' -e 'package-test-steps.sh phase[123]' -e 'docker restart' -e 'go:v1 curl' -e 'docker cp' "$dir/log" | tr '\n' ',' ; }
+sequence_is() {
+    grep -o -e 'docker run -d' -e 'package-test-steps.sh phase[123]' -e 'docker restart' -e 'go:v1 curl' -e 'docker cp' "$dir/log" |
+        tr '\n' ',' >"$dir/sequence"
+    printf '%s' "$1" | cmp -s - "$dir/sequence"
+}
 lacks() { ! grep -q -F -e "$1" "$out"; }
 # The calls named by the arguments are in the log, in that order.
 in_order() {
@@ -281,7 +285,7 @@ expect "the package folder of the program is mounted at /pkg/PROGRAM" \
     sh -c "grep -q 'docker run.* -v $t/cases/good/root/dist/server:/pkg/server:ro' '$dir/log'"
 expect "no port is published: the probe container asks from the network of the system" sh -c "! grep -q 'docker run.* -p ' '$dir/log'"
 expect "phase 1, the probe, the restart of the container, phase 2, the probe, phase 3, in this order" \
-    test "$(sequence_of)" = "docker run -d,package-test-steps.sh phase1,go:v1 curl,docker restart,package-test-steps.sh phase2,go:v1 curl,package-test-steps.sh phase3,docker cp,"
+    sequence_is "docker run -d,package-test-steps.sh phase1,go:v1 curl,docker restart,package-test-steps.sh phase2,go:v1 curl,package-test-steps.sh phase3,docker cp,"
 expect "the probe container is the project's Go image, on the network of the system, and goes away" \
     sh -c "grep -q 'docker run --rm --network bridge ghcr.io/splicefs/go:v1 curl' '$dir/log'"
 expect "the probe asks the health endpoint at the address of the system and the port of the server" \
