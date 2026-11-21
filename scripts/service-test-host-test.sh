@@ -54,7 +54,7 @@ said() {
 answers_here() {
     # The command is for the shell that env starts, which reads $1 and $defs.
     # shellcheck disable=SC2016
-    env PROGRAM="$1" FAKE_CODE="$2" FAKE_STATUS="$3" VERSION=v1.2.3 REVISION=0 PACKAGE_DATE=20261112 \
+    env PROGRAM="$1" FAKE_CODE="$2" FAKE_STATUS="$3" VERSION=v1.2.3 PACKAGE_DATE=20261112 \
         PATH="$work/bin:$PATH" \
         sh -c 'cd "$1" && . scripts/package-lib.sh && . "$defs/service-check.sh" && answers_here' sh "$root"
 }
@@ -64,7 +64,7 @@ answers_here() {
 service_here() {
     # The command is for the shell that env starts, which reads $1, $2 and its own variables.
     # shellcheck disable=SC2016
-    env PROGRAM=server VERSION=v1.2.3 REVISION=0 PACKAGE_DATE=20261112 PATH="$work/bin:$PATH" \
+    env PROGRAM=server VERSION=v1.2.3 PACKAGE_DATE=20261112 PATH="$work/bin:$PATH" \
         sh -c 'cd "$1" && . scripts/package-lib.sh && . scripts/service-test-host-deb.sh && "$2" host' sh "$root" "$1"
 }
 
@@ -137,7 +137,7 @@ scenario() {
 settles() {
     # The command is for the shell that env starts, which reads $1.
     # shellcheck disable=SC2016
-    env PROGRAM=server VERSION=v1.2.3 REVISION=0 PACKAGE_DATE=20261112 HOST_SETTLE_SECONDS=3 \
+    env PROGRAM=server VERSION=v1.2.3 PACKAGE_DATE=20261112 HOST_SETTLE_SECONDS=3 \
         FAKE_ANSWERS="$work/answers" PATH="$work/settle:$work/bin:$PATH" \
         sh -c 'cd "$1" && . scripts/package-lib.sh && . scripts/service-test-host-deb.sh && record_failed_units && wait_booted deb host' sh "$root"
 }
@@ -168,7 +168,7 @@ printf '#!/bin/sh\nexit 1\n' > "$work/broken/systemctl"
 chmod 755 "$work/broken/systemctl"
 # The command is for the shell that env starts, which reads $1.
 # shellcheck disable=SC2016
-check "a machine whose failed units cannot be listed is not recorded" 1 env PATH="$work/broken:$PATH" PROGRAM=server VERSION=v1.2.3 REVISION=0 PACKAGE_DATE=20261112 \
+check "a machine whose failed units cannot be listed is not recorded" 1 env PATH="$work/broken:$PATH" PROGRAM=server VERSION=v1.2.3 PACKAGE_DATE=20261112 \
     sh -c 'cd "$1" && . scripts/package-lib.sh && . scripts/service-test-host-deb.sh && record_failed_units' sh "$root"
 
 # The runner starts the job while its own boot may still be going on, and it may stay "starting"

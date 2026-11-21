@@ -12,11 +12,6 @@ repo_install() {
     docker exec "$1" apk add -q "$name=$apkver-r$apkrel" >/dev/null
 }
 
-# Takes the newest version of the repository, the way a user upgrades.
-repo_upgrade() {
-    docker exec "$1" apk add -q -u "$name" >/dev/null
-}
-
 package_installed() {
     docker exec "$1" apk info -e "$name" >/dev/null 2>&1
 }

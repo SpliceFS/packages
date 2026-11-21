@@ -4,9 +4,7 @@
 # package manager: dpkg in Debian, rpm in Rocky Linux, apk in Alpine, each in its own
 # container. Runs on the host (make package-order-test; CI runs it once for a change, as a job of
 # ci.yml, because no package or program changes the answer). Every version in the list below must
-# compare as older than the next one, and apk must accept every Alpine version as valid. A
-# version is a version of the program and a revision of the package, so the list shows that a
-# revision sorts above the release itself and below the next release. FreeBSD's pkg version -t is
+# compare as older than the next one, and apk must accept every Alpine version as valid. FreeBSD's pkg version -t is
 # not here: it runs on FreeBSD only, where scripts/freebsd-lib-test.sh and the FreeBSD machine are
 # the place for it.
 # The container is the first system of its format in packaging/test-systems, as in the upgrade
@@ -70,13 +68,10 @@ if [ -z "${PROGRAM:-}" ]; then
 fi
 export PROGRAM
 
-# Ascending order of what the release process produces, each as VERSION:REVISION. Each
-# pre-release is older than its release, each revision is newer than the one before it and older
-# than the next version of the program, and a build with uncommitted changes is newer than the
-# version it started from.
-versions="v0.9.0:0 v1.2.3-alpha:0 v1.2.3-beta.2:0 v1.2.3-rc.1:0 v1.2.3-rc.1:1
-v1.2.3-rc.1-dirty:0 v1.2.3-rc.2:0 v1.2.3:0 v1.2.3:1 v1.2.3:2 v1.2.3:10 v1.2.3-dirty:0
-v1.2.4-rc.1:0 v1.2.4:0 v1.2.4:1"
+# Ascending order of what the release process produces. Each pre-release is older than its
+# release, and a build with uncommitted changes is newer than the version it started from.
+versions="v0.9.0 v1.2.3-alpha v1.2.3-beta.2 v1.2.3-rc.1 v1.2.3-rc.1-dirty v1.2.3-rc.2 v1.2.3
+v1.2.3-dirty v1.2.4-rc.1 v1.2.4"
 
 failed=0
 for format in deb rpm apk; do
@@ -84,9 +79,9 @@ for format in deb rpm apk; do
     [ -n "$image" ] || { echo "FAIL packaging/test-systems has no $format system" >&2; exit 1; }
     list=""
     for v in $versions; do
-        # What the format's tool is given is the whole version of a package: the revision is
-        # part of it for deb, the release for rpm, and -r for Alpine.
-        got="$(VERSION="${v%:*}" REVISION="${v#*:}" FORMAT="$format" sh -c '
+        # What the format's tool is given is the whole version of a package: the release is
+        # part of it for rpm, and -r for Alpine.
+        got="$(VERSION="$v" FORMAT="$format" sh -c '
             . scripts/package-lib.sh
             case "$FORMAT" in
                 deb) echo "$debver" ;;

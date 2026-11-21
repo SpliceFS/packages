@@ -1,7 +1,8 @@
 # shellcheck shell=sh
 # Sourced by scripts/upgrade-test-deb.sh, -rpm.sh and -apk.sh, which run inside a container
-# of a test system with PROGRAM, VERSION, PACKAGE_DATE and REVISION in the environment. The scripts that source this file read these variables; this file reads
-# none of them.
+# of a test system with PROGRAM, VERSION, PACKAGE_DATE and PUBLISHED_VERSION (the program version
+# of the package that is upgraded) in the environment. The scripts that source this file read
+# these variables; this file reads none of them.
 # shellcheck disable=SC2034
 #
 # A package listing is what scripts/upgrade-diff.sh compares. One line per fact, fields
@@ -17,9 +18,11 @@
 # is a difference in the package and never in the way it was read.
 : "${VERSION:?VERSION is not set}"
 : "${PACKAGE_DATE:?PACKAGE_DATE is not set}"
-: "${REVISION:?REVISION is not set}"
+: "${PUBLISHED_VERSION:?PUBLISHED_VERSION is not set}"
 # shellcheck source=package-lib.sh
 . scripts/package-lib.sh
+# shellcheck source=upgrade-package-lib.sh
+. scripts/upgrade-package-lib.sh
 
 datadir="/var/lib/splicefs/${name#splicefs-}"
 # The package ships no configuration file, only empty folders for the administrator's files
@@ -63,7 +66,7 @@ script_line() {
 # for the messages, $2 the user the service runs as, $3 the listing of the new package, $4 the
 # version of the package the package manager now has installed, as it writes it, and $5 the
 # version of the package that was built, as the format writes it (scripts/package-lib.sh). They
-# are equal only when the upgrade installed the new package, revision included.
+# are equal only when the upgrade installed the new package.
 verify_upgrade() {
     [ "$4" = "$5" ] || fail "$1 upgrade: the installed package is $4, not the new package $5"
     "$program" --version | grep -qF "$VERSION" ||

@@ -20,7 +20,7 @@ program_reporting() {
 # $1 case name, $2 the check, $3 the folder of fake programs, $4 what it must answer: ok, or the
 # text of its refusal.
 runs() {
-    got="$(PATH="$3:$PATH" PROGRAM=server VERSION=v1.2.3 REVISION=0 PACKAGE_DATE=20261112 sh -c \
+    got="$(PATH="$3:$PATH" PROGRAM=server VERSION=v1.2.3 PACKAGE_DATE=20261112 sh -c \
         '. scripts/package-lib.sh; . scripts/package-test-lib.sh; "$1"' sh "$2" 2>&1)" && status=ok || status="$got"
     case "$status" in
         *"$4"*) printf 'ok   %s\n' "$1" ;;

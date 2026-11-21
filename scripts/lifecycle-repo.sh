@@ -7,8 +7,8 @@
 # upgrade test does (scripts/published-lib.sh) for this machine's CPU type. They were made with the
 # release key, which the test repository does not have: the Alpine ones, the new ones too, are
 # signed again with the key of dist/keys (scripts/apk-resign.sh, the make target lifecycle-repo runs
-# it after this script); the others are signed by the repository step. The program version and the
-# revision of the published package are written to dist/lifecycle/PROGRAM/published for the test.
+# it after this script); the others are signed by the repository step. The program version of the
+# published package is written to dist/lifecycle/PROGRAM/published for the test.
 # Runs on the host (make lifecycle-test). Needs curl. Environment: PROGRAM; PLATFORM;
 # PACKAGE_SITE (https://packages.splicefs.org).
 set -eu
@@ -37,16 +37,10 @@ out="dist/lifecycle/$PROGRAM"
 published="dist/$PROGRAM/published"
 rm -rf "$out"
 mkdir -p "$out/alpine/$apk_arch"
-cp dist/"$PROGRAM"/*.deb dist/"$PROGRAM"/*.rpm "$out/"
-# The new Alpine packages were signed with the key of the build that made them. The server and
-# the client are built in runs of their own, with keys of their own, so they are signed again with
-# the key of this repository, as the published ones are.
-for apk in dist/"$PROGRAM"/alpine/*/*.apk; do
-    arch="$(basename "$(dirname "$apk")")"
-    mkdir -p "$out/alpine/$arch"
-    cp "$apk" "$out/alpine/$arch/"
-done
 
+# The published packages go first and the new ones after them. A change to the packaging alone
+# keeps the program version, so a published package can have the name of a new one, and the new one
+# must be the one that stays.
 for format in deb rpm apk; do
     path="$(published_path "$format" "$old_debver" "$old_rpmver" "$old_rpmrel" "$old_apkver" "$old_apkrel")"
     # shellcheck disable=SC2310
@@ -58,5 +52,14 @@ for format in deb rpm apk; do
         *) cp "$published/$(basename "$path")" "$out/" ;;
     esac
 done
-printf 'TAG=%s\nREVISION=%s\n' "$old_tag" "$old_revision" > "$out/published"
-echo "collected the new packages and $old_tag revision $old_revision in $out"
+cp dist/"$PROGRAM"/*.deb dist/"$PROGRAM"/*.rpm "$out/"
+# The new Alpine packages were signed with the key of the build that made them. The server and
+# the client are built in runs of their own, with keys of their own, so they are signed again with
+# the key of this repository, as the published ones are.
+for apk in dist/"$PROGRAM"/alpine/*/*.apk; do
+    arch="$(basename "$(dirname "$apk")")"
+    mkdir -p "$out/alpine/$arch"
+    cp "$apk" "$out/alpine/$arch/"
+done
+printf 'TAG=%s\n' "$old_tag" > "$out/published"
+echo "collected the new packages and $old_tag in $out"

@@ -7,7 +7,6 @@
 . scripts/program-conf.sh
 : "${VERSION:?VERSION is not set}"
 : "${PACKAGE_DATE:?PACKAGE_DATE is not set}"
-: "${REVISION:?REVISION is not set}"
 
 # What program.conf sets is unknown to ShellCheck, which cannot follow it.
 # shellcheck disable=SC2154
@@ -212,8 +211,8 @@ wait_booted() {
     done
 }
 
-# Prints the version of a package in every format, from the version of the program ($1), the
-# revision of the package ($2) and the date of the build ($3), as one line of six words:
+# Prints the version of a package in every format, from the version of the program ($1) and the
+# date of the build ($2), as one line of six words:
 #   deb version, rpm version, rpm release, Alpine version, Alpine release, FreeBSD version
 # It is the one place that says how a version is written in each format, and every package script
 # and every test reads the result from here.
@@ -224,25 +223,15 @@ wait_booted() {
 # what makes a build something other than the released version. Anything else is refused: a
 # version that is not in this form would be packaged under a number that sorts wrongly.
 #
-# The revision is how a change to the packaging alone (this repository, with the same release of
-# the program) reaches a user: a new package of the same program version, which every format
-# sorts above the one before it and below the next version of the program. Revision 0 is the
-# release itself and is written as the packages that were published before revisions existed:
-# no revision in the deb and FreeBSD versions, release 1 in rpm and r0 in Alpine. A revision of
-# 1 and more goes in the revision field of the format, which each format counts its own way:
-#   deb      1.2.3-N     the Debian revision (no revision, as in 1.2.3, is revision 0)
-#   rpm      release N+1 (a release starts at 1)
-#   Alpine   -rN         pkgrel
-#   FreeBSD  1.2.3_N     the port revision
+# A package is published only for a new release of its program, so the version of the program is
+# the whole version: the deb and FreeBSD versions carry nothing after it, the rpm release is 1
+# (a release starts at 1) and the Alpine release is 0, as in every package published so far.
 package_versions() {
     pv_release="${1%-dirty}"
     pv_extra=""
     if [ "$pv_release" != "$1" ]; then pv_extra=dirty; fi
     printf '%s' "$pv_release" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-.+)?$' ||
         fail "version $1 is not vMAJOR.MINOR.PATCH[-pre-release]"
-    # The formats compare a revision as a number, so "01" would be a second spelling of 1.
-    printf '%s' "$2" | grep -Eq '^(0|[1-9][0-9]*)$' ||
-        fail "REVISION=$2 is not a whole number (0, 1, 2, ...) without leading zeros"
     pv_core="${pv_release#v}"
     pv_core="${pv_core%%-*}"
     pv_pre=""
@@ -259,63 +248,47 @@ package_versions() {
     if [ -n "$pv_pre" ]; then pv_deb="$pv_deb~$pv_pre"; fi
     if [ -n "$pv_extra" ]; then pv_deb="$pv_deb+$pv_extra"; fi
     pv_rpm="$pv_deb"
-    if [ "$2" -gt 0 ]; then pv_deb="$pv_deb-$2"; fi
 
     # An Alpine version allows digits and a fixed list of suffixes only, so the pre-release
     # becomes _rc1 and a build that is not exactly the release carries the date of its
     # commit: 1.2.3_rc1_git20261112.
     pv_apk="$pv_core"
     if [ -n "$pv_pre" ]; then pv_apk="${pv_apk}_$(printf '%s' "$pv_pre" | tr -d .)"; fi
-    if [ -n "$pv_extra" ]; then pv_apk="${pv_apk}_git$3"; fi
+    if [ -n "$pv_extra" ]; then pv_apk="${pv_apk}_git$2"; fi
 
     # FreeBSD compares versions field by field and knows rc and friends as older than the
     # release, so the pre-release becomes one more field (1.2.3.rc1) and a build that is not
     # exactly the release carries the date of its commit as the last field: 1.2.3.20261112.
     pv_pkg="$pv_core"
     if [ -n "$pv_pre" ]; then pv_pkg="$pv_pkg.$(printf '%s' "$pv_pre" | tr -d .)"; fi
-    if [ -n "$pv_extra" ]; then pv_pkg="$pv_pkg.$3"; fi
-    if [ "$2" -gt 0 ]; then pv_pkg="${pv_pkg}_$2"; fi
+    if [ -n "$pv_extra" ]; then pv_pkg="$pv_pkg.$2"; fi
 
-    printf '%s %s %s %s %s %s\n' "$pv_deb" "$pv_rpm" "$(($2 + 1))" "$pv_apk" "$2" "$pv_pkg"
+    printf '%s %s 1 %s 0 %s\n' "$pv_deb" "$pv_rpm" "$pv_apk" "$pv_pkg"
 }
 
-# Prints the program version and the revision of the deb version $1 as the package site writes it,
-# "v1.2.3 2" for 1.2.3-2 and "v1.2.3-rc.1 0" for 1.2.3~rc.1: package_versions read backwards for
-# the deb format, so that what a published package is called is said here and nowhere else.
+# Prints the program version of the deb version $1 as the package site writes it, "v1.2.3" for
+# 1.2.3 and "v1.2.3-rc.1" for 1.2.3~rc.1: package_versions read backwards for the deb format, so
+# that what a published package is called is said here and nowhere else.
 package_release_of_debver() {
-    pr_core="$1"
-    pr_revision=0
-    case "$pr_core" in
-        *-[0-9]*)
-            pr_revision="${pr_core##*-}"
-            pr_core="${pr_core%-*}"
-            ;;
-        *) ;;
-    esac
-    printf '%s' "$pr_revision" | grep -Eq '^(0|[1-9][0-9]*)$' ||
-        fail "$1 is not a package version: its revision is not a whole number"
-    printf '%s' "$pr_core" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(~(alpha|beta|pre|rc)(\.?[0-9]+)?)?$' ||
+    printf '%s' "$1" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(~(alpha|beta|pre|rc)(\.?[0-9]+)?)?$' ||
         fail "$1 is not a package version this repository publishes"
-    case "$pr_core" in
-        *~*) printf 'v%s-%s %s\n' "${pr_core%%~*}" "${pr_core#*~}" "$pr_revision" ;;
-        *) printf 'v%s %s\n' "$pr_core" "$pr_revision" ;;
+    case "$1" in
+        *~*) printf 'v%s-%s\n' "${1%%~*}" "${1#*~}" ;;
+        *) printf 'v%s\n' "$1" ;;
     esac
 }
 
-# The words of package_versions for the program version, revision and date of this run. The call
+# The words of package_versions for the program version and date of this run. The call
 # is a command substitution, where fail would end only the substitution, so its status ends the
 # script here.
-versions="$(package_versions "$VERSION" "$REVISION" "$PACKAGE_DATE")" || exit 1
+versions="$(package_versions "$VERSION" "$PACKAGE_DATE")" || exit 1
 read -r debver rpmver rpmrel apkver apkrel pkgver <<WORDS
 $versions
 WORDS
 
 # The FreeBSD version of the package the upgrade check builds (scripts/freebsd-job.sh): the same
-# program version at the next revision, which pkg takes as an upgrade of the one installed. It is
-# written by package_versions like every other version, because a FreeBSD version holds one port
-# revision and appending another to pkgver would not be a version at all. REVISION was checked
-# above, so the call cannot fail.
+# program version with port revision 1, which pkg takes as an upgrade of the one installed. It is
+# built only inside that check and is never published, so no other format has one.
 package_freebsd_upgrade_version() {
-    pu_words="$(package_versions "$VERSION" "$((REVISION + 1))" "$PACKAGE_DATE")" || exit 1
-    printf '%s\n' "${pu_words##* }"
+    printf '%s_1\n' "$pkgver"
 }

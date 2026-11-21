@@ -329,7 +329,7 @@ WRAP
 fi
 
 # (j) A published package is never replaced by a file with other content under the same name: a
-# changed package gets a new name (a new revision), so the one that is published stays what
+# changed package of a published release is not published, so the one that is published stays what
 # clients and their signatures were made from. The same file again, and a new name, are sent. This
 # runs also where rsync has no --chmod (openrsync): a wrapper that drops that option is put on
 # the PATH, which changes nothing the check looks at.

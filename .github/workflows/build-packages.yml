@@ -35,9 +35,6 @@ on:
       version:
         description: The version that was packaged
         value: ${{ jobs.source.outputs.version }}
-      revision:
-        description: The revision of the packages
-        value: ${{ jobs.source.outputs.revision }}
       freebsd-releases:
         description: The FreeBSD releases to build on, as JSON
         value: ${{ jobs.source.outputs.freebsd-releases }}
@@ -48,7 +45,7 @@ permissions:
 jobs:
   # Says what is packaged, once, so that every job of the run packages the same thing: where
   # the source is (the newest release is named here, also when a release is made meanwhile),
-  # the version and revision of every package format, and the FreeBSD releases to build on. The
+  # the version of every package format, and the FreeBSD releases to build on. The
   # newest package of the program on the package site is read here and nowhere else in the run:
   # the packages record it (upgrade-from), and the tests start their upgrade from the recorded
   # one, because a package published meanwhile is newer than the new packages and would turn the
@@ -63,7 +60,6 @@ jobs:
       ref: ${{ steps.release.outputs.ref || github.sha }}
       upgrade-from: ${{ steps.published.outputs.version }}
       version: ${{ steps.version.outputs.version }}
-      revision: ${{ steps.version.outputs.revision }}
       freebsd-releases: ${{ steps.freebsd.outputs.releases }}
     steps:
       - name: Packages
@@ -99,20 +95,14 @@ jobs:
           ref: ${{ steps.release.outputs.ref || github.sha }}
           path: src
           persist-credentials: false
-      - name: Version and revision of the packages
+      - name: Version of the packages
         id: version
         env:
           PROGRAM: ${{ inputs.program }}
-          NEWEST_RELEASE: ${{ inputs.bin-artifact == '' }}
         run: |
           version="v$(cat src/VERSION)"
-          revision=0
-          if [ "$NEWEST_RELEASE" = true ]; then
-            revision="$(scripts/next-revision.sh "$PROGRAM" "$version")"
-          fi
-          echo "packaging $PROGRAM $version as revision $revision"
+          echo "packaging $PROGRAM $version"
           echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "revision=$revision" >> "$GITHUB_OUTPUT"
       - name: List the FreeBSD releases as JSON
         id: freebsd
         run: echo "releases=$(scripts/freebsd-releases.sh)" >> "$GITHUB_OUTPUT"
@@ -170,11 +160,10 @@ jobs:
         env:
           PROGRAM: ${{ inputs.program }}
           VERSION: ${{ needs.source.outputs.version }}
-          REVISION: ${{ needs.source.outputs.revision }}
           UPGRADE_FROM: ${{ needs.source.outputs.upgrade-from }}
         run: |
           make packages PROGRAM="$PROGRAM" BIN="$GITHUB_WORKSPACE/bin" SRC="$GITHUB_WORKSPACE/src" \
-            VERSION="$VERSION" REVISION="$REVISION" UPGRADE_FROM="$UPGRADE_FROM"
+            VERSION="$VERSION" UPGRADE_FROM="$UPGRADE_FROM"
       - name: Build the signed package repositories
         working-directory: packages
         env:

@@ -35,24 +35,22 @@ splicefs-server 0.5.33
 splicefs-server 0.5.34
 splicefs-server 0.5.34-1
 LIST
-newest "a revision is newer than its release" revision server 0.5.34-1
+# Packages are published only for a release, so a name with a revision is not one of ours.
+newest "a name with a revision is never the newest" revision server 0.5.34
 
-# Revisions and the parts of a version are numbers: 10 is more than 9 and 0.5.34 is more than 0.5.9,
-# which a sort of the text gets wrong.
+# The parts of a version are numbers: 0.5.34 is more than 0.5.9, which a sort of the text gets wrong.
 index numeric <<'LIST'
 splicefs-server 0.5.9
-splicefs-server 0.5.34-9
-splicefs-server 0.5.34-10
-splicefs-server 0.5.34-2
+splicefs-server 0.5.34
 splicefs-server 0.5.4
 LIST
-newest "numbers are compared as numbers" numeric server 0.5.34-10
+newest "numbers are compared as numbers" numeric server 0.5.34
 
 index later <<'LIST'
 splicefs-server 0.5.34-3
 splicefs-server 0.5.35
 LIST
-newest "the next version is newer than any revision of the one before" later server 0.5.35
+newest "the next version is newer than a name with a revision" later server 0.5.35
 
 # A pre-release is older than its release and newer than the release before.
 index pre <<'LIST'

@@ -1,10 +1,10 @@
 # Maintainer: SpliceFS <anthony@splicefs.org>
 # abuild only wraps files here. scripts/package-apk.sh fills in the name, the version and the
-# revision and says where the compiled program (STAGE), the definitions of the program (DEFS),
+# release and says where the compiled program (STAGE), the definitions of the program (DEFS),
 # the license (LICENSE_FILE) and the documents (DOCS) are.
 pkgname=@NAME@
 pkgver=@VERSION@
-pkgrel=@REVISION@
+pkgrel=@PKGREL@
 pkgdesc="Server of the SpliceFS read-only multi-source filesystem"
 url="https://github.com/SpliceFS/server"
 arch="x86_64 aarch64"

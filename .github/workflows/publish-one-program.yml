@@ -9,23 +9,23 @@ name: Publish one program
 # it). Only the jobs that sign are in the publish environment, which holds the signing keys; each
 # of them removes its key files at its end.
 #
-#   verify -> revision -> packages -> freebsd (each)
-#                         packages -> tests
+#   verify -> packages -> freebsd (each)
+#                packages -> tests
 #
 # The packages are built once, from the archives of the release (proven by their signature) and
 # the source of the program at the tag of the release, and signed with the real keys. The tests
-# run on those files, on both CPU types. The jobs that only read the site (the revision, the
-# decision and the tests) use HTTPS, which has no limit of sessions.
+# run on those files, on both CPU types. The jobs that only read the site (verify and the tests)
+# use HTTPS, which has no limit of sessions.
 #
-# What is published: the packages of a release that is not published at all are revision 0. When
-# it is, they are published as the next revision (scripts/next-revision.sh) only when the
-# packaging differs from the newest published revision (scripts/revision-listings.sh,
-# scripts/revision-decide.sh); a tag that changes nothing in the packaging publishes nothing. The
-# revision job computes the number once, after the wait job of the caller, so that two runs that
-# queue up never take the same one. The packages job builds the packages and decides right after
-# the build. When nothing is to be published no later job runs and no signed packages are left,
-# which is how the publish job knows: the decision is made after the wait, so that two quick tags
-# never publish two revisions of the same packaging.
+# What is published: a package is published only when its build comes from a new release of the
+# program. The verify job asks the package site (scripts/release-published.sh) whether the deb
+# version of the latest release is already there. When it is, the job says so in the summary of the
+# run and no later job of the program runs (the packages job is skipped, and so is every job that
+# needs it), so no signed packages are left, which is how the publish job of the caller knows. A
+# change to the packaging alone publishes nothing: it is tested with the programs of the latest
+# release (package-and-test.yml), and the next release of the program is published with it. The
+# job reads the site after the wait job of the caller, so that two runs that queue up never
+# publish the same release twice.
 #
 # FreeBSD: one job for each release in packaging/freebsd/releases builds the packages of both
 # CPU types in a machine of that release, from the same verified archives, on top of the
@@ -46,7 +46,10 @@ permissions:
 jobs:
   # Says which release of the program this run is about, once, so that every other job reads the
   # same values: its latest published release (GitHub never calls a draft the latest). Nothing is
-  # built from a tag that is not a version tag. This job holds no key.
+  # built from a tag that is not a version tag, nor from a release whose packages are on the
+  # package site already. The newest package on the site, which the upgrade tests start from, is
+  # read here too, once. Both are read after the wait job of the caller, because an earlier run
+  # may be adding a package right now. This job holds no key.
   verify:
     name: The latest release of the program
     runs-on: ubuntu-latest
@@ -54,6 +57,8 @@ jobs:
     outputs:
       tag: ${{ steps.release.outputs.tag }}
       repository: ${{ steps.release.outputs.repository }}
+      published: ${{ steps.published.outputs.published }}
+      upgrade-from: ${{ steps.newest.outputs.version }}
       freebsd-releases: ${{ steps.freebsd.outputs.releases }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -76,68 +81,53 @@ jobs:
             echo "tag=$tag"
             echo "repository=$release_repo"
           } >> "$GITHUB_OUTPUT"
-      # Read once here, so that every job builds the same releases and a new release in the list
-      # needs no edit of this file.
-      - name: List the FreeBSD releases as JSON
-        id: freebsd
-        run: echo "releases=$(scripts/freebsd-releases.sh)" >> "$GITHUB_OUTPUT"
-
-  # The revision of the packages, once, for every job that builds them: 0 for a release that is
-  # not published, and otherwise the one after the highest published. The newest package on the
-  # package site, which the upgrade tests start from, is read here too, once. Both are read here,
-  # after the wait job of the caller, because an earlier run may be adding a package right now.
-  # Whether the packages are published at all is decided after they are built (the packages job).
-  # This job holds no key.
-  revision:
-    name: The revision of the packages
-    needs: verify
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    outputs:
-      revision: ${{ steps.revision.outputs.revision }}
-      upgrade-from: ${{ steps.published.outputs.version }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: The next revision of the release
-        id: revision
+      # A release is published once: nothing of it is built again.
+      - name: The release is not on the package site yet
+        id: published
         env:
           PROGRAM: ${{ inputs.program }}
-          TAG: ${{ needs.verify.outputs.tag }}
+          TAG: ${{ steps.release.outputs.tag }}
         run: |
-          revision="$(scripts/next-revision.sh "$PROGRAM" "$TAG")"
-          echo "$PROGRAM $TAG is built as revision $revision"
-          echo "revision=$revision" >> "$GITHUB_OUTPUT"
+          if [ "$(scripts/release-published.sh "$PROGRAM" "$TAG")" = published ]; then
+            line="$PROGRAM $TAG is already published: nothing to publish"
+            echo "$line"
+            echo "$line" >> "$GITHUB_STEP_SUMMARY"
+            echo "published=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "$PROGRAM $TAG is not published yet"
+            echo "published=false" >> "$GITHUB_OUTPUT"
+          fi
       # What people have installed is what the site serves: the upgrade tests start from the newest
       # package there, which is not the release of this run (a release carries no packages).
       - name: The newest package on the package site
-        id: published
+        id: newest
         env:
           PROGRAM: ${{ inputs.program }}
         run: |
           version="$(scripts/published-newest.sh "$PROGRAM")"
           echo "newest published package of $PROGRAM: ${version:-none}"
           echo "version=$version" >> "$GITHUB_OUTPUT"
+      # Read once here, so that every job builds the same releases and a new release in the list
+      # needs no edit of this file.
+      - name: List the FreeBSD releases as JSON
+        id: freebsd
+        run: echo "releases=$(scripts/freebsd-releases.sh)" >> "$GITHUB_OUTPUT"
 
   # The deb, rpm and apk packages of both CPU types, signed with the real keys, and the signed
   # repositories the tests install from. Only the packages and the public keys are uploaded:
-  # dist/keys holds the private keys. A run stops after the build when the packages are not to be
-  # published, as for a tag that changes nothing in the packaging (output publish is false): every
-  # job that needs this one is then skipped, and so is every job that needs a skipped one.
+  # dist/keys holds the private keys. It is skipped for a release that is published already, and
+  # so is every job that needs it.
   packages:
     name: Signed packages
-    needs: [verify, revision]
+    needs: verify
+    if: needs.verify.outputs.published == 'false'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     environment: publish
-    outputs:
-      publish: ${{ steps.decide.outputs.publish }}
     env:
       PROGRAM: ${{ inputs.program }}
       TAG: ${{ needs.verify.outputs.tag }}
-      REVISION: ${{ needs.revision.outputs.revision }}
-      UPGRADE_FROM: ${{ needs.revision.outputs.upgrade-from }}
+      UPGRADE_FROM: ${{ needs.verify.outputs.upgrade-from }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: The signing secrets are there
@@ -165,33 +155,13 @@ jobs:
             --pattern '*-linux-*.tar.gz' --pattern SHA256SUMS --pattern SHA256SUMS.asc
           scripts/release-bin.sh "$TAG" "$PWD/release" "$PWD/bin"
       - name: Build the deb, rpm and apk packages
-        # UPGRADE_FROM is the newest package on the site, read once by the revision job; the
+        # UPGRADE_FROM is the newest package on the site, read once by the verify job; the
         # upgrade tests start from it.
-        run: make packages PROGRAM="$PROGRAM" BIN="$PWD/bin" SRC="$PWD/src" VERSION="$TAG" REVISION="$REVISION" UPGRADE_FROM="$UPGRADE_FROM"
-      # Right after the build, so that nothing else runs for a tag that changes nothing: the
-      # release is published as it is built when it is not published yet, and a later revision only
-      # when the packages differ from the newest published revision (scripts/revision-decide.sh).
-      - name: Are the packages to be published
-        id: decide
-        run: |
-          scripts/revision-listings.sh "$PROGRAM" "$TAG" "$RUNNER_TEMP/listings"
-          status=0
-          scripts/revision-decide.sh "$PROGRAM" "$TAG" "$RUNNER_TEMP/listings" \
-            > "$RUNNER_TEMP/decision" 2> "$RUNNER_TEMP/reason" || status=$?
-          cat "$RUNNER_TEMP/reason"
-          [ "$status" = 0 ] || exit "$status"
-          publish=true
-          if [ ! -s "$RUNNER_TEMP/decision" ]; then
-            publish=false
-            cat "$RUNNER_TEMP/reason" >> "$GITHUB_STEP_SUMMARY"
-          fi
-          echo "publish=$publish" >> "$GITHUB_OUTPUT"
+        run: make packages PROGRAM="$PROGRAM" BIN="$PWD/bin" SRC="$PWD/src" VERSION="$TAG" UPGRADE_FROM="$UPGRADE_FROM"
       - name: Build the signed package repositories
-        if: steps.decide.outputs.publish == 'true'
         run: make repo PROGRAM="$PROGRAM"
       # The public keys only, for the tests.
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        if: steps.decide.outputs.publish == 'true'
         with:
           name: signed-packages-${{ inputs.program }}
           path: |
@@ -209,13 +179,13 @@ jobs:
   # amd64 one from the repository it signed with the Alpine key, starts its service and removes
   # it again, and refuses a repository signed with another key (make package-freebsd). It starts
   # from the catalog that is published, which the fetch job of the caller read after the wait
-  # job, so no job of this matrix opens a session to the package site and holds no upload key. It is built
-  # only when the packages are to be published. Only the repository folders of its release are
-  # uploaded, in one tar because the upload of an artifact refuses the colons in their names.
+  # job, so no job of this matrix opens a session to the package site and holds no upload key. It
+  # needs the packages job, so it is built only when the packages are. Only the repository
+  # folders of its release are uploaded, in one tar because the upload of an artifact refuses the
+  # colons in their names.
   freebsd:
     name: FreeBSD packages (${{ matrix.release }})
-    needs: [verify, revision, packages]
-    if: needs.packages.outputs.publish == 'true'
+    needs: [verify, packages]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment: publish
@@ -226,7 +196,6 @@ jobs:
       PROGRAM: ${{ inputs.program }}
       TAG: ${{ needs.verify.outputs.tag }}
       RELEASE: ${{ matrix.release }}
-      REVISION: ${{ needs.revision.outputs.revision }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: The signing secrets are there
@@ -261,9 +230,9 @@ jobs:
       - name: Start from what is published
         run: make published-unpack PROGRAM="$PROGRAM"
       - name: Build the packages on FreeBSD and the signed repository
-        run: make package-freebsd PROGRAM="$PROGRAM" BIN="$PWD/bin" SRC="$PWD/src" VERSION="$TAG" REVISION="$REVISION" FREEBSD="$RELEASE"
+        run: make package-freebsd PROGRAM="$PROGRAM" BIN="$PWD/bin" SRC="$PWD/src" VERSION="$TAG" FREEBSD="$RELEASE"
       - name: Pack the repository folders of this release
-        run: make freebsd-pack PROGRAM="$PROGRAM" VERSION="$TAG" REVISION="$REVISION" FREEBSD="$RELEASE"
+        run: make freebsd-pack PROGRAM="$PROGRAM" VERSION="$TAG" FREEBSD="$RELEASE"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: freebsd-repo-${{ inputs.program }}-${{ matrix.release }}
@@ -276,7 +245,6 @@ jobs:
   tests:
     name: Tests
     needs: [verify, packages]
-    if: needs.packages.outputs.publish == 'true'
     uses: ./.github/workflows/test-packages.yml
     with:
       program: ${{ inputs.program }}
