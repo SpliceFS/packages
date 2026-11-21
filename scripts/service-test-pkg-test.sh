@@ -298,5 +298,56 @@ echo "main" >"$work/no-setup/setup.sh.in"
 runs "a setup script without the repository file fails the fetch before pkg is asked, and takes the files away" "" 1 \
     "export PKG_CONFIG_DIR=$work/etc/pkg; cd $work/no-setup; fetch_published_package system; status=\$?; [ ! -e $work/etc/pkg/repos ] && [ ! -e $work/etc/pkg/keys ] && exit \$status"
 
+# The client of the system names the server of its own system. A FreeBSD machine's own name need not resolve (the
+# name of a machine that starts with no network setup of its own does not), so the adapter names the system by its
+# address, and the checks of the system (in_system) hand that name on to the test configuration in OWN_NAME.
+# shellcheck disable=SC2016
+runs "the name of the system is its address, which the machine knows itself" \
+    "route -n get default
+ifconfig vtnet0 inet" 0 '[ "$(own_name)" = 10.0.2.15 ]'
+cat >"$work/bin/show-own-name" <<'STAND_IN'
+#!/bin/sh
+echo "own name: $OWN_NAME"
+STAND_IN
+chmod 755 "$work/bin/show-own-name"
+# shellcheck disable=SC2016
+runs "the checks of the system run with the address as the name of the system" \
+    "route -n get default
+ifconfig vtnet0 inet" 0 \
+    'export VERSION=v1.2.3 PACKAGE_DATE=20261112 FORMAT=pkg; . scripts/system-state-lib.sh; in_system system show-own-name'
+said "the test configuration gets the address" "own name: 10.0.2.15"
+
+# The client's mount on FreeBSD is a mount of the fusefs file system, which the module of the same name provides:
+# the service loads it itself (required_modules of its rc script), so the check asks the system what it has, with
+# the tools of the system: kldstat for the module and mount -p, which prints the table in the form of fstab(5).
+cat >"$work/bin/kldstat" <<'STAND_IN'
+#!/bin/sh
+echo "kldstat $*" >> "$CALLS"
+[ -z "${NO_MODULE:-}" ]
+STAND_IN
+cat >"$work/bin/mount" <<'STAND_IN'
+#!/bin/sh
+echo "mount $*" >> "$CALLS"
+cat "$MOUNT_OUT"
+STAND_IN
+chmod 755 "$work/bin/kldstat" "$work/bin/mount"
+printf '/dev/gpt/rootfs / ufs rw 1 1\nsplicefs /mnt/media fusefs rw 0 0\n' >"$work/mount-out"
+mount_runs() {
+    runs "$1" "$2" "$3" "MOUNT_OUT=$work/mount-out $4"
+}
+mount_runs "the mount is of the file system fusefs, and the module is loaded" "kldstat -q -m fusefs
+mount -p" 0 "check_mount_kind system /mnt/media"
+mount_runs "a module that is not loaded fails the check and names the module" "kldstat -q -m fusefs" 1 \
+    "NO_MODULE=1 check_mount_kind system /mnt/media"
+said "the failure names the module" "the fusefs module is not loaded"
+printf '/dev/gpt/rootfs / ufs rw 1 1\nsplicefs /mnt/media nullfs rw 0 0\n' >"$work/mount-out"
+mount_runs "a mount of another file system fails the check and names both" "kldstat -q -m fusefs
+mount -p" 1 "check_mount_kind system /mnt/media"
+said "the failure names the file system the folder is" "/mnt/media is a mount of nullfs, not of fusefs"
+printf '/dev/gpt/rootfs / ufs rw 1 1\n' >"$work/mount-out"
+mount_runs "a folder that is no mount fails the check" "kldstat -q -m fusefs
+mount -p" 1 "check_mount_kind system /mnt/media"
+said "the failure says the folder is no mount" "/mnt/media is not in the mount table"
+
 [ "$failed" -eq 0 ] || { echo "$failed failed"; exit 1; }
 echo "service test pkg: all cases as expected"

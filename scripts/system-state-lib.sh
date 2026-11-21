@@ -13,11 +13,12 @@
 # program that has a test configuration (programs/PROGRAM/test-config.sh) gets its functions too,
 # so that the same call writes it, checks it and removes what it made. The name of the system goes with it
 # in OWN_NAME, for the test configuration that names the server of the system by it: the name resolves to the
-# address of the system whenever it is asked, and the address itself may change when the system restarts.
+# address of the system whenever it is asked, and the address itself may change when the system restarts. A system
+# whose own name need not resolve (the adapter has own_name) gives another name.
 in_system() {
     system_name="$1"
     shift
-    system_host="$(uname -n)"
+    if command -v own_name >/dev/null 2>&1; then system_host="$(own_name)"; else system_host="$(uname -n)"; fi
     # The script is for the shell that sh -c starts, which reads its own variables.
     # shellcheck disable=SC2016
     on_system "$system_name" env OWN_NAME="$system_host" sh -c \

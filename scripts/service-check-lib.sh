@@ -97,11 +97,13 @@ check_start() {
 }
 
 # A program that mounts (mount_point of its service check) has its mount in the mount table while its service
-# runs, and no longer after it stopped.
+# runs, and no longer after it stopped. A system whose mounts have a kind that its own tools can show (the
+# adapter has check_mount_kind) shows it too.
 check_mount_up() {
     [ -n "${mount_point:-}" ] || return 0
     must "$mount_point is not a mount while the service runs" mounted_at "$1" "$mount_point"
     echo "ok: $mount_point is a mount"
+    if command -v check_mount_kind >/dev/null 2>&1; then check_mount_kind "$1" "$mount_point"; fi
 }
 
 check_documented_start() {
@@ -143,6 +145,7 @@ check_after_reboot() {
         fail "the service is not active and answering 60 seconds after a reboot"
     }
     echo "ok: active and answering after a reboot, because it was enabled"
+    check_mount_up "$1"
 }
 
 # A stopped service stays enabled, so that it comes back at the next boot: only the disable

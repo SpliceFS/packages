@@ -169,6 +169,26 @@ own_address() {
     echo "$address"
 }
 
+# The mount of the client is a mount of the fusefs file system, which the module of that name provides. The rc
+# script of the client loads the module itself (required_modules), at the start and at every boot, so what is
+# asked is what the system has now, with its own tools: kldstat for the module, and mount -p, which prints the
+# mount table in the form of fstab(5): the second word is the folder, the third the file system.
+# Usage: check_mount_kind SYSTEM FOLDER.
+check_mount_kind() {
+    on_system "$1" kldstat -q -m fusefs || fail "the fusefs module is not loaded while the service runs: its rc script loads it"
+    mount_kind="$(on_system "$1" mount -p | awk -v folder="$2" '$2 == folder { print $3; exit }')"
+    [ -n "$mount_kind" ] || fail "$2 is not in the mount table"
+    [ "$mount_kind" = fusefs ] || fail "$2 is a mount of $mount_kind, not of fusefs"
+    echo "ok: the fusefs module is loaded and $2 is a mount of fusefs"
+}
+
+# The name the checks of the system give the test configuration for this system (in_system): the address, which
+# the machine knows itself. The name of the machine need not resolve here, and the address stays the same across
+# the reboot of a machine, which a container's does not.
+own_name() {
+    own_address
+}
+
 service_report() {
     on_system "$1" service "$program" onestatus || true
     on_system "$1" tail -n 30 "/var/log/$program.log" || true
