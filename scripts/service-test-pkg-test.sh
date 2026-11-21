@@ -20,7 +20,7 @@ for tool in pkg sysrc service; do
     printf '#!/bin/sh\necho "%s $*" >> "$CALLS"\ncase " ${FAIL_TOOL:-} " in *" %s "*) exit 1 ;; esac\n' "$tool" "$tool" >"$work/bin/$tool"
 done
 # pkg fetch writes the file it was asked for below the folder of -o, as pkg does; pkg info -e
-# answers from the file INSTALLED.
+# answers from the file INSTALLED; pkg query prints PKG_QUERY_VERSION, the version in a package file.
 cat >"$work/bin/pkg" <<'STAND_IN'
 #!/bin/sh
 echo "pkg $*" >> "$CALLS"
@@ -35,6 +35,7 @@ case "$1" in
         cp "$PKG_CONFIG_DIR/repos/splicefs.conf" "$CALLS.repo"
         ;;
     info) [ -f "$INSTALLED" ] ;;
+    query) echo "${PKG_QUERY_VERSION:-}" ;;
     add) echo "Installing $2" ;;
     *) ;;
 esac
@@ -232,6 +233,21 @@ runs "the published package is fetched from the repository of the program, which
 runs "a fetch that fails takes the repository away and fails" \
     "pkg fetch -y -r splicefs-server -o $work/own/published/server splicefs-server" 1 \
     "export PKG_CONFIG_DIR=$work/etc/pkg; FAIL_TOOL=pkg fetch_published_package system; status=\$?; [ ! -e $work/etc/pkg/repos ] && exit \$status"
+
+# The words of scripts/package-lib.sh, which the steps have sourced before the adapter runs.
+lib='export VERSION=v1.2.3 PACKAGE_DATE=20261112; . scripts/package-lib.sh'
+# The version of the file that was fetched is read from the file itself, once, in the words of a
+# baseline file: what the site lists when the machine asks is not what pkg fetched when it fetched.
+runs "the version of a fetched package file is read from the file with pkg query, in the words of a baseline file" \
+    "pkg query -F $work/own/published/server/All/splicefs-server-0.10.0.pkg %v" 0 \
+    "$lib; export PKG_QUERY_VERSION=0.10.0; [ \"\$(published_baseline_version system $work/own/published/server/All/splicefs-server-0.10.0.pkg)\" = 0.10.0 ]"
+runs "a pkg that cannot read the file fails the read" \
+    "pkg query -F /fetched.pkg %v" 1 \
+    "$lib; FAIL_TOOL=pkg published_baseline_version system /fetched.pkg"
+runs "a version that a published package does not have is refused, and named" \
+    "pkg query -F /fetched.pkg %v" 1 \
+    "$lib; export PKG_QUERY_VERSION=0.10.0.20261112; published_baseline_version system /fetched.pkg"
+said "the refused version is named" "0.10.0.20261112 is not a FreeBSD package version this repository publishes"
 
 # The repository file is the setup script's own: what people get and what the test fetches from must be
 # the same text, for the public site, as the built script writes it. The adapter's function that takes

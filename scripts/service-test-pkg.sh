@@ -75,6 +75,15 @@ fetch_published_package() {
     find "$fetched" -name "$name-*.pkg" | head -n 1
 }
 
+# Prints the version of the package file $2 that fetch_published_package got, in the words of a
+# baseline file (scripts/package-test-program-lib.sh), read from the file itself. pkg fetch takes the
+# newest package the repository lists at the moment it asks, which is not what the repository listed
+# when the host read it earlier, so only the file says which version was fetched.
+published_baseline_version() {
+    pkg_version="$(on_system "$1" pkg query -F "$2" %v)" || return 1
+    package_debver_of_pkgver "$pkg_version"
+}
+
 # pkg delete runs the pre-deinstall script of the package, which stops the service.
 remove_package() {
     on_system "$1" pkg delete -y "$name" >/dev/null
