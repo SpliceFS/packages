@@ -21,7 +21,8 @@
 #      key of keys/, is given to the package manager as the install page tells a person, and the
 #      package manager checks the signature of the file (no flag turns that off; only the new files
 #      of step 2, which carry a throwaway signature, skip it). When nothing is published, the step
-#      says so and installs nothing;
+#      says so and installs nothing. A system the host cannot reach fetches the file itself, and the
+#      version of the baseline is the one of the file it got (record_fetched_version);
 #   2. the new package FILE is put over it the way scripts/upgrade-package-lib.sh says (an upgrade,
 #      or a reinstall when the version is the same); with no baseline it is installed. Every file the
 #      package promises is in its place (scripts/package-test-lib.sh), installing enabled and
@@ -168,6 +169,20 @@ published_file_of_system() {
     fi
 }
 
+# On a system that fetches the published package itself, the version of the file it got is the baseline:
+# what the host read of the site came earlier, and the site can list a newer package by the time the
+# system fetches. The version is read from the file once and recorded, and the checks of the steps 1 and
+# 2 that need the version of the published package use that one. It runs in the shell of the steps, not in
+# a command substitution, because the words it sets are the ones the steps read.
+# Usage: record_fetched_version PACKAGE_FILE
+record_fetched_version() {
+    command -v published_baseline_version >/dev/null 2>&1 || return 0
+    # fail ends the system, so the function being part of a condition changes nothing.
+    # shellcheck disable=SC2310
+    fetched_version="$(published_baseline_version "$system" "$1")" || fail "reading the version of the fetched package failed"
+    record_baseline_version "$fetched_version"
+}
+
 # Step 1. The published package is what people have installed. It is the one the record of the
 # build names, or the newest on the site; nothing is installed when none is published.
 install_baseline() {
@@ -176,6 +191,7 @@ install_baseline() {
         return 0
     fi
     published_file="$(published_file_of_system)"
+    record_fetched_version "$published_file"
     must "installing the published package failed" install_published_package "$1" "$published_file"
     must "the package manager does not list the published package as installed" package_installed "$1"
     # The quotes are single on purpose: the variables are those of the shell that sh -c starts.

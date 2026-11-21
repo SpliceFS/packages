@@ -42,8 +42,10 @@ trap 'rm -rf "$work" 2>/dev/null || true' EXIT
 
 all_programs="server client"
 
-# The hook of scripts/package-test-program-lib.sh: the machine fetches the package itself and needs only the
-# version, which is read once for the whole run, as scripts/package-test.sh does.
+# The hook of scripts/package-test-program-lib.sh: the machine fetches the package itself, so the host
+# says only whether a package is published (an empty file is none) and what the site listed when the run
+# began, which is read once for the whole run, as scripts/package-test.sh does. The machine replaces
+# the version with the one of the file it fetched, because the site can list a newer package by then.
 prepare_baseline() {
     save_baseline_version
 }

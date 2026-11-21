@@ -50,12 +50,22 @@ on_system_as_root() {
 
 # A system the host cannot reach fetches its published package itself, with the hook of its format:
 # STAND_IN_FETCH makes this stand-in exist. It logs its call, fails when STAND_IN_FAIL holds its name, and
-# prints the path of the file it fetched, which is not the one the host would have put in /pkg.
+# prints the path of the file it fetched, which is not the one the host would have put in /pkg. The
+# second hook reads the version of that file, as a baseline file writes it: STAND_IN_FETCHED_SERVER or
+# STAND_IN_FETCHED_CLIENT when set (the site listed a newer package when the system fetched than when
+# the host read it), else the version the host read.
 if [ -n "${STAND_IN_FETCH:-}" ]; then
     fetch_published_package() {
         echo "fetch_published_package $1" >>"$STAND_IN_DIR/log"
         case "${STAND_IN_FAIL:-}" in *fetch_published_package*) return 1 ;; *) ;; esac
         echo "/fetched/$PROGRAM/splicefs-$PROGRAM-published.deb"
+    }
+    published_baseline_version() {
+        echo "published_baseline_version $1 $2" >>"$STAND_IN_DIR/log"
+        case "${STAND_IN_FAIL:-}" in *published_baseline_version*) return 1 ;; *) ;; esac
+        case "$PROGRAM" in server) fetched_version="${STAND_IN_FETCHED_SERVER:-}" ;; *) fetched_version="${STAND_IN_FETCHED_CLIENT:-}" ;; esac
+        [ -n "$fetched_version" ] || read -r fetched_version <"$BASELINES/$PROGRAM"
+        echo "$fetched_version"
     }
 fi
 
@@ -234,6 +244,8 @@ scenario() {
     port_open=
     format=deb
     fetch_hook=
+    fetched_server=
+    fetched_client=
     removal_lines_added=
 }
 
@@ -245,7 +257,8 @@ scenario() {
 # added to the end of the steps file of the documented removal, as the file of FreeBSD has lines the
 # others do not). $firewalld, when not empty, makes the
 # system run firewalld ($fetch_hook, when not empty, gives the system a hook that fetches the published
-# package itself), and $zones names the zone files it has before the test (public.xml and
+# package itself; $fetched_server and $fetched_client, when not empty, are the versions of the files it
+# fetches, which the site may have listed later than the host read it, else they are the host's), and $zones names the zone files it has before the test (public.xml and
 # public.xml.old, or neither); $port_open makes the port stay open in it. A call that holds the text
 # in $fail_on fails. The first phase runs, then the restart the host does (a service that is not
 # enabled does not come back), then the second phase, unless the first failed. Keeps the log of the
@@ -291,6 +304,7 @@ launch() {
         status=0
         export STAND_IN_FAIL="$fail_on" STAND_IN_DIR="$case_dir/dir" STAND_IN_USER="$user" \
             STAND_IN_FIREWALLD="$firewalld" STAND_IN_PORT_OPEN="$port_open" STAND_IN_FETCH="$fetch_hook" \
+            STAND_IN_FETCHED_SERVER="$fetched_server" STAND_IN_FETCHED_CLIENT="$fetched_client" \
             FORMAT="$format" PLATFORM=linux/amd64 PROGRAMS="$built" PACKAGE_TEST_OUT="$case_dir/out" BASELINES="$case_dir/baselines"
         steps="$case_dir/root/scripts/package-test-steps.sh"
         sh "$steps" phase1 || status=$?
@@ -494,6 +508,10 @@ scenario; fetch_hook=1; launch hook_fetches
 scenario; fetch_hook=1; record=none; launch hook_nothing_published
 scenario; fetch_hook=1; fail_on=fetch_published_package; launch hook_fails
 scenario; fetch_hook=1; built="server client"; launch hook_both
+scenario; fetch_hook=1; record=1.2.1; fetched_server=1.2.2; launch hook_fetches_newer
+scenario; fetch_hook=1; record=1.2.1; fetched_server=1.2.3; launch hook_fetches_the_new_version
+scenario; fetch_hook=1; fail_on=published_baseline_version; launch hook_version_unreadable
+scenario; fetch_hook=1; built="server client"; record=1.2.1; client_record=1.3.0; fetched_server=1.2.2; fetched_client=1.3.9; launch hook_both_newer
 scenario; format=rpm; firewalld=1; zones="public.xml public.xml.old"; launch zones_existed
 scenario; format=rpm; firewalld=1; launch zones_missing
 scenario; format=rpm; firewalld=1; zones="public.xml.old"; launch one_zone_existed
@@ -607,6 +625,40 @@ use_case hook_fails
 expect "a hook that fails fails step 1" failed_in 1
 expect "the failure of the hook is named" holds "fetching the published package failed"
 expect "nothing is installed after a failed fetch" sh -c "! grep -q 'apt-get install' '$dir/log'"
+
+# The site listed a newer package when the system fetched than when the host read it (the host read
+# 1.2.1, the file is 1.2.2): everything that needs the version of the published package, the check of
+# what the installed program reports and the decision of step 2 to upgrade or reinstall, has the
+# version of the file, read once, and the host's is not used.
+use_case hook_fetches_newer
+expect "a run whose published package is newer than the host read passes" passed_status
+expect "the version is read from the fetched file, after the fetch and before the install" \
+    in_order "fetch_published_package system" "published_baseline_version system /fetched/server/splicefs-server-published.deb" \
+    "apt-get install -y -qq /fetched/server/splicefs-server-published.deb"
+expect "the version is read once" sh -c "[ \"\$(grep -c published_baseline_version '$dir/log')\" -eq 1 ]"
+expect "step 1 says the version of the fetched file is installed" holds "ok: the published v1.2.2 is installed"
+expect "the installed program is asked for the version of the fetched file" \
+    sh -c "grep -q 'grep -qF .\$2. sh splicefsd v1.2.2' '$dir/log'"
+expect "the new file goes over the version of the fetched file" in_order "apt-get install -y -qq /fetched/server/" "sh deb v1.2.2 v1.2.3 file"
+expect "the version the host read is not used by any call" sh -c "! grep -q 'v1.2.1' '$dir/log'"
+
+use_case hook_fetches_the_new_version
+expect "a run whose fetched package is the version of the new one passes" passed_status
+expect "the same version is put over the fetched one with the reinstall, and again over itself" \
+    sh -c "[ \"\$(grep -c 'sh deb v1.2.3 v1.2.3 file' '$dir/log')\" -eq 2 ]"
+expect "no call upgrades from the version the host read" sh -c "! grep -q 'v1.2.1' '$dir/log'"
+
+use_case hook_version_unreadable
+expect "a hook that cannot read the version fails step 1" failed_in 1
+expect "the failure of the read is named" holds "reading the version of the fetched package failed"
+expect "nothing is installed when the version is not known" sh -c "! grep -q 'apt-get install' '$dir/log'"
+
+use_case hook_both_newer
+expect "a run of both programs, each with a published package newer than the host read, passes" passed_status
+expect "each program is upgraded from the version of its own fetched file" \
+    in_order "sh deb v1.2.2 v1.2.3 file" "sh deb v1.3.9 v1.4.0 file"
+expect "the version is read once for each program" sh -c "[ \"\$(grep -c published_baseline_version '$dir/log')\" -eq 2 ]"
+expect "no call names a version the host read" sh -c "! grep -q 'v1.2.1' '$dir/log' && ! grep -q 'v1.3.0' '$dir/log'"
 
 use_case hook_both
 expect "a run of both programs whose system fetches the published packages passes" passed_status
