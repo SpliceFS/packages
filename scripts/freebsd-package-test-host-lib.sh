@@ -9,7 +9,8 @@
 # Prints the package file of the program $1 for the release major version $2, or nothing.
 package_of() {
     # A program that was not built has no record of its build, which use_program refuses.
-    [ -f "$(record_file "$1")" ] || return 0
+    candidate_record="$(record_file "$1")"
+    [ -f "$candidate_record" ] || return 0
     use_program "$1"
     candidate="dist/$1/freebsd/FreeBSD-$2-amd64/$name-$pkgver.pkg"
     [ ! -f "$candidate" ] || echo "$candidate"
@@ -33,7 +34,8 @@ make_input() {
     for each in "$@"; do
         use_program "$each"
         mkdir -p "$stage/src/dist/$each" "$stage/pkg/$each"
-        cp "$(record_file "$each")" "$stage/src/dist/$each/version"
+        record="$(record_file "$each")"
+        cp "$record" "$stage/src/dist/$each/version"
         package_path="$(package_of "$each" "$major")"
         cp "$package_path" "$stage/pkg/$each/"
         cp "$baselines/$each" "$stage/baselines/$each"
@@ -43,8 +45,9 @@ make_input() {
     # shellcheck disable=SC2086
     for each in ${fixtures:-}; do
         use_program "$each"
+        record="$(record_file "$each")"
         mkdir -p "$stage/src/dist/$each"
-        cp "$(record_file "$each")" "$stage/src/dist/$each/version"
+        cp "$record" "$stage/src/dist/$each/version"
         cp "$baselines/$each" "$stage/baselines/$each"
     done
     COPYFILE_DISABLE=1 tar -cf "$archive" -C "$stage" .

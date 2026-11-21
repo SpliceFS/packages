@@ -54,13 +54,12 @@ write_fixture_records() {
             fail "could not read the newest published package of $fixture_program from $site_root"
         [ "$fixture_newest" != "$nothing_published" ] ||
             fail "no package of $fixture_program is published and dist/$fixture_program has none: the $present has no $fixture_program to mount from"
-        mkdir -p "$(dirname "$(record_file "$fixture_program")")"
-        (
-            PROGRAM="$fixture_program"
-            VERSION="$(package_release_of_debver "$fixture_newest")"
-            UPGRADE_FROM="$fixture_newest"
-            write_package_record
-        )
+        fixture_record="$(record_file "$fixture_program")"
+        mkdir -p "$(dirname "$fixture_record")"
+        fixture_version="$(package_release_of_debver "$fixture_newest")"
+        # A shell of its own, so that the words of the record are not the words of the program that is chosen.
+        PROGRAM="$fixture_program" VERSION="$fixture_version" UPGRADE_FROM="$fixture_newest" record_folder="${record_folder:-}" \
+            sh -c '. scripts/package-record.sh; write_package_record'
         echo "$fixture_program: no packages; the newest published $fixture_program ($fixture_newest) is the fixture of the $present"
     done
 }
