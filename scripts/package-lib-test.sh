@@ -385,6 +385,49 @@ refuse_release_of 0.5.34+dirty
 refuse_release_of v0.5.34
 refuse_release_of ''
 
+# $1 the version of a published FreeBSD package as pkg writes it, $2 the deb version it stands for. The
+# FreeBSD version that package_versions makes of the program version must be $1, so that the two
+# functions cannot drift apart.
+check_debver_of_pkgver() {
+    got="$(VERSION=v1.2.3 PACKAGE_DATE=20261112 sh -c \
+        '. scripts/package-lib.sh; package_debver_of_pkgver "$1"' sh "$1" 2>&1)" || true
+    made="$(VERSION=v1.2.3 PACKAGE_DATE=20261112 sh -c \
+        '. scripts/package-lib.sh; package_versions "v$1" 20261112' sh "$2" 2>&1)" || true
+    made="${made##* }"
+    if [ "$got" = "$2" ] && [ "$made" = "$1" ]; then
+        printf 'ok   FreeBSD version %-14s is the deb version %s\n' "$1" "$2"
+    else
+        printf 'FAIL FreeBSD version %s: want "%s" got "%s", and forward "%s"\n' "$1" "$2" "$got" "$made"
+        failed=$((failed + 1))
+    fi
+}
+
+# $1 a FreeBSD version that a published package does not have: a pre-release loses the dot of its
+# number (rc.1 and rc1 are one version), so it cannot be read back, and the others are not published.
+refuse_debver_of_pkgver() {
+    status=0
+    got="$(VERSION=v1.2.3 PACKAGE_DATE=20261112 sh -c \
+        '. scripts/package-lib.sh; package_debver_of_pkgver "$1"' sh "$1" 2>&1)" || status=$?
+    case "$status:$got" in
+        0:* | *:) printf 'FAIL FreeBSD version "%s" was accepted: %s\n' "$1" "$got" ;;
+        *:*"is not a FreeBSD package version this repository publishes")
+            printf 'ok   FreeBSD version "%s" refused: %s\n' "$1" "$got"
+            return 0
+            ;;
+        *) printf 'FAIL FreeBSD version "%s" was refused for another reason: %s\n' "$1" "$got" ;;
+    esac
+    failed=$((failed + 1))
+}
+
+check_debver_of_pkgver 0.10.0 0.10.0
+check_debver_of_pkgver 1.2.3 1.2.3
+refuse_debver_of_pkgver 1.2.3.rc1
+refuse_debver_of_pkgver 1.2.3.20261112
+refuse_debver_of_pkgver 1.2.3_1
+refuse_debver_of_pkgver v1.2.3
+refuse_debver_of_pkgver 1.2
+refuse_debver_of_pkgver ''
+
 # The unit in the repository is written for a manual install under /usr/local; the unit a
 # package ships has the program in /usr/bin, and nothing else is lost.
 got="$(FORMAT=deb VERSION=v1.2.3 PACKAGE_DATE=20261112 sh -c '. scripts/package-lib.sh; package_unit /dev/stdout' 2>&1)" || true

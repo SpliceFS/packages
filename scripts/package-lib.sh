@@ -318,6 +318,17 @@ package_release_of_debver() {
     esac
 }
 
+# Prints the deb version, which a baseline file holds, of the published FreeBSD package version $1 as
+# pkg writes it: package_versions read backwards for the FreeBSD format. A published package is a
+# release, whose FreeBSD and deb versions are the same text. A pre-release cannot be read back,
+# because rc.1 and rc1 are one FreeBSD version, and the others (the date of a build, a port
+# revision) are never published.
+package_debver_of_pkgver() {
+    printf '%s' "$1" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' ||
+        fail "$1 is not a FreeBSD package version this repository publishes"
+    printf '%s\n' "$1"
+}
+
 # The words of package_versions for the program version and date of this run. The call
 # is a command substitution, where fail would end only the substitution, so its status ends the
 # script here.
