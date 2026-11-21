@@ -5,62 +5,36 @@
 # the way a person installs a package file: no repository and no setup script. Every program whose
 # folder dist/PROGRAM holds packages is tested in that one boot, the server first; the folder of a
 # program is mounted at /pkg/PROGRAM, and a program whose folder is missing or empty is left out
-# ("PROGRAM: no packages, left out"). Each system runs these steps in order, each printed as
-# "step N: PROGRAM: ..." for every program in turn, and stops at the first wrong result:
-#   0. the file list and the checksums of /etc are written down once (scripts/lifecycle-snapshot.sh);
-#   1. the baseline: the previous published package FILE of the program, fetched once for the whole
-#      run from the package site and proven by its signed index (scripts/published-verify.sh), is
-#      installed with the system's package manager, and a configuration file and a data file are
-#      written. The signing key of the project, fetched once from the site and proven to be the
-#      key of keys/, is given to the package manager as the install page tells a person, and the
-#      package manager checks the signature of the file (no flag turns that off; only the new files
-#      of step 2, which carry a throwaway signature, skip it). When nothing is published, the step
-#      says so and installs nothing;
-#   2. the new package FILE is put over it the way scripts/upgrade-package-lib.sh says (an upgrade,
-#      or a reinstall when the version is the same); with no baseline it is installed. Every file the
-#      package promises is in its place (scripts/package-test-lib.sh), installing enabled and
-#      started nothing, and the configuration and data of step 1 are kept. Then the file is put
-#      over itself once more: the files, the configuration and the state of the service stay as
-#      they were;
-#   3. the service is enabled with the documented command, and the program's test configuration
-#      (programs/PROGRAM/test-config.sh: the server serves one share with one user) is written
-#      through the documented folders and found where the documentation says;
-#   4. on a system that runs firewalld, the zone files it changes for an open port (public.xml and
-#      public.xml.old) are saved, each as a copy or a note that it is missing, and the port of the
-#      service is opened; the service is started with the documented command, runs as its own user
-#      and does its job (the service check of the program: the server answers its health endpoint
-#      from outside);
-#   5. the service is restarted, then the container is, and the service is active and does its job
-#      again, because it is enabled;
-#   7. the service is stopped: no process of ours is left and the service no longer answers;
-#   8. the service is disabled, and is not enabled;
-#   9. the package manager's plain removal, program by program: the programs are gone, the
-#      configuration and the data remain. Then the documented removal (the file of steps/ for this
-#      system, without the setup script's --remove, which belongs to the setup script test), run
-#      once as written except that its removal command names only the packages the package manager
-#      still holds, all programs in one command (dpkg keeps the configuration of a removed package, so
-#      apt-get purge still names it; the other package managers hold nothing, so the command is left
-#      out, as the steps tell a person to do): the data, the configuration, the user and the group.
-#      Then, program by program, the data the test made is removed, the saved zone files are put back
-#      byte for byte (a file that did not exist is deleted) and the port is closed in the firewall,
-#      and nothing of ours is installed or running; and the snapshot equals the one of step 0, apart
-#      from the paths of scripts/lifecycle-excluded.
-# The numbers are those of the design of the test. The steps 3, 4, 5, 7 and 8 are built for the
-# server only: for the client each prints "service steps wait for the client's certificate trust
-# setting" and does nothing. Step 6, the modes of the client, is not built yet.
-# Before every step and after the snapshot of step 9, the core dumps that appeared since the step
-# before are printed with the program that dumped them (scripts/core-files.sh), so a crash names its
-# program and its step; a core in the difference of step 9 is named again next to it.
+# ("PROGRAM: no packages, left out").
+#
+# This script is the host's part and does nothing to a system but start it, run the steps in it,
+# restart it, ask the server from outside and read what the steps wrote. The steps themselves, and
+# what each of them checks, are in scripts/package-test-steps.sh, which runs inside the system with
+# what the system has. Per system:
+#   1. the container is started with a copy of the repository (read only) at /src, made when the run
+#      began, so that a change of the working tree during the run (a file replaced, a branch changed)
+#      is not what a later phase reads; the package folders at
+#      /pkg/PROGRAM (they hold the published baseline files, which this script fetched once for the
+#      whole run from the package site and proved by its signed index, scripts/published-verify.sh),
+#      the public signing keys at /keys, and the version of each baseline at /baselines;
+#   2. docker exec runs phase 1 of the steps (steps 0 to 4 and the restart of the service);
+#   3. a probe container on the network of the system asks the health endpoint of the server at the
+#      address of the system and the port of the server, which proves from outside what the firewall
+#      rule of step 4 lets through (a program that listens on no port is not asked);
+#   4. docker restart restarts the container, the way a machine is rebooted;
+#   5. docker exec runs phase 2 (the rest of step 5), the probe asks again, and docker exec runs
+#      phase 3 (the steps 7 to 9);
+#   6. the output folder of the steps is copied out of the container: its log is printed and its
+#      result is "ok" or the line of the step that failed (the host's own line when the probe failed).
 # A failing system does not stop the others, so one run shows every system that is broken. Runs on
 # the host (make package-test, CI). Environment: the version of each program comes from
 # dist/PROGRAM/version, which make packages wrote (scripts/package-record.sh), and a VERSION given
 # must be that one for every program in the run; PLATFORM (linux/amd64 or linux/arm64) tests that CPU
-# type by emulation, empty means this machine's own; ONLY limits the run to one format or image.
+# type by emulation, empty means this machine's own; ONLY limits the run to one format or image;
+# GO_IMAGE is the image of the probe container (it has curl).
 #
-# What differs between package formats is in scripts/service-test-<format>.sh (install_package,
-# service_file, the service functions) and scripts/package-test-<format>.sh (package_installed,
-# uninstall_file); what the service of the program does is in its service-check.sh. None of them
-# can be followed by ShellCheck.
+# What differs between package formats is in scripts/service-test-<format>.sh and
+# scripts/package-test-<format>.sh, which only the steps read; this script needs their files to exist.
 # shellcheck disable=SC2154
 set -eu
 
@@ -68,17 +42,24 @@ root="$(cd "$(dirname "$0")/.." && pwd)"
 # package-lib.sh reads files relative to the repository root.
 cd "$root"
 . scripts/package-record.sh
-. scripts/service-check-lib.sh
-. scripts/system-state-lib.sh
+. scripts/package-test-program-lib.sh
 . scripts/systems-lib.sh
 # Named explicitly because after a run with another platform the local image tag can point
 # at the other CPU type, and an empty setting would then silently test the wrong one.
 platform="${PLATFORM:-$(docker version --format '{{.Server.Os}}/{{.Server.Arch}}')}"
 work="$(mktemp -d)"
-# The public signing keys of the package site, which step 1 gives the package managers of the systems:
-# mounted at /keys, filled by fetch_baselines.
+# What the systems get from the host, read only: the public signing keys of the package site, which
+# step 1 gives the package managers of the systems (mounted at /keys, filled by fetch_baselines),
+# and the version of each program's baseline (mounted at /baselines, one file for each program).
 keys_dir="$work/keys"
-mkdir "$keys_dir"
+baselines="$work/baselines"
+mkdir "$keys_dir" "$baselines"
+# The container that asks the server from outside, on the network of the system: an image the project
+# runs its own tests in, which has curl.
+probe_image="${GO_IMAGE:?GO_IMAGE is not set}"
+# Where in the system the steps write their log and their result. It is on the system's own disk, which
+# a restart keeps, and scripts/lifecycle-excluded leaves it out of the snapshots.
+out_dir=/var/tmp/package-test
 # Every container of this run carries the process id of this run in its name, so the cleanup finds
 # all of them and no other run's.
 prefix="splicefs-package-test-$$"
@@ -93,11 +74,8 @@ trap 'exit 130' INT TERM
 # A VERSION given by hand must be the recorded one of every program in the run.
 given_version="${VERSION:-}"
 
-# The programs of a run, in the order they are tested and each step is run for them. The service
-# steps (3, 4, 5, 7 and 8) are built for the programs in the second list; the client's wait for its
-# certificate trust setting.
+# The programs of a run, in the order they are tested.
 all_programs="server client"
-service_step_programs="server"
 
 # Whether dist/$1 holds packages: a missing or empty folder is a program that is not tested.
 has_packages() {
@@ -122,13 +100,15 @@ if [ -z "$present" ]; then
     exit 1
 fi
 
-# The newest published package of the program, which step 1 installs and step 2 upgrades: the version
-# the record of the build names (the newest on the site when it names none). The site is asked
-# once for each program of the run, by the first call, before any system starts, and the answer is
-# kept in a file for the systems. Sets $from, empty when nothing is published, and
-# PUBLISHED_VERSION, which the scripts that run in the systems read.
-set_baseline() {
-    baseline_file="$work/baseline-$PROGRAM"
+# Where the baseline of a program is read from the package site, once for the whole run, before the
+# program is chosen for the systems (scripts/package-test-program-lib.sh calls this once the words of
+# the program are set): the newest published package of the program, which step 1 installs and step 2
+# upgrades, is the version the record of the build names (the newest on the site when it names none).
+# The answer is kept in the file of the program in $baselines for the systems, empty when nothing is
+# published. Also tells where the published package file of the program is.
+prepare_baseline() {
+    published_dir="$root/dist/$PROGRAM/published"
+    baseline_file="$baselines/$PROGRAM"
     if [ ! -f "$baseline_file" ]; then
         # upgrade_from_version is a test whose status is the answer, so set -e being off inside it changes nothing.
         # shellcheck disable=SC2310
@@ -136,358 +116,73 @@ set_baseline() {
             fail "could not read the newest published package of $PROGRAM from $site_url"
         mv "$baseline_file.new" "$baseline_file"
     fi
-    from="$(cat "$baseline_file")"
-    PUBLISHED_VERSION="$VERSION"
-    if [ -n "$from" ]; then
-        # A version that package_release_of_debver refuses ends the script here, with its message.
-        use_published_version "$from"
-        PUBLISHED_VERSION="$old_tag"
-    fi
-    export PUBLISHED_VERSION
 }
 
-# Chooses the program $1: the one place that sets what differs between the programs of a run, so
-# that every step reads it from here. They are what the record of its build says (its version), what
-# scripts/package-lib.sh makes of that (the package names and versions, the programs and folders to
-# check), what its service check says (programs/PROGRAM/service-check.sh), where its published
-# package is, and the published baseline. What the service check of the program before it set and
-# the next does not is unset first, so that it is not taken for the next program's.
-use_program() {
-    PROGRAM="$1"
-    export PROGRAM
-    VERSION="$given_version"
-    # The status ends the run here also in a system, where errexit is off; the function says why.
-    # shellcheck disable=SC2310
-    use_recorded_version || exit 1
-    . scripts/package-lib.sh
-    . scripts/published-lib.sh
-    unset port health_path
-    # shellcheck source=/dev/null
-    . "$defs/service-check.sh"
-    package_arches "$platform"
-    published_dir="$root/dist/$PROGRAM/published"
-    set_baseline
+# Runs phase $1 of scripts/package-test-steps.sh in the container, as the root of the system, with
+# what the steps need to know that the system cannot know itself.
+run_phase() {
+    docker exec -e FORMAT="$format" -e PLATFORM="$platform" -e PROGRAMS="$present" -e PACKAGE_TEST_OUT="$out_dir" \
+        -w /src "$container" sh scripts/package-test-steps.sh "$1"
 }
 
-# use_program for a program in a system of the format $format: the functions of the format are
-# sourced again, because the service manager adapters name the service of the program when they are
-# sourced.
-use_program_in_system() {
-    use_program "$1"
-    # shellcheck source=/dev/null
-    . "scripts/service-test-$format.sh"
-    # shellcheck source=/dev/null
-    . "scripts/package-test-$format.sh"
-}
-
-# The package files are installed by the system's package manager. It runs in the booted system,
-# so the dependencies come from the distribution's mirror, as for a person.
-check_installed_files() {
-    must "the package manager does not list the package as installed" package_installed "$1"
-    must "a file check of the package failed: see the line above" \
-        in_system "$1" check_versions check_links check_config_folders check_extras
-    definition="$(service_file)"
-    must "the service definition $definition is missing" docker exec "$1" test -f "$definition"
-    refuse "the service definition points at /usr/local/bin" docker exec "$1" grep -q /usr/local/bin "$definition"
-    must "the user $expected_user was not created" docker exec "$1" grep -q "^$expected_user:" /etc/passwd
-    echo "ok: the package is installed, its files are in place and the user exists"
-    check_idle_after_install "$1"
-}
-
-# Step 1. The published package is what people have installed. It is the one the record of the
-# build names, or the newest on the site; nothing is installed when none is published.
-install_baseline() {
-    if [ -z "$from" ]; then
-        echo "nothing is published for $PROGRAM: there is no baseline, and nothing is installed in this step"
-        return 0
-    fi
-    published_file="$(published_package_file)"
-    must "installing the published package failed" install_published_package "$1" "$published_file"
-    must "the package manager does not list the published package as installed" package_installed "$1"
-    # The quotes are single on purpose: the variables are those of the shell inside the system.
-    # shellcheck disable=SC2016
-    must "the installed program does not report the published version $old_tag" \
-        docker exec "$1" sh -c '"$1" --version | grep -qF "$2"' sh "$program" "$old_tag"
-    must "writing the configuration file and the data file failed" in_upgrade_lib "$1" write_markers "$format"
-    echo "ok: the published $old_tag is installed, with a configuration file and a data file"
-}
-
-# The new package file over what step 1 installed: scripts/upgrade-package-lib.sh is the one place
-# that says how (an upgrade, or a reinstall when the version is the same). It runs in the booted
-# system. Usage: put_new_package_over CONTAINER INSTALLED_VERSION.
-put_new_package_over() {
-    new_file="$(package_file)"
-    docker exec -e DEBIAN_FRONTEND=noninteractive -w /src "$1" sh -c \
-        '. scripts/upgrade-package-lib.sh; upgrade_package "$@"' sh "$format" "$2" "$VERSION" file "$new_file"
-}
-
-# Step 2, first part. With no baseline the package is installed, and the files that an upgrade
-# must keep are written.
-install_new_package() {
-    if [ -n "$from" ]; then
-        must "putting the new package over the published one failed" put_new_package_over "$1" "$old_tag"
-        must "the upgrade did not keep the configuration file and the data file" \
-            in_upgrade_lib "$1" verify_markers_kept "upgrade"
-        return 0
-    fi
-    must "installing the package failed" install_package "$1"
-    must "writing the configuration file and the data file failed" in_upgrade_lib "$1" write_markers "$format"
-}
-
-# Whether the services of the program are enabled and running, one line each.
-service_state() {
-    for state_check in service_enabled service_active; do
-        if "$state_check" "$1"; then echo "$state_check: yes"; else echo "$state_check: no"; fi
-    done
-}
-
-# Step 2, second part: the new file over itself. Nothing must change: the files and the checksums
-# of /etc as the snapshots list them, what the package promises, the configuration file and the
-# data file of step 1, and what the services are doing.
-check_reinstall_changes_nothing() {
-    take_snapshot "$1" "$own/before-reinstall"
-    service_state "$1" >"$own/state-before"
-    must "installing the new package file over itself failed" put_new_package_over "$1" "$VERSION"
-    take_snapshot "$1" "$own/after-reinstall"
-    service_state "$1" >"$own/state-after"
-    if ! diff "$own/before-reinstall" "$own/after-reinstall" >"$own/diff"; then
-        cat "$own/diff"
-        fail "installing the package file over itself changed the system: the lines above differ"
-    fi
-    must "installing the package file over itself changed the state of a service" \
-        cmp -s "$own/state-before" "$own/state-after"
-    must "a file check of the package failed after it was installed over itself: see the line above" \
-        in_system "$1" check_versions check_links check_config_folders check_extras
-    must "installing the package file over itself did not keep the configuration file and the data file" \
-        in_upgrade_lib "$1" verify_markers_kept "reinstall"
-    echo "ok: installing the package file over itself changed no file, no configuration and no service"
-}
-
-# The documented removal reads as the install page shows it, for both programs, and says "Leave out
-# the one you did not install": its removal command names the packages in $2 (what the package
-# manager still holds, separated by spaces) and the others are left out of it. With none named the
-# command is left out whole: a package manager refuses a name it does not hold, and a command with
-# no name does nothing. The setup script's own removal is left out too: it removes the repository
-# this test never set up.
-documented_removal_text() {
-    {
-        echo '/setup\.sh/d'
-        for conf in programs/*/program.conf; do
-            other="$(sed -n 's/^name=//p' "$conf")"
-            case " $2 " in
-                *" $other "*) ;;
-                *)
-                    if [ -n "$2" ]; then
-                        echo "s/ $other\$//"
-                        echo "s/ $other / /"
-                    else
-                        echo "/ $other\$/d"
-                        echo "/ $other /d"
-                    fi
-                    ;;
-            esac
-        done
-    } >"$own/removal.sed"
-    sed -f "$own/removal.sed" "$1"
-}
-
-# Runs the documented removal as a person would: root, and "yes" for the questions the package
-# manager asks. The file says sudo, which root does not have in a container, so sudo is a function
-# that runs its arguments. zypper reads its questions from the terminal only and fails on a pipe
-# ("Cannot read input"), so the function gives zypper --non-interactive, which answers them with
-# their defaults, the same yes. The first failing command ends the run.
-documented_removal() {
-    file="$(uninstall_file "$1")" || fail "no uninstall file for this system"
-    # fail ends the system, so the functions being part of a condition change nothing.
-    # shellcheck disable=SC2310
-    held="$(held_packages "$1")" || fail "asking the package manager what it holds failed"
-    if [ -z "$held" ]; then
-        echo "step 9: $format: nothing installed, the removal command is left out, as the steps say"
-    fi
-    # shellcheck disable=SC2310
-    text="$(documented_removal_text "$file" "$held")" || fail "reading $file failed"
-    yes | docker exec -i -e DEBIAN_FRONTEND=noninteractive "$1" sh -c 'set -e
-        sudo() { if [ "$1" = zypper ]; then shift; zypper --non-interactive "$@"; else "$@"; fi; }
-        eval "$1"' sh "$text" ||
-        fail "the commands of $file failed"
-    echo "ok: the commands of $file ran"
-}
-
-# The package manager's plain removal takes the programs and leaves what the administrator and the
-# running server wrote, which only a purge or a person deletes.
-check_plain_removal() {
-    must "the plain removal failed" remove_package "$1"
-    refuse "the package is still installed after the plain removal" package_installed "$1"
-    must "the plain removal left a program of the package behind" in_system "$1" check_programs_removed
-    must "a process of ours is still running after the plain removal" no_process_of_ours "$1"
-    must "the plain removal took away the configuration file or the data file" \
-        in_upgrade_lib "$1" verify_markers_kept "plain removal"
-    echo "ok: the programs are gone, the configuration and the data remain"
-}
-
-check_nothing_of_ours() {
-    refuse "the package is still installed after it was removed" package_installed "$1"
-    must "the removal left a program of the package behind" in_system "$1" check_programs_removed
-    must "a process of ours is still running" no_process_of_ours "$1"
-    echo "ok: nothing of ours is installed or running"
-}
-
-# Compares the snapshot of the system with the one of step 0. A core dump may be what differs, so
-# the cores are looked for once more, after the snapshot, and every core in the difference is named
-# next to it.
-check_system_as_it_was() {
-    take_snapshot "$1" "$own/after"
-    note_new_cores "$1" "$previous_step"
-    if ! diff "$own/before" "$own/after" >"$own/diff"; then
-        cat "$own/diff"
-        name_cores_in_difference "$1" "$own/diff"
-        fail "the system is not as it was before the install: the lines above differ"
-    fi
-    echo "ok: the files and the checksums of /etc are as they were"
-}
-
-# Writes the test configuration of the program and finds it where the documentation says. A program
-# with no test configuration has none to write.
-write_and_check_test_config() {
-    [ -f "$defs/test-config.sh" ] || return 0
-    must "writing the test configuration failed" in_system "$1" write_test_config
-    must "the test configuration is not where the documentation says" in_system "$1" check_test_config
-    echo "ok: the test configuration is where the documentation says"
-}
-
-# What the test made outside the folders the documented removal deletes, so that the snapshot
-# compares only what the package and the documented steps did.
-remove_test_data_of_program() {
-    [ -f "$defs/test-config.sh" ] || return 0
-    must "removing the test data failed" in_system "$1" remove_test_data
-}
-
-# Starts the step $1 for the owner $2 (a program, or empty for the whole system), with the text $3:
-# first the core dumps that appeared since the step before it. The number goes into a file so that
-# the report of the system names the step it stopped in.
-begin_step() {
-    note_new_cores "$c" "$previous_step"
-    previous_step="step $1${2:+: $2}"
-    echo "$1" >"$own/step"
-    echo "step $1: ${2:+$2: }$3"
-}
-
-# Runs the command $@ for each program of the run in order, with the program chosen first.
-each_program() {
-    for step_program in $present; do
-        use_program_in_system "$step_program"
-        "$@"
-    done
-}
-
-# Like each_program for a service step, step $1 with the text $2 and the function $3: a program whose
-# service steps are not built says so and nothing is done for it.
-each_service_program() {
-    for step_program in $present; do
-        use_program_in_system "$step_program"
-        case " $service_step_programs " in
-            *" $PROGRAM "*)
-                begin_step "$1" "$PROGRAM" "$2"
-                "$3"
-                ;;
-            *) begin_step "$1" "$PROGRAM" "service steps wait for the $PROGRAM's certificate trust setting" ;;
-        esac
-    done
-}
-
-step_baseline() {
-    begin_step 1 "$PROGRAM" "the published package file is installed"
-    install_baseline "$c"
-}
-
-step_new_package() {
-    begin_step 2 "$PROGRAM" "the new package file is installed over it, and over itself"
-    install_new_package "$c"
-    check_installed_files "$c"
-    check_reinstall_changes_nothing "$c"
-}
-
-service_enable_and_configure() {
-    check_enable "$c"
-    write_and_check_test_config "$c"
-}
-
-service_start_and_check() {
-    must "saving the firewall zone files failed" save_firewall_zones "$c" "$own/firewall-zones"
-    must "opening the port ${port:-} in the firewall failed" open_firewall "$c"
-    check_start "$c"
-    check_user "$c"
-    check_answers "$c"
-}
-
-service_restart_and_reboot() {
-    check_restart "$c"
-    check_reboot "$c"
-}
-
-service_stop_and_check() {
-    check_stop "$c"
-    must "a process of ours is still running after the stop" no_process_of_ours "$c"
-    echo "ok: no process of ours is running after the stop"
-}
-
-service_disable_and_check() {
-    check_disable "$c"
-}
-
-step_plain_removal() {
-    begin_step 9 "$PROGRAM" "the package manager's plain removal"
-    check_plain_removal "$c"
-}
-
-# After the documented removal: what the test made outside the folders it deletes is taken away, the
-# firewall is as it was, and nothing of the program is installed or running.
-step_after_documented_removal() {
-    begin_step 9 "$PROGRAM" "what the test made is taken away, and nothing of the program is left"
-    remove_test_data_of_program "$c"
-    must "putting the firewall zone files back failed" restore_firewall_zones "$c" "$own/firewall-zones"
-    refuse "the port ${port:-} is still open in the firewall after the zone files were put back" port_open_in_firewall "$c"
-    check_nothing_of_ours "$c"
-}
-
-# One system, in the order of the steps in the header, with its files in the folder $own. The
-# caller runs this in a subshell so that fail, which every check calls, ends only this system.
-run_steps() {
-    c="$1"
+# The service manager of the container is up before a phase starts: after the boot and after the restart.
+wait_until_booted() {
     # wait_booted is one test whose status is the answer, so set -e being off inside it changes nothing.
     # shellcheck disable=SC2310
-    wait_booted "$format" "$c" || {
+    wait_booted "$format" "$container" || {
         echo "--- last 30 lines of the container output"
-        docker logs --tail 30 "$c" 2>&1 || true
+        docker logs --tail 30 "$container" 2>&1 || true
         fail "the service manager did not finish booting"
     }
-    : >"$own/cores-seen"
-    : >"$own/cores-noted"
-    previous_step="the boot"
+}
 
-    begin_step 0 "" "the vanilla system is written down"
-    take_snapshot "$c" "$own/before"
+# Asks the health endpoint of every program of the run that listens on a port, from a probe container
+# on the network of the system: the system's own address, which the container runtime may change at a
+# restart, so it is read now, and the port and path the service check of the program names. Outside is
+# the only place that proves what the firewall lets through. The first answer is the answer: the steps
+# of the phase before waited, from inside, until the service worked, so nothing is waited for here.
+# On a wrong answer the line of the step is written to $own/outside-failure, for the result, and the
+# status is 1. Usage: check_from_outside PHASE (phase 1 or phase 2).
+check_from_outside() {
+    for outside_program in $present; do
+        use_program "$outside_program"
+        [ -n "${port:-}" ] || continue
+        # The names of the networks of the container, each with its address there; the first is used.
+        networks="$(docker inspect -f '{{range $name, $net := .NetworkSettings.Networks}}{{$name}} {{$net.IPAddress}} {{end}}' "$container")" ||
+            fail "docker inspect failed"
+        read -r network address _ <<ADDRESS
+$networks
+ADDRESS
+        url="https://$address:$port$health_path"
+        asked="answers 200 on $health_path from outside, after $1"
+        code="$(docker run --rm --network "$network" "$probe_image" \
+            curl -sk -o /dev/null -w '%{http_code}' --max-time 5 "$url" || true)"
+        if [ "$code" != 200 ]; then
+            echo "step 5: $outside_program: $asked: $url gave ${code:-nothing}" >"$own/outside-failure"
+            return 1
+        fi
+        echo "ok: $outside_program: $asked ($url, from a container on the network $network)"
+    done
+}
 
-    each_program step_baseline
-    each_program step_new_package
-    each_service_program 3 "the service is enabled, and the test configuration is written through the documented folders" \
-        service_enable_and_configure
-    each_service_program 4 "the service is started, runs as its own user and does its job" service_start_and_check
-    each_service_program 5 "the service is restarted, then the container is, and it works again because it is enabled" \
-        service_restart_and_reboot
-    each_service_program 7 "the service is stopped" service_stop_and_check
-    each_service_program 8 "the service is disabled" service_disable_and_check
-
-    each_program step_plain_removal
-    begin_step 9 "" "the documented removal"
-    documented_removal "$c"
-    each_program step_after_documented_removal
-    begin_step 9 "" "the system is as it was"
-    check_system_as_it_was "$c"
+# The three phases with the restart between phases 1 and 2 and the question from outside after each of
+# them; the status is that of the first that fails. The caller runs this in a subshell so that fail
+# ends only this system.
+run_phases() {
+    wait_until_booted
+    # run_phase and check_from_outside are one command each whose status is the answer, so set -e being
+    # off inside them changes nothing.
+    # shellcheck disable=SC2310
+    run_phase phase1 && check_from_outside "phase 1" || return 1
+    docker restart "$container" >/dev/null || fail "docker restart failed"
+    wait_until_booted
+    # shellcheck disable=SC2310
+    run_phase phase2 && check_from_outside "phase 2" || return 1
+    run_phase phase3
 }
 
 # One system, in a container and a folder of its own: number $3 of the list. It runs in a process of
-# its own, so the functions of its format, sourced here, are its own too.
+# its own, so the functions of its format, sourced there, are its own too.
 # Usage: test_system FORMAT IMAGE NUMBER.
 test_system() {
     format="$1"
@@ -497,39 +192,49 @@ test_system() {
     mkdir "$own"
     log="$own/log"
     started=0
-    # The folder of each program is mounted at /pkg/PROGRAM. What the service check of a program says
-    # the container needs to be reached is given to docker run: the server publishes its port, so
-    # that the health endpoint is asked from outside.
-    set -- --name "$container" --platform "$platform" -v "$root":/src:ro -v "$keys_dir":/keys:ro
-    options=""
+    # The folder of each program is mounted at /pkg/PROGRAM.
+    set -- --name "$container" --platform "$platform" -v "$repository_copy":/src:ro -v "$keys_dir":/keys:ro \
+        -v "$baselines":/baselines:ro
     for system_program in $present; do
-        use_program "$system_program"
         set -- "$@" -v "$root/dist/$system_program":"/pkg/$system_program":ro
-        options="$options $(run_options)"
     done
-    # run_options prints whole options and nothing else, so $options is left unquoted on purpose.
     # boot_system is one test whose status is the answer, so set -e being off inside it changes nothing.
-    # shellcheck disable=SC2086,SC2310
-    if boot_system "$@" $options "$image" 2>"$log"; then
+    # shellcheck disable=SC2310
+    if boot_system "$@" "$image" 2>"$log"; then
         started=1
     fi
 
-    # Errexit is switched off here on purpose: every command of run_steps is guarded with
-    # fail, and a failing check must end only this system, not the whole run.
+    # Errexit is switched off here on purpose: a failing phase must end only this system, not the
+    # whole run.
     checked=1
-    echo 0 >"$own/step"
     if [ "$started" -eq 1 ]; then
         set +e
-        (run_steps "$container") >>"$log" 2>&1
+        (run_phases) >>"$log" 2>&1
         checked=$?
         set -e
+        # The output of the steps is read after the last phase that ran, also when it failed.
+        mkdir "$own/out"
+        docker cp "$container:$out_dir/." "$own/out" >>"$log" 2>&1 || true
+        if [ -f "$own/out/log" ]; then cat "$own/out/log" >>"$log"; fi
+        # A failed question from outside is the result: the steps knew nothing of it.
+        if [ -f "$own/outside-failure" ]; then cp "$own/outside-failure" "$own/out/result"; fi
     fi
     cat "$log"
-    if [ "$checked" -eq 0 ]; then
+    result="$(cat "$own/out/result" 2>/dev/null)" || result="no result was written"
+    if [ "$checked" -eq 0 ] && [ "$result" = ok ]; then
         echo "ok   $format $image"
     else
-        read -r reached <"$own/step"
-        echo "FAIL $format $image (step $reached)"
+        # The result names the step the steps stopped in; when they wrote none, there is no step to name.
+        case "$result" in
+            "step "*)
+                reached="${result#step }"
+                reached=" (step ${reached%%:*})"
+                ;;
+            *) reached="" ;;
+        esac
+        echo "FAIL $format $image$reached"
+        echo "     $result"
+        checked=1
     fi
     docker rm -f "$container" >/dev/null 2>&1 || true
     return "$checked"
@@ -557,13 +262,6 @@ done <<LIST
 $systems
 LIST
 
-# The path of the published package file of the system's format as the systems see it: the dist
-# folder of the program is mounted at /pkg/PROGRAM.
-published_package_file() {
-    published_site_path="$(published_path "$format" "$old_debver" "$old_rpmver" "$old_rpmrel" "$old_apkver" "$old_apkrel")"
-    echo "/pkg/$PROGRAM/published/$(basename "$published_site_path")"
-}
-
 # Downloads the signing keys of the site once, and the published package file of every format that is
 # tested, for each program of the run, once for all the systems of the format. The keys are proven to
 # be the repository's keys, a package file by the signed index of the site. A download that fails ends
@@ -589,6 +287,20 @@ fetch_baselines() {
     done
 }
 fetch_baselines
+
+# What the steps read of the repository, copied once, before any system starts: the systems read it in
+# every phase, minutes apart, and a repository that changes in between (an editor or git replacing a
+# file) would fail a phase with a file that is not there. The package files are not in it: they are
+# mounted from dist/PROGRAM, and only the record of each build is read from the repository.
+repository_copy="$work/repository"
+mkdir -p "$repository_copy/dist"
+for copied in scripts programs steps keys packaging; do
+    cp -RL "$root/$copied" "$repository_copy/$copied"
+done
+for copied in $present; do
+    mkdir "$repository_copy/dist/$copied"
+    cp "$root/dist/$copied/version" "$repository_copy/dist/$copied/version"
+done
 
 run_systems "$work" pull_system test_system <<LIST
 $selected

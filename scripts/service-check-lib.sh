@@ -1,9 +1,9 @@
 # shellcheck shell=sh
-# The checks of a running service, shared by scripts/package-test.sh and scripts/service-test-host.sh.
+# The checks of a running service, shared by scripts/package-test-steps.sh and scripts/service-test-host.sh.
 # Sourced after scripts/package-lib.sh (which also has wait_for, must and refuse, the helpers
 # every test uses), the service check of the program (what "the service works" means) and the
 # functions of the package format (scripts/service-test-<format>.sh); the first argument of every
-# check is the container. expected_user, answers_text, answers, port, format and the service
+# check is the system. expected_user, answers_text, answers, port, format and the service
 # functions come from those files, which ShellCheck cannot follow.
 # shellcheck disable=SC2154
 
@@ -16,26 +16,26 @@ firewall_zone_dir=/etc/firewalld/zones
 firewall_zone_names="public.xml public.xml.old"
 
 firewall_in_use() {
-    [ -n "${port:-}" ] && docker exec "$1" firewall-cmd --state >/dev/null 2>&1
+    [ -n "${port:-}" ] && on_system "$1" firewall-cmd --state >/dev/null 2>&1
 }
 
 # The test opens the port the way a user of that system does, for good so that it holds after the reboot.
 open_firewall() {
     firewall_in_use "$1" || return 0
-    docker exec "$1" firewall-cmd --permanent --add-port="$port/tcp" >/dev/null &&
-        docker exec "$1" firewall-cmd --reload >/dev/null
+    on_system_as_root "$1" firewall-cmd --permanent --add-port="$port/tcp" >/dev/null &&
+        on_system_as_root "$1" firewall-cmd --reload >/dev/null
 }
 
 # What the test changes in the firewall is undone from a copy, not by the reverse command, which
 # leaves a zone file behind that the system did not have. Before the port is opened, each of the zone
-# files is copied into the folder $2, in the folder of the test and outside the system, and a note
-# is written for each that does not exist. Usage: save_firewall_zones CONTAINER FOLDER.
+# files is copied into the folder $2, in the folder of the test, and a note is written for each that
+# does not exist. Usage: save_firewall_zones SYSTEM FOLDER.
 save_firewall_zones() {
     firewall_in_use "$1" || return 0
     mkdir -p "$2" || return 1
     for zone_name in $firewall_zone_names; do
-        if docker exec "$1" test -f "$firewall_zone_dir/$zone_name"; then
-            docker cp "$1:$firewall_zone_dir/$zone_name" "$2/$zone_name" || return 1
+        if on_system "$1" test -f "$firewall_zone_dir/$zone_name"; then
+            on_system "$1" cp "$firewall_zone_dir/$zone_name" "$2/$zone_name" || return 1
         else
             : >"$2/$zone_name.missing" || return 1
         fi
@@ -43,21 +43,21 @@ save_firewall_zones() {
 }
 
 # Puts each zone file back byte for byte, deletes each that did not exist, and has firewalld read
-# them. Usage: restore_firewall_zones CONTAINER FOLDER (the folder save_firewall_zones wrote).
+# them. Usage: restore_firewall_zones SYSTEM FOLDER (the folder save_firewall_zones wrote).
 restore_firewall_zones() {
     firewall_in_use "$1" || return 0
     for zone_name in $firewall_zone_names; do
         if [ -f "$2/$zone_name.missing" ]; then
-            docker exec "$1" rm -f "$firewall_zone_dir/$zone_name" || return 1
+            on_system "$1" rm -f "$firewall_zone_dir/$zone_name" || return 1
         else
-            docker cp "$2/$zone_name" "$1:$firewall_zone_dir/$zone_name" || return 1
+            on_system "$1" cp "$2/$zone_name" "$firewall_zone_dir/$zone_name" || return 1
         fi
     done
-    docker exec "$1" firewall-cmd --reload >/dev/null
+    on_system_as_root "$1" firewall-cmd --reload >/dev/null
 }
 
 port_open_in_firewall() {
-    firewall_in_use "$1" && docker exec "$1" firewall-cmd --query-port="$port/tcp" >/dev/null
+    firewall_in_use "$1" && on_system "$1" firewall-cmd --query-port="$port/tcp" >/dev/null
 }
 
 active_and_answering() {
@@ -120,8 +120,9 @@ check_restart() {
     echo "ok: active and answering after a restart"
 }
 
-check_reboot() {
-    docker restart "$1" >/dev/null || fail "docker restart failed"
+# The system was restarted by whoever runs the steps, as a person restarts a machine: the service
+# starts again on its own because it is enabled.
+check_after_reboot() {
     must "the service is not active and answering 60 seconds after a reboot" \
         wait_for 60 active_and_answering "$1"
     echo "ok: active and answering after a reboot, because it was enabled"

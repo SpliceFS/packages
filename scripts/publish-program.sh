@@ -7,9 +7,12 @@
 # Usage: publish-program.sh fetch | publish-program.sh send | publish-program.sh check
 #   fetch  downloads what is published now into dist/PROGRAM/repo, so the repository that is
 #          built keeps every older version. An empty remote is fine (the first release).
-#   send   uploads dist/PROGRAM/repo in two passes, the packages first and the index files
-#          after them; a published package is never deleted, and never replaced by a file with
-#          other content under the same name.
+#   send   uploads dist/PROGRAM/repo in three passes: the packages, then the index files that
+#          the entry files (Release, repomd.xml, ...) name, then the entry files and the
+#          deletions. A published package is never deleted, and never replaced by a file with
+#          other content under the same name. An index file is deleted only when neither the
+#          upload nor the one it replaces names it, so a client in the middle of an update
+#          still finds what it was told about.
 #   check  lists the remote folder of the program and changes nothing.
 # Variables: PROGRAM (required), REPO_DIR (default dist/PROGRAM/repo), UPLOAD_HOST
 # (packages.splicefs.org), UPLOAD_PORT (7022), UPLOAD_USER (site-splicefs-packages),
@@ -104,11 +107,12 @@ for major in $majors; do
 done
 
 # A published package must never disappear, and the repository built from fetch holds every
-# old package, so a deletion means something went wrong. Only two kinds of file may go:
+# old package, so a deletion means something went wrong. Only three kinds of file may go:
 # everything inside a repodata folder (its files carry a hash in the name, so every new build
-# replaces them) and the index files of a format (APKINDEX.tar.gz, Packages*, Release*,
-# InRelease), which a new build rewrites.
-OWN_ALLOWED='(^|/)repodata/'
+# replaces them), everything inside a by-hash folder (a copy of an index file under its hash,
+# for every generation of the index) and the index files of a format (APKINDEX.tar.gz,
+# Packages*, Release*, InRelease), which a new build rewrites.
+OWN_ALLOWED='(^|/)(repodata|by-hash)/'
 OWN_ALLOWED="$OWN_ALLOWED"'|(^|/)(APKINDEX\.tar\.gz|InRelease|Packages(\.[a-z0-9]+)*'
 OWN_ALLOWED="$OWN_ALLOWED"'|Release(\.[a-z0-9]+)*)$'
 # The index files are what apt, dnf, apk and pkg read to learn which packages exist: the apt
@@ -116,15 +120,20 @@ OWN_ALLOWED="$OWN_ALLOWED"'|Release(\.[a-z0-9]+)*)$'
 # meta.conf, packagesite.pkg, data.pkg) and the signature files next to them. A new index
 # that is in place before the packages it names are makes a client ask for a file that is not
 # there yet. rsync --delay-updates cannot prevent that alone, because it moves the files into
-# place one after another. So the upload runs in two passes and the script stops at the first
-# one that fails: pass 1 sends everything except the index files, pass 2 sends the index
-# files (and does the deletions). The patterns start with / so that they match from the top of
-# the repository folder only.
-INDEX_PATTERNS='/apt/dists/*** /rpm/*/repodata/*** /alpine/*/APKINDEX.tar.gz'
-INDEX_PATTERNS="$INDEX_PATTERNS /alpine/*/*.sig /alpine/*/*.asc"
-INDEX_PATTERNS="$INDEX_PATTERNS /freebsd/*/meta /freebsd/*/meta.conf"
-INDEX_PATTERNS="$INDEX_PATTERNS /freebsd/*/packagesite.pkg /freebsd/*/data.pkg"
-INDEX_PATTERNS="$INDEX_PATTERNS /freebsd/*/*.sig /freebsd/*/*.asc"
+# place one after another. The same goes for the index files themselves: a Release or a
+# repomd.xml that is in place before the files it names makes a client ask for a file that is
+# not there yet. So the upload runs in three passes and the script stops at the first one that
+# fails: pass 1 sends everything except the index files, pass 2 sends the index files that the
+# entry files name (Packages, the by-hash copies, the files of repodata), pass 3 sends the
+# entry files (and does the deletions). The patterns start with / so that they match from the
+# top of the repository folder only.
+ENTRY_PATTERNS='/apt/dists/*/Release /apt/dists/*/Release.gpg /apt/dists/*/InRelease'
+ENTRY_PATTERNS="$ENTRY_PATTERNS /rpm/*/repodata/repomd.xml*"
+ENTRY_PATTERNS="$ENTRY_PATTERNS /alpine/*/APKINDEX.tar.gz /alpine/*/*.sig /alpine/*/*.asc"
+ENTRY_PATTERNS="$ENTRY_PATTERNS /freebsd/*/meta /freebsd/*/meta.conf"
+ENTRY_PATTERNS="$ENTRY_PATTERNS /freebsd/*/packagesite.pkg /freebsd/*/data.pkg"
+ENTRY_PATTERNS="$ENTRY_PATTERNS /freebsd/*/*.sig /freebsd/*/*.asc"
+INDEX_PATTERNS="$ENTRY_PATTERNS /apt/dists/*** /rpm/*/repodata/***"
 # The same index files as one extended regular expression, for the lines of rsync's dry run
 # (paths relative to the repository folder): a leading / anchors at the top, *** is anything
 # below, * is anything within one folder name.
@@ -136,8 +145,9 @@ INDEX_REGEX=$(for pattern in $INDEX_PATTERNS; do
 done | paste -sd '|' -)
 set +f
 
-DRY=$(mktemp)
-trap 'rm -f "$DRY"' EXIT
+WORK=$(mktemp -d)
+DRY="$WORK/dry"
+trap 'rm -rf "$WORK"' EXIT
 trap 'exit 1' HUP INT TERM
 # set -e is switched off around the call, not by using it as a condition, which would also
 # switch it off inside run_rsync.
@@ -176,6 +186,39 @@ if [ -n "$REPLACED" ]; then
 fi
 
 
+# The Release and the repomd.xml that this upload replaces, as they are published now. A client
+# that read them is still fetching the files they name while the upload runs and after it, so
+# those files are kept (see pass 3). A first publication has none, and the filters below leave
+# every file out that is not there, so nothing is read and nothing protected.
+set -f
+set -- -a
+for dir in /apt/ /apt/dists/ '/apt/dists/*/' '/rpm/' '/rpm/*/' '/rpm/*/repodata/'; do
+  set -- "$@" "--include=$dir"
+done
+set -- "$@" '--include=/apt/dists/*/Release' '--include=/rpm/*/repodata/repomd.xml' '--exclude=*'
+set +f
+set +e
+run_rsync "$@" "$DEST" "$WORK/replaced/"
+replaced_status=$?
+set -e
+if [ "$replaced_status" -ne 0 ]; then
+  echo "could not read the published Release and repomd.xml, nothing was sent" >&2
+  exit 1
+fi
+
+# Names of the files that the replaced Release and repomd.xml list, one a line: the hashes of a
+# Release (every hash type, the by-hash copies carry the hash as their name) and the files of
+# a repomd.xml. The characters are limited to what such a name holds, so that nothing read from
+# the server can be taken for a filter rule.
+replaced_names() {
+  [ ! -d "$WORK/replaced" ] || {
+    find "$WORK/replaced" -name Release -type f \
+      -exec awk '/^ [0-9a-f]+ +[0-9]+ /{ print $1 }' {} +
+    find "$WORK/replaced" -name repomd.xml -type f \
+      -exec sed -n 's|.*<location href="repodata/\([A-Za-z0-9._-]*\)".*|\1|p' {} +
+  }
+}
+
 # Runs one pass: $1 names it for the message, the other arguments are rsync options. A failed
 # pass ends the script, so a later pass never sends an index for files that an earlier one did
 # not deliver. set -e is switched off around the call, not by using it as a condition, which
@@ -206,14 +249,31 @@ done
 set +f
 send_pass "pass 1 (everything except the index files)" "$@"
 
-# Pass 2: the same upload again, now with the deletions. Everything pass 1 sent is there and
-# unchanged, so rsync skips it, and what is left to send is the index files. --delete-after
-# removes only after every file has arrived. The filter rules are checked in order and the
-# first match wins: R lets rsync delete what matches (repodata folders and the index files,
-# the same set the dry run allowed), and the final P * protects everything else, so even a
-# file the dry run missed cannot be deleted.
-set -- -a --checksum --chmod=D755,F644 --delay-updates --delete-after \
-  --filter='R repodata/***' --filter='R APKINDEX.tar.gz' --filter='R Packages*' \
-  --filter='R Release*' --filter='R InRelease' --filter='P *'
-send_pass "pass 2 (the index files and the deletions)" "$@"
+# Pass 2: the same upload again, with only the entry files left out. Everything pass 1 sent is
+# there and unchanged, so rsync skips it, and what is sent is the index files that the entry
+# files name. No deletions yet: the files of the replaced index are still in use.
+set -f
+set -- -a --checksum --chmod=D755,F644 --delay-updates
+for pattern in $ENTRY_PATTERNS; do
+  set -- "$@" "--exclude=$pattern"
+done
+set +f
+send_pass "pass 2 (the index files that the entry files name)" "$@"
+
+# Pass 3: the same upload again, now with the entry files and the deletions. What is left to send
+# is the entry files. --delete-after removes only after every file has arrived. The filter rules
+# are checked in order and the first match wins: P keeps the files that the replaced Release and
+# repomd.xml name, R lets rsync delete what matches (the repodata and by-hash folders and the
+# index files, the same set the dry run allowed), and the final P * protects everything else, so
+# even a file the dry run missed cannot be deleted. So a file of an index generation goes only
+# when neither this upload nor the one it replaces names it.
+set -f
+set -- -a --checksum --chmod=D755,F644 --delay-updates --delete-after
+for name in $(replaced_names | sort -u); do
+  set -- "$@" "--filter=P $name"
+done
+set -- "$@" --filter='R repodata/***' --filter='R by-hash/***' --filter='R APKINDEX.tar.gz' \
+  --filter='R Packages*' --filter='R Release*' --filter='R InRelease' --filter='P *'
+set +f
+send_pass "pass 3 (the entry files and the deletions)" "$@"
 echo "published to ${UPLOAD_TARGET:-$HOST}"
