@@ -1,5 +1,5 @@
 #!/bin/sh
-# check: service-upgrade-lib.sh: after an upgrade over a running service, deb, rpm and apk restart it and pkg leaves the old process running
+# check: service-upgrade-lib.sh: after an upgrade over a running service, deb, rpm and apk restart it and pkg leaves the old process running; a same-version reinstall on pkg prints the install message
 # Test of check_upgrade_of_running_service of scripts/service-upgrade-lib.sh. The service functions it
 # asks are stand-ins that read the process id and the version of the running service from files of the
 # test, and a restart writes the files of the case: so each case says what the upgrade did and what a
@@ -62,17 +62,24 @@ else
 fi
 
 # A reinstall of the same version is not an upgrade. deb and rpm run their scripts on it, so they restart the
-# service as for an upgrade; apk runs no package script on it, so the same process keeps running, as the same
-# version. pkg keeps the old process until the restart, as for an upgrade.
+# service as for an upgrade; apk and pkg do not (pkg add -f installs the files again and ends no process), so the
+# same process keeps running, as the same version.
 new_version=v1.0.0
 for format in deb rpm; do
     upgrade_runs "$format, same version: a restart by the package passes" "$format" 200 v1.0.0 0 "" "restarted the service"
     upgrade_runs "$format, same version: a service that kept its process is found" "$format" 100 v1.0.0 0 "" "the upgrade did not start a new process of the service"
 done
-upgrade_runs "apk, same version: the process that keeps running passes" apk 100 v1.0.0 0 "" "kept running"
-upgrade_runs "apk, same version: a restart nobody asked for is found" apk 200 v1.0.0 0 "" "a reinstall of the same version on apk restarted the service"
-upgrade_runs "apk, same version: a service that reports another version is found" apk 100 v1.1.0 0 "" "after a reinstall of the same version on apk the service reports v1.1.0, not v1.0.0"
-upgrade_runs "pkg, same version: the old process kept, then the restart runs the same version" pkg 100 v1.0.0 300 v1.0.0 "as v1.0.0"
+for format in apk pkg; do
+    upgrade_runs "$format, same version: the process that keeps running passes" "$format" 100 v1.0.0 0 "" "kept running"
+    upgrade_runs "$format, same version: a restart nobody asked for is found" "$format" 200 v1.0.0 0 "" "a reinstall of the same version on $format restarted the service"
+    upgrade_runs "$format, same version: a service that reports another version is found" "$format" 100 v1.1.0 0 "" "after a reinstall of the same version on $format the service reports v1.1.0, not v1.0.0"
+done
+if [ -f "$work/pkg, same version: the process that keeps running passes/calls" ]; then
+    echo "FAIL the test ran a restart itself after a reinstall of the same version on pkg"
+    failed=$((failed + 1))
+else
+    echo "ok   no restart is run by the test after a reinstall of the same version on pkg"
+fi
 new_version=v1.1.0
 
 # pkg: the old process keeps running and reports the old version, until the command of the upgrade
@@ -88,6 +95,25 @@ else
     echo "FAIL pkg: the restart of the upgrade message did not run"
     failed=$((failed + 1))
 fi
+
+# The message pkg prints when the new package is put over the installed one: pkg add -f of the same version
+# is a forced install, which prints the install message, not the upgrade message. $1 the format, $2 the
+# installed version, $3 the new one, $4 the message type.
+message_is() {
+    # The script is for the shell that env starts, which reads its own variables.
+    # shellcheck disable=SC2016
+    got="$(env FORMAT="$1" sh -c 'format="$FORMAT"; . scripts/service-upgrade-lib.sh; put_over_message "$1" "$2"' sh "$2" "$3")"
+    if [ "$got" = "$4" ]; then
+        printf 'ok   %s %s over %s prints the %s message\n' "$1" "$3" "$2" "$4"
+    else
+        printf 'FAIL %s %s over %s: wanted the %s message, got "%s"\n' "$1" "$3" "$2" "$4" "$got"
+        failed=$((failed + 1))
+    fi
+}
+message_is pkg v1.0.0 v1.1.0 upgrade
+message_is pkg v1.0.0 v1.0.0 install
+message_is deb v1.0.0 v1.0.0 upgrade
+message_is apk v1.0.0 v1.1.0 upgrade
 
 if [ "$failed" -ne 0 ]; then
     echo "$failed service-upgrade-lib case(s) failed"
