@@ -50,6 +50,17 @@ on_system_as_root() {
     on_system "$@"
 }
 
+# A system the host cannot reach fetches its published package itself, with the hook of its format:
+# STAND_IN_FETCH makes this stand-in exist. It logs its call, fails when STAND_IN_FAIL holds its name, and
+# prints the path of the file it fetched, which is not the one the host would have put in /pkg.
+if [ -n "${STAND_IN_FETCH:-}" ]; then
+    fetch_published_package() {
+        echo "fetch_published_package $1" >>"$STAND_IN_DIR/log"
+        case "${STAND_IN_FAIL:-}" in *fetch_published_package*) return 1 ;; *) ;; esac
+        echo "/fetched/$PROGRAM/splicefs-$PROGRAM-published.deb"
+    }
+fi
+
 # The programs a call names by their package, as words: the install, removal and query commands.
 named_programs() {
     case "$call" in *splicefs-server*) echo server ;; *) ;; esac
@@ -173,6 +184,7 @@ scenario() {
     zones=
     port_open=
     format=deb
+    fetch_hook=
 }
 
 # Runs the case $1 with the settings of scenario: $built names the programs whose packages are in
@@ -180,7 +192,8 @@ scenario() {
 # is $reinstalled, $cores are the cores listed at the fourth look (before step 3 of a run of the
 # server alone), $late_cores those listed at the look after the last snapshot, $user is the user the
 # service runs as, $format the package format of the system. $firewalld, when not empty, makes the
-# system run firewalld, and $zones names the zone files it has before the test (public.xml and
+# system run firewalld ($fetch_hook, when not empty, gives the system a hook that fetches the published
+# package itself), and $zones names the zone files it has before the test (public.xml and
 # public.xml.old, or neither); $port_open makes the port stay open in it. A call that holds the text
 # in $fail_on fails. The first phase runs, then the restart the host does (a service that is not
 # enabled does not come back), then the second phase, unless the first failed. Keeps the log of the
@@ -221,7 +234,7 @@ launch() {
     (
         status=0
         export STAND_IN_FAIL="$fail_on" STAND_IN_DIR="$case_dir/dir" PATH="$t/bin:$PATH" STAND_IN_USER="$user" \
-            STAND_IN_FIREWALLD="$firewalld" STAND_IN_PORT_OPEN="$port_open" \
+            STAND_IN_FIREWALLD="$firewalld" STAND_IN_PORT_OPEN="$port_open" STAND_IN_FETCH="$fetch_hook" \
             FORMAT="$format" PLATFORM=linux/amd64 PROGRAMS="$built" PACKAGE_TEST_OUT="$case_dir/out" BASELINES="$case_dir/baselines"
         steps="$case_dir/root/scripts/package-test-steps.sh"
         sh "$steps" phase1 || status=$?
@@ -419,6 +432,10 @@ scenario; built="server client"; fail_on="apt-get install -y -qq /pkg/client/pub
 scenario; built="server client"; fail_on="sh deb v1.3.9 v1.4.0"; launch client_upgrade_fails
 scenario; built="server client"; fail_on="apt-get remove -y -qq splicefs-client"; launch client_plain_removal_fails
 scenario; built="server client"; last="/etc/b"; launch both_snapshot_differs
+scenario; fetch_hook=1; launch hook_fetches
+scenario; fetch_hook=1; record=none; launch hook_nothing_published
+scenario; fetch_hook=1; fail_on=fetch_published_package; launch hook_fails
+scenario; fetch_hook=1; built="server client"; launch hook_both
 scenario; format=rpm; firewalld=1; zones="public.xml public.xml.old"; launch zones_existed
 scenario; format=rpm; firewalld=1; launch zones_missing
 scenario; format=rpm; firewalld=1; zones="public.xml.old"; launch one_zone_existed
@@ -509,6 +526,34 @@ expect "step 1 says nothing is published" holds "nothing is published for server
 expect "no published file is installed" sh -c "! grep -q '/published/' '$dir/log'"
 expect "the new file is installed, and the configuration file and the data file are written" \
     in_order "apt-get install -y -qq /pkg/server/splicefs-server_1.2.3_amd64.deb" "write_markers deb" "sh deb v1.2.3 v1.2.3 file"
+
+# The hook of a system the host cannot reach (the FreeBSD machine): the published package is the file it
+# fetched, not the one in /pkg.
+use_case hook_fetches
+expect "a run whose system fetches the published package itself passes" passed_status
+expect "the hook is asked once, for the system, before the published file is installed" \
+    sh -c "[ \"\$(grep -c fetch_published_package '$dir/log')\" -eq 1 ]"
+expect "the file the hook fetched is installed as the published package" \
+    in_order "fetch_published_package system" "apt-get install -y -qq /fetched/server/splicefs-server-published.deb"
+expect "the file of the host is not used" sh -c "! grep -q '/pkg/server/published/' '$dir/log'"
+expect "the new file goes over the fetched one" in_order "apt-get install -y -qq /fetched/server/" "sh deb v1.2.2 v1.2.3 file"
+
+use_case hook_nothing_published
+expect "a run with nothing published and a hook passes" passed_status
+expect "nothing published asks no hook: there is nothing to fetch" sh -c "! grep -q fetch_published_package '$dir/log'"
+expect "step 1 says nothing is published, with a hook as without" holds "nothing is published for server"
+
+use_case hook_fails
+expect "a hook that fails fails step 1" failed_in 1
+expect "the failure of the hook is named" holds "fetching the published package failed"
+expect "nothing is installed after a failed fetch" sh -c "! grep -q 'apt-get install' '$dir/log'"
+
+use_case hook_both
+expect "a run of both programs whose system fetches the published packages passes" passed_status
+expect "the hook is asked for the server and then for the client, and each file is installed as fetched" \
+    in_order "fetch_published_package system" "apt-get install -y -qq /fetched/server/splicefs-server-published.deb" \
+    "apt-get install -y -qq /fetched/client/splicefs-client-published.deb"
+expect "the hook is asked once for each program" sh -c "[ \"\$(grep -c fetch_published_package '$dir/log')\" -eq 2 ]"
 
 use_case file_check_fails
 expect "a failing file check fails the system" failed_status
