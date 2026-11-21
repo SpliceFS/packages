@@ -57,16 +57,16 @@ check_still_running() {
 
 # What putting the new package over a running service does, for the package format of the system: the one
 # place that says it. Usage: upgrade_effect OLD NEW (the program versions, v1.2.3), prints one of
-#   restarts   the package restarts the service itself: deb and rpm always (their scripts run on a reinstall
-#              of the same version too), apk on an upgrade
+#   restarts   the package restarts the service itself: deb, rpm and apk always (their scripts run on a
+#              reinstall of the same version too: apk add of the file replaces the installed package and runs
+#              post-upgrade)
 #   keeps      the old process keeps running until the administrator restarts it: pkg on an upgrade, which
 #              ends every program a package script starts, so the upgrade message names the restart
-#   untouched  the service is not touched at all: apk and pkg on a reinstall of the same version. apk runs
-#              no package script on it. pkg add -f is a forced install, not an upgrade, and the service
-#              keeps its process
+#   untouched  the service is not touched at all: pkg on a reinstall of the same version. pkg add -f is a
+#              forced install, not an upgrade, and the service keeps its process
 upgrade_effect() {
     case "$format:$1" in
-        apk:"$2" | pkg:"$2") echo untouched ;;
+        pkg:"$2") echo untouched ;;
         pkg:*) echo keeps ;;
         *) echo restarts ;;
     esac
@@ -104,8 +104,8 @@ check_same_process_and_version() {
 # Step 2, after the new package was put over the service that step 1a started: what the package of the
 # format does to it (upgrade_effect). A service the package restarted runs in a new process as the new
 # version. On pkg the old process keeps running as the old version until the restart the upgrade message
-# names, which is then run, and the service runs the new version. On apk and pkg, for a package of the
-# version that is installed, the same process keeps running as the same version. A new process is the
+# names, which is then run, and the service runs the new version. On pkg, for a package of the version
+# that is installed, the same process keeps running as the same version. A new process is the
 # proof of a restart, so it also shows one when the new package has the published version (a change to the
 # packaging alone).
 check_upgrade_of_running_service() {
