@@ -38,12 +38,6 @@ install_published_package() {
     return "$install_status"
 }
 
-# The same file over the installed one: the upgrade path, with the old version's prerm and the new
-# version's postinst.
-upgrade_package() {
-    reinstall_package_file "$1"
-}
-
 remove_package() {
     on_system "$1" env DEBIAN_FRONTEND=noninteractive apt-get remove -y -qq "$name" >/dev/null
 }

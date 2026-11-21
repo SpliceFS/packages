@@ -10,14 +10,3 @@ on_system() {
 on_system_as_root() {
     on_system "$@"
 }
-
-# The package file of package_file over the installed one, which is the same version, so the
-# package manager of the system reinstalls it, as scripts/upgrade-package-lib.sh says. The
-# container has the repository at /src. Usage: reinstall_package_file CONTAINER; $format and
-# $VERSION are set by the harness.
-# shellcheck disable=SC2154 # the harness that sources this file sets them
-reinstall_package_file() {
-    pkg="$(package_file)"
-    docker exec -e DEBIAN_FRONTEND=noninteractive -w /src "$1" sh -c \
-        '. scripts/upgrade-package-lib.sh; upgrade_package "$@"' sh "$format" "$VERSION" "$VERSION" file "$pkg"
-}

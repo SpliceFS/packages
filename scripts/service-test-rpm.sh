@@ -51,12 +51,6 @@ install_published_package() {
     fi
 }
 
-# The same file over the installed one: the upgrade path, with the new version's post and the old
-# version's preun and postun.
-upgrade_package() {
-    reinstall_package_file "$1"
-}
-
 # dnf takes the packages the package needed along with it by its own setting; zypper does it only
 # when told (the documented removal says so), so a system with either ends the same.
 remove_package() {

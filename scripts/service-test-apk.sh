@@ -20,23 +20,6 @@ install_package() {
     on_system_as_root "$1" apk add -q --allow-untrusted "$pkg" >/dev/null
 }
 
-# apk does nothing when the package file of the installed version is added again. The upgrade
-# scripts run when a package is reinstalled from a repository, so the file is put in a
-# repository of its own and fix --reinstall installs it from there.
-upgrade_package() {
-    pkg="$(package_file)"
-    # The script is for the shell that sh -c starts, which reads its own variables.
-    # shellcheck disable=SC2016
-    on_system "$1" sh -c '
-        repo=/tmp/service-test-repo
-        arch="$(apk --print-arch)"
-        mkdir -p "$repo/$arch"
-        cp "$1" "$repo/$arch/"
-        apk index --allow-untrusted -q -o "$repo/$arch/APKINDEX.tar.gz" "$repo/$arch"/*.apk 2>/dev/null
-        apk fix --reinstall --allow-untrusted --no-network --repositories-file /dev/null \
-            -X "$repo" -q "$2"' sh "$pkg" "$name" >/dev/null
-}
-
 # The published package file $2 is signed by the release key, which apk checks when it installs a
 # file: the key of the site is put in place for the install only. The new package is signed with the
 # key of its own build, which has the same name, so the release key must be gone before it is installed.
