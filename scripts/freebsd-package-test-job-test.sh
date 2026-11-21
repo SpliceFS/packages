@@ -72,13 +72,13 @@ same "the first boot runs no later phase" no "$found"
 second="$t/good/machine/usr/local/etc/rc.d/second_boot"
 [ -x "$second" ] && found=yes || found=no
 same "the one-shot script is installed and may run" yes "$found"
-same "it requires the services of both programs, as decided" "# REQUIRE: LOGIN splicefsd splicefs" "$(grep '^# REQUIRE' "$second")"
-same "it runs the file of the second boot, which is on the system disk" "run /var/db/second-boot/phase-two.sh" "$(grep '^run' "$second")"
+same "it requires the services of both programs, as decided" "# REQUIRE: LOGIN splicefsd splicefs" "$(grep '^# REQUIRE' "$second" || true)"
+same "it runs the file of the second boot, which is on the system disk" "run /var/db/second-boot/phase-two.sh" "$(grep '^run' "$second" || true)"
 [ -f "$t/good/machine/var/db/second-boot/phase-two.sh" ] && found=yes || found=no
 same "the file of the second boot is there" yes "$found"
 [ -f "$t/good/results/second-boot" ] && found=yes || found=no
 same "the second boot is asked for" yes "$found"
-same "the result of the steps goes back to the host" ok "$(cat "$t/good/results/package-test/result")"
+same "the result of the steps goes back to the host" ok "$(cat "$t/good/results/package-test/result" || true)"
 
 # The second boot: the machine restarted, the results of the first boot are restored in the result folder.
 status=0
@@ -87,7 +87,7 @@ same "the second boot passes" 0 "$status"
 grep -q "^step for phase2" "$t/good/second-said" && grep -q "^step for phase3" "$t/good/second-said" && found=yes || found=no
 same "the second boot runs phase 2 and then phase 3" yes "$found"
 same "it shows only what its own phases printed" 0 "$(grep -c "^step for phase1" "$t/good/second-said" || true)"
-same "the log that goes back holds the phases of both boots" 3 "$(grep -c '^step for' "$t/good/results/package-test/log")"
+same "the log that goes back holds the phases of both boots" 3 "$(grep -c '^step for' "$t/good/results/package-test/log" || true)"
 
 FAIL_PHASE=phase1 first_boot "$t/bad1"
 same "a first boot whose phase 1 fails fails" 1 "$first_status"
@@ -95,7 +95,7 @@ grep -q "^the check that failed" "$t/bad1/said" && found=yes || found=no
 same "it prints the step that failed, with the lines from it" yes "$found"
 [ ! -e "$t/bad1/results/second-boot" ] && [ ! -e "$t/bad1/machine/usr/local/etc/rc.d/second_boot" ] && found=none || found=some
 same "a failed first boot asks for no second boot and leaves no one-shot script" none "$found"
-same "the failed step goes back to the host" "step for phase1" "$(cat "$t/bad1/results/package-test/result")"
+same "the failed step goes back to the host" "step for phase1" "$(cat "$t/bad1/results/package-test/result" || true)"
 
 # A failure in phase 3 after phase 2 passed: the second boot fails and names the step.
 status=0

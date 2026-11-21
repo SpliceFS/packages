@@ -51,6 +51,8 @@ paths() {
             values["format"] = formats
             split("defs format", names, " ")
             runtime["$in/check-lib.sh"] = runtime["$OS_RELEASE"] = runtime["$work/retry.sh"] = 1
+            # Only the FreeBSD machine has them: the unpacked input of the host and the environment the first boot writes.
+            runtime["$state/input/src/scripts/freebsd-package-test-lib.sh"] = runtime["$state/env"] = 1
         }
         # Writes out the first use of $name in each of the paths, once for every value.
         function expand(name, count,    next_count, i, k, n, found, value) {

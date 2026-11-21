@@ -80,7 +80,8 @@ make_input() {
         use_program "$each"
         mkdir -p "$stage/src/dist/$each" "$stage/pkg/$each"
         cp "$root/dist/$each/version" "$stage/src/dist/$each/version"
-        cp "$(package_of "$each" "$major")" "$stage/pkg/$each/"
+        package_path="$(package_of "$each" "$major")"
+        cp "$package_path" "$stage/pkg/$each/"
         cp "$baselines/$each" "$stage/baselines/$each"
     done
     COPYFILE_DISABLE=1 tar -cf "$archive" -C "$stage" .
@@ -91,7 +92,10 @@ test_release() {
     major="${release%%.*}"
     present=""
     for candidate in $all_programs; do
-        if [ -n "$(package_of "$candidate" "$major")" ]; then
+        # package_of is a function whose output is the answer, and its status is always 0.
+        # shellcheck disable=SC2310
+        package_path="$(package_of "$candidate" "$major")"
+        if [ -n "$package_path" ]; then
             present="$present${present:+ }$candidate"
         else
             echo "FreeBSD $release: $candidate: no package, left out"
@@ -101,10 +105,13 @@ test_release() {
     job="$out/job-$release"
     # The job script runs the first boot; the file of the second boot and the template of its one-shot
     # script, which the image of the machine provides, are in the job folder too.
+    # present is a list of words on purpose.
+    # shellcheck disable=SC2086
     freebsd_job_folder "$release" "$job" scripts/freebsd-package-test-job.sh $present
     cp scripts/freebsd-package-test-second.sh "$job/"
-    docker run --rm "$(freebsd_image "$release")" cat /freebsd/second-boot.in >"$job/second-boot.in" ||
-        fail "cannot read /freebsd/second-boot.in from $(freebsd_image "$release"): the image is too old for a second boot"
+    machine_image="$(freebsd_image "$release")"
+    docker run --rm "$machine_image" cat /freebsd/second-boot.in >"$job/second-boot.in" ||
+        fail "cannot read /freebsd/second-boot.in from $machine_image: the image is too old for a second boot"
     # present is a list of words on purpose.
     # shellcheck disable=SC2086
     make_input "$major" "$out/input-$release.tar" $present

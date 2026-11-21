@@ -6,14 +6,10 @@
 # scripts/service-run-local.sh) before it sources this file.
 # shellcheck disable=SC2154 # those variables are set by the file that sources this one
 
-# Where the machine's input put the package files, one folder for each program. The machine has
-# no mount of the host, so the job unpacks its input into a folder of its own and says where.
-package_files_dir() {
-    echo "${PACKAGE_FILES:-/pkg}"
-}
-
+# The package files are in one folder for each program. The machine has no mount of the host, so the
+# job unpacks its input into a folder of its own and says where (PACKAGE_FILES).
 package_file() {
-    echo "$(package_files_dir)/$PROGRAM/$name-$pkgver.pkg"
+    echo "${PACKAGE_FILES:-/pkg}/$PROGRAM/$name-$pkgver.pkg"
 }
 
 # pkg add installs a package file and gets what it needs from the repositories of the system, as a

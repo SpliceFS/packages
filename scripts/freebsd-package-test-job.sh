@@ -34,6 +34,8 @@ chmod 555 "$root_dir/usr/local/etc/rc.d/second_boot"
 # off, and removed when the phase failed: a failed first boot has no second.
 touch "$out/second-boot"
 status=0
+# run_and_return_results is one command whose status is the answer, so set -e being off inside it changes nothing.
+# shellcheck disable=SC2310
 run_and_return_results "$out" phase1 || status=$?
 if [ "$status" -ne 0 ]; then
     rm -f "$out/second-boot" "$root_dir/usr/local/etc/rc.d/second_boot"

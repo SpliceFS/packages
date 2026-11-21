@@ -42,9 +42,10 @@ run_package_test_phases() {
 # it failed. Prints nothing when the steps wrote no result.
 show_failed_step() {
     [ -f "$state/out/result" ] || return 0
-    cat "$state/out/result"
+    read -r failed_line <"$state/out/result"
+    echo "$failed_line"
     [ -f "$state/out/log" ] || return 0
-    awk -v line="$(cat "$state/out/result")" '
+    awk -v line="$failed_line" '
         { text[NR] = $0 }
         $0 == line { found = NR }
         END { if (found == 0) found = 1; for (i = found; i <= NR; i++) print text[i] }

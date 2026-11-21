@@ -67,6 +67,8 @@ runs() {
     fi
 }
 
+# The text is for the shell that sh -c starts, which expands it.
+# shellcheck disable=SC2016
 runs "the package file is where the machine's input puts it, by the name and version of the package" "" 0 \
     '[ "$(PACKAGE_FILES=/in package_file)" = /in/server/splicefs-server-1.2.3.pkg ] && [ "$(package_file)" = /pkg/server/splicefs-server-1.2.3.pkg ]'
 
@@ -88,6 +90,7 @@ runs "the plain removal is pkg delete" "pkg delete -y splicefs-server" 0 "remove
 runs "the package is installed when pkg info -e says so" "pkg info -e splicefs-server" 0 "package_installed system"
 rm "$work/installed"
 runs "the package is not installed when pkg info -e says not" "pkg info -e splicefs-server" 1 "package_installed system"
+# shellcheck disable=SC2016
 runs "the file that uninstalls is the one for pkg" "" 0 '[ "$(uninstall_file system)" = steps/uninstall-pkg.sh ]'
 
 runs "the service is enabled with sysrc, as the install message says" "sysrc splicefsd_enable=YES" 0 "service_enable system"
@@ -101,10 +104,12 @@ runs "the service is stopped, enabled or not" "service splicefsd onestop" 0 "ser
 runs "the service is restarted" "service splicefsd restart" 0 "service_restart system"
 runs "active is asked of a service that is not enabled too" "service splicefsd onestatus" 0 "service_active system"
 runs "enabled is asked with service enabled" "service splicefsd enabled" 0 "service_enabled system"
+# shellcheck disable=SC2016
 runs "the service definition is the rc script of the package" "" 0 \
     '[ "$(service_file)" = /usr/local/etc/rc.d/splicefsd ]'
 
 # The user is the owner of the process whose id the service writes.
+# shellcheck disable=SC2016
 runs "the user of the service is the owner of its process, found by the pid file of the service" \
     "ps -o user= -p 4242" 0 '[ "$(service_user system)" = splicefs ]'
 
