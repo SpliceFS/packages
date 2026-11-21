@@ -10,7 +10,7 @@
 . scripts/service-systemd-lib.sh
 
 package_file() {
-    echo "/pkg/${name}_${debver}_${platform#linux/}.deb"
+    echo "/pkg/$PROGRAM/${name}_${debver}_${platform#linux/}.deb"
 }
 
 # Installs the package file $2 in the container $1. apt resolves the dependencies of a local file;

@@ -17,7 +17,7 @@ package_file() {
         linux/amd64) arch=x86_64 ;;
         *) fail "no rpm for platform $platform" ;;
     esac
-    echo "/pkg/$name-$rpmver-$rpmrel.$arch.rpm"
+    echo "/pkg/$PROGRAM/$name-$rpmver-$rpmrel.$arch.rpm"
 }
 
 # Installs the package file $2 in the container $1. The system's package manager resolves the

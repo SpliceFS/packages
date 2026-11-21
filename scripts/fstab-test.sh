@@ -126,7 +126,7 @@ while read -r format image; do
     count=$((count + 1))
     container="splicefs-fstab-test-$$-$count"
     boot_system --name "$container" --platform "$platform" \
-        -v "$root/dist/$PROGRAM":/pkg:ro -v "$SERVER_BIN":/srvbin:ro "$image"
+        -v "$root/dist/$PROGRAM":"/pkg/$PROGRAM":ro -v "$SERVER_BIN":/srvbin:ro "$image"
     # Errexit is off here on purpose: every command of run_checks is guarded with fail.
     set +e
     (run_checks "$container")

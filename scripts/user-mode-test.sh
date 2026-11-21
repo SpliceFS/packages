@@ -185,7 +185,7 @@ for format in deb rpm apk; do
     count=$((count + 1))
     container="splicefs-user-mode-test-$$-$count"
     boot_system --name "$container" --platform "$platform" \
-        -v "$root/dist/$PROGRAM":/pkg:ro -v "$SERVER_BIN":/srvbin:ro -v "$root/steps":/steps:ro "$image"
+        -v "$root/dist/$PROGRAM":"/pkg/$PROGRAM":ro -v "$SERVER_BIN":/srvbin:ro -v "$root/steps":/steps:ro "$image"
     # Errexit is off here on purpose: every command of run_checks is guarded with fail.
     set +e
     (run_checks "$container" "$format")

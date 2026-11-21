@@ -131,7 +131,7 @@ test_system() {
     # boot_system is one test whose status is the answer, so set -e being off inside it changes nothing.
     # shellcheck disable=SC2086,SC2310
     if boot_system --name "$container" --platform "$platform" \
-        -v "$root/dist/$PROGRAM":/pkg:ro $options "$2" 2>"$log"; then
+        -v "$root/dist/$PROGRAM":"/pkg/$PROGRAM":ro $options "$2" 2>"$log"; then
         started=1
     fi
 

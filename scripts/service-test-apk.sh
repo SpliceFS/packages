@@ -9,7 +9,7 @@ package_file() {
         linux/arm64) arch=aarch64 ;;
         *) arch=x86_64 ;;
     esac
-    echo "/pkg/alpine/$arch/$name-$apkver-r$apkrel.apk"
+    echo "/pkg/$PROGRAM/alpine/$arch/$name-$apkver-r$apkrel.apk"
 }
 
 install_package() {
