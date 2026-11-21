@@ -27,8 +27,10 @@ reinstall_package() {
         # Every install goes through the package manager of the system, never through rpm or dpkg
         # itself, which ignore its settings (a system that leaves out the documentation gets it
         # from rpm -U). dnf and zypper are told to reinstall a file of the installed version. apk
-        # does nothing for a file, so a file is put in a repository first; a package of a
-        # repository is fixed.
+        # adds a file of the installed version, which differs in content, over the old one and runs
+        # the upgrade scripts, as it does for a newer one; a package of a repository is fixed.
+        # apk fix --reinstall from a repository holding the file would skip it without a word, because
+        # apk keeps the installed package, and the old content would stay.
         rpm:file)
             if command -v dnf >/dev/null 2>&1; then
                 dnf reinstall -y -q --nogpgcheck "$3" >/dev/null
@@ -43,31 +45,13 @@ reinstall_package() {
                 zypper --non-interactive install --force "$3" >/dev/null
             fi
             ;;
-        apk:file) reinstall_apk_file "$3" ;;
+        apk:file) upgrade_package_to_newer "$1" "$2" "$3" ;;
         # pkg add refuses a file of the installed version unless it is forced, and runs the install
         # scripts of the package again, as a reinstall must. What pkg says is the upgrade message of the
         # package, which the caller may keep and check.
         pkg:file) pkg add -f "$3" ;;
         *) apk fix -q --reinstall "$3" >/dev/null ;;
     esac
-}
-
-# apk reinstalls only a package that a repository offers, and does nothing for a file of the
-# installed version. So the file goes in a repository of its own, a folder for the CPU type with
-# the file and its index, and the package, whose name is in the file, is fixed from there. Only
-# that repository is read, so the run needs no network.
-reinstall_apk_file() {
-    ra_name="$(tar -xzOf "$1" .PKGINFO | sed -n 's/^pkgname = //p')"
-    ra_repo="$(mktemp -d)"
-    ra_dir="$ra_repo/$(apk --print-arch)"
-    ra_status=0
-    mkdir "$ra_dir" && cp "$1" "$ra_dir/" || ra_status=1
-    # The index says the file needs /bin/sh, which no repository of this folder provides.
-    [ "$ra_status" -ne 0 ] || apk index -q --allow-untrusted -o "$ra_dir/APKINDEX.tar.gz" "$ra_dir"/*.apk 2>/dev/null || ra_status=1
-    [ "$ra_status" -ne 0 ] || apk fix -q --reinstall --allow-untrusted --no-network --repositories-file /dev/null \
-        -X "$ra_repo" "$ra_name" >/dev/null || ra_status=1
-    rm -rf "$ra_repo"
-    return "$ra_status"
 }
 
 # The keys of a package file are not imported: the old one is signed with the release key and

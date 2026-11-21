@@ -11,12 +11,11 @@ work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 failed=0
 
-mkdir "$work/bin" "$work/bin-dnf" "$work/bin-repo" "$work/bin-fix-fails"
+mkdir "$work/bin" "$work/bin-dnf"
 for manager in apt-get zypper apk pkg; do
-    # The stand-in expands its own variables when it runs. apk also says its CPU type, which the
-    # repository of a package file is named by.
+    # The stand-in expands its own variables when it runs.
     # shellcheck disable=SC2016
-    printf '#!/bin/sh\necho "%s $*" >> "$CALLS"\n[ "$1" != --print-arch ] || echo testarch\n' "$manager" > "$work/bin/$manager"
+    printf '#!/bin/sh\necho "%s $*" >> "$CALLS"\n' "$manager" > "$work/bin/$manager"
     chmod 755 "$work/bin/$manager"
 done
 # rpm and dpkg ignore the settings of the package manager of the system (dnf.conf adds the
@@ -77,45 +76,13 @@ calls "rpm with zypper, newer version: the repository package is upgraded" "$wor
 
 calls "apk, same version: the repository package is reinstalled" "$work/bin" apk v1.2.3 v1.2.3 repo \
     "apk fix -q --reinstall pkg-or-file"
-# apk does nothing for a file of the installed version, so the file goes in a repository of its own
-# (a folder for its CPU type with the file and its index), and the package, whose name is in the
-# file, is fixed from there. mktemp is a stand-in that makes the folder $work/repo, so that its
-# name is the same in every run, and the stand-in apk of bin-fix-fails fails when it is asked to fix.
-printf 'pkgname = demo\n' > "$work/.PKGINFO"
-tar -czf "$work/demo-1.2.3-r0.apk" -C "$work" .PKGINFO
-printf '#!/bin/sh\nmkdir "%s" && echo "%s"\n' "$work/repo" "$work/repo" > "$work/bin-repo/mktemp"
-# The stand-in expands its own variables when it runs.
-# shellcheck disable=SC2016
-printf '#!/bin/sh\necho "apk $*" >> "$CALLS"\n[ "$1" != --print-arch ] || echo testarch\n[ "$1" != fix ] || exit 1\n' \
-    > "$work/bin-fix-fails/apk"
-chmod 755 "$work/bin-repo/mktemp" "$work/bin-fix-fails/apk"
-
-# $1 case name, $2 the folders of stand-ins that go first on the PATH, $3 the status that
-# upgrade_package must end with (0 or 1).
-apk_file() {
-    rm -rf "$work/repo"
-    : > "$work/calls"
-    status=0
-    CALLS="$work/calls" PATH="$2:$work/bin:/usr/bin:/bin" sh -c \
-        '. scripts/upgrade-package-lib.sh; upgrade_package "$@"' sh apk v1.2.3 v1.2.3 file "$work/demo-1.2.3-r0.apk" || status=1
-    want="apk --print-arch
-apk index -q --allow-untrusted -o $work/repo/testarch/APKINDEX.tar.gz $work/repo/testarch/demo-1.2.3-r0.apk
-apk fix -q --reinstall --allow-untrusted --no-network --repositories-file /dev/null -X $work/repo demo"
-    got="$(cat "$work/calls")"
-    left=no
-    [ ! -e "$work/repo" ] || left=yes
-    if [ "$got" = "$want" ] && [ "$status" = "$3" ] && [ "$left" = no ]; then
-        printf 'ok   %s\n' "$1"
-    else
-        printf 'FAIL %s: status %s, repository left: %s, want the calls\n%s\ngot\n%s\n' "$1" "$status" \
-            "$left" "$want" "$got"
-        failed=$((failed + 1))
-    fi
-}
-apk_file "apk, same version: the file is reinstalled from a repository of its own, which is removed" \
-    "$work/bin-repo" 0
-apk_file "apk, same version: a failed fix ends with a failure and still removes the repository" \
-    "$work/bin-repo:$work/bin-fix-fails" 1
+# A file of the installed version but of other content (a package built again) is a replacement for apk,
+# which installs it over the old one and runs the upgrade scripts of the package. apk fix --reinstall
+# from a repository of the file does not: apk keeps the installed package, whose file the repository does
+# not offer, and skips it with status 0, so the old content stayed. Only a file identical to the installed
+# one is left alone by apk add, and the package under test is built again, so it never is.
+calls "apk, same version: the file is added over the installed one" "$work/bin" apk v1.2.3 v1.2.3 file \
+    "apk add -q --allow-untrusted pkg-or-file"
 calls "apk, newer version: the file is added over the old one" "$work/bin" apk v1.2.3 v1.2.4 file \
     "apk add -q --allow-untrusted pkg-or-file"
 calls "apk, newer version: the repository package is upgraded" "$work/bin" apk v1.2.3 v1.2.4 repo \
