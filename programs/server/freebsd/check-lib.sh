@@ -2,10 +2,9 @@
 # Sourced by scripts/freebsd-job.sh inside the FreeBSD machine. It says what "the service
 # works" means for this program; the rest of the job is the same for every SpliceFS program.
 
-# scripts/freebsd-job.sh, which sources this file, reads expected_user.
-# shellcheck disable=SC2034
-# The server runs as its own user, which owns nothing but its data folder.
-expected_user=splicefs
+# The server sets no expected_user: the package test (scripts/package-test-steps.sh) proves its service
+# in full, so the job runs only the checks that test does not make: the install and remove messages and
+# the upgrade under a running service. Those start the service and ask it, which is what answers is for.
 
 # Status 0 when the health endpoint answers. The default listener is every interface on
 # port 8480, TLS with a certificate the server makes for itself, so the check does not

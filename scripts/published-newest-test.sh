@@ -90,5 +90,33 @@ else
     failed=$((failed + 1))
 fi
 
+# published_is_newer decides whether step 2 of the package test would go down. The library needs the
+# variables of a whole run to be sourced, so its two functions are taken out of it.
+for function_name in newest_debver published_is_newer; do
+    sed -n "/^$function_name() {\$/,/^}\$/p" scripts/published-lib.sh >> "$work/order.sh"
+done
+[ -s "$work/order.sh" ] || { echo "FAIL: scripts/published-lib.sh has no published_is_newer" >&2; exit 1; }
+echo 'published_is_newer "$@"' >> "$work/order.sh"
+
+# $1 case name, $2 the published deb version, $3 the deb version under test, $4 yes or no.
+newer() {
+    got=no
+    sh "$work/order.sh" "$2" "$3" && got=yes
+    if [ "$got" = "$4" ]; then
+        printf 'ok   %s\n' "$1"
+    else
+        printf 'FAIL %s: want %s got %s\n' "$1" "$4" "$got"
+        failed=$((failed + 1))
+    fi
+}
+newer "a newer published release is newer" 1.2.4 1.2.3 yes
+newer "versions are compared as numbers" 1.2.10 1.2.9 yes
+newer "the same version is not newer" 1.2.3 1.2.3 no
+newer "an older published release is not newer" 1.2.2 1.2.3 no
+newer "a published release is newer than a pre-release of it" 1.2.3 1.2.3~rc.1 yes
+newer "a published pre-release is older than its release" 1.2.3~rc.1 1.2.3 no
+newer "a build that is not exactly a release counts as the release it follows" 1.2.3 1.2.3+dirty no
+newer "a build of an older release is older than the published one" 1.2.4 1.2.3+dirty yes
+
 [ "$failed" -eq 0 ] || { echo "$failed failed"; exit 1; }
 echo "published-newest: all cases as expected"

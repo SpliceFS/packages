@@ -71,7 +71,8 @@ splicefs_cleanup() {
 # is cut off after 2 seconds because a client that has the socket but is not serving yet would
 # otherwise keep the call waiting; 30 tries cover the 15 seconds a cluster that is down at boot
 # takes to give up. When none is answered, the supervisor and the client are ended here, because
-# a failed start leaves them running.
+# a failed start leaves them running, and the run folder goes as a stop takes it: only after the
+# supervisor is gone, which is what rc.subr waits for before it runs the cleanup of a stop.
 splicefs_wait() {
     tries=0
     until timeout 2 "${control}" status >/dev/null 2>&1; do
@@ -80,6 +81,8 @@ splicefs_wait() {
             echo "${name} does not answer, see ${logfile}"
             supervisor_pid="$(cat "${pidfile}")"
             kill "${supervisor_pid}"
+            wait_for_pids "${supervisor_pid}"
+            splicefs_cleanup
             return 1
         fi
         sleep 1

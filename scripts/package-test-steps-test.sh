@@ -511,6 +511,9 @@ scenario; fetch_hook=1; built="server client"; launch hook_both
 scenario; fetch_hook=1; record=1.2.1; fetched_server=1.2.2; launch hook_fetches_newer
 scenario; fetch_hook=1; record=1.2.1; fetched_server=1.2.3; launch hook_fetches_the_new_version
 scenario; fetch_hook=1; fail_on=published_baseline_version; launch hook_version_unreadable
+scenario; fetch_hook=1; record=1.2.1; fetched_server=1.2.4; launch hook_fetches_a_newer_release
+scenario; record=1.2.4; launch recorded_newer_release
+scenario; built="server client"; fetch_hook=1; client_record=1.3.0; fetched_client=1.4.1; launch client_fetches_a_newer_release
 scenario; fetch_hook=1; built="server client"; record=1.2.1; client_record=1.3.0; fetched_server=1.2.2; fetched_client=1.3.9; launch hook_both_newer
 scenario; format=rpm; firewalld=1; zones="public.xml public.xml.old"; launch zones_existed
 scenario; format=rpm; firewalld=1; launch zones_missing
@@ -647,6 +650,32 @@ expect "a run whose fetched package is the version of the new one passes" passed
 expect "the same version is put over the fetched one with the reinstall, and again over itself" \
     sh -c "[ \"\$(grep -c 'sh deb v1.2.3 v1.2.3 file' '$dir/log')\" -eq 2 ]"
 expect "no call upgrades from the version the host read" sh -c "! grep -q 'v1.2.1' '$dir/log'"
+
+# A release published during the run is what the system fetches (the site lists the newest), and it is
+# newer than the package under test (v1.2.3): step 2 would go down. It never does: it refuses, with the
+# line that says what happened, before the new file is put anywhere.
+use_case hook_fetches_a_newer_release
+expect "a published package newer than the package under test fails step 2" failed_in 2
+expect "the refusal names the program, both versions and what to do" \
+    holds "step 2: server: the published v1.2.4 is newer than the package under test v1.2.3; a newer release was published during this run, run it again"
+expect "the new file is not put over the newer one" sh -c "! grep -q 'sh deb v1.2.4 v1.2.3 file' '$dir/log'"
+expect "nothing is installed after the refusal but the published file" sh -c "[ \"\$(grep -c 'apt-get install' '$dir/log')\" -eq 1 ]"
+expect "that stops the run: no step 3" lacks "step 3:"
+
+# The same on a system the host reaches, when the version it recorded is newer than the package (a
+# build by hand that recorded the newest of the site, long after it built the package).
+use_case recorded_newer_release
+expect "a recorded baseline newer than the package under test fails step 2" failed_in 2
+expect "the refusal is the same line" \
+    holds "step 2: server: the published v1.2.4 is newer than the package under test v1.2.3; a newer release was published during this run, run it again"
+
+# Only the program whose published package is newer is refused, and it is named: the server passes
+# step 2 and the client does not.
+use_case client_fetches_a_newer_release
+expect "a newer published client fails step 2" failed_in 2
+expect "the refusal names the client and its versions" \
+    holds "step 2: client: the published v1.4.1 is newer than the package under test v1.4.0; a newer release was published during this run, run it again"
+expect "the server went through step 2 before it" holds "step 2: server: the new package file is installed over it, and over itself"
 
 use_case hook_version_unreadable
 expect "a hook that cannot read the version fails step 1" failed_in 1

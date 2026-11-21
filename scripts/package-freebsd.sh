@@ -2,7 +2,8 @@
 # Builds the FreeBSD packages and proves them, on FreeBSD itself: for every FreeBSD release
 # in packaging/freebsd/releases it starts that release as a virtual machine (its prepared
 # image, scripts/freebsd-lib.sh), where pkg(8) builds the package for amd64 and for arm64,
-# installs the amd64 one and checks its service steps (scripts/freebsd-job.sh). The
+# installs the amd64 one and checks its install, its messages, its upgrade under a running service and
+# its removal (scripts/freebsd-job.sh). The
 # machine is amd64, so the arm64 package is built there for another ABI and is not installed;
 # scripts/freebsd-package-check.sh shows that it is an arm64 package. It runs on the host
 # (make package-freebsd) and needs Docker and hardware virtualization (KVM).

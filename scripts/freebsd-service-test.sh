@@ -1,9 +1,11 @@
 #!/bin/sh
-# check: freebsd-service-test.sh: the FreeBSD packages leave the service off, and tell how to turn it on
-# Tests what the FreeBSD packages do about the service, on the host: no machine, no pkg, no
-# root (part of make check). The rc scripts run against a stand-in for rc.subr, the install
-# scripts of the manifests run with stand-ins for service, sysrc and pw. What rc.subr and pkg
-# really do is proved in the machine, by scripts/freebsd-job.sh.
+# check: freebsd-service-test.sh: the FreeBSD client package leaves the service off, and tells how to turn it on
+# Tests what the FreeBSD client package does about the service, on the host: no machine, no pkg, no
+# root (part of make check). The rc script runs against a stand-in for rc.subr, the install
+# scripts of the manifest run with stand-ins for service, sysrc and pw. What rc.subr and pkg
+# really do is proved in the machine, by scripts/freebsd-job.sh. The server's service is proved
+# by the package test (scripts/package-test-steps.sh) and, for its messages and its upgrade, by
+# the job, in the machine too, so it has no part here.
 set -eu
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -34,8 +36,7 @@ holds() {
 
 # The program of each manifest and the name of its service, which is also the name of the rc
 # script and the prefix of its setting.
-programs='server splicefsd
-client splicefs'
+programs='client splicefs'
 
 # --- the rc scripts -------------------------------------------------------------------------
 
@@ -103,6 +104,7 @@ timeout() { shift; "$@"; }
 sleep() { echo sleep >> "$box/calls"; }
 kill() { echo "kill $*" >> "$box/calls"; }
 run_rc_command() { "$entry"; }
+wait_for_pids() { echo "wait_for_pids $* run=$([ -d "$rundir" ] && echo present || echo gone)" >> "$box/calls"; }
 SUBR
 cat > "$tree/splicefsctl" <<'CTL'
 #!/bin/sh
@@ -117,21 +119,26 @@ recorded() {
 }
 
 # $1 the number of the call that is answered. Sets wait_result to the exit status of the wait,
-# then what was called: the number of asks and of sleeps, and the kills as they were given.
+# then what was called: the number of asks and of sleeps, and the kills as they were given. Sets
+# wait_waited to the waits for the end of a process, each with the state of the run folder at that
+# moment, and wait_run to what is left of the run folder, which is a folder of its own in the box so
+# that the record of the calls survives its removal.
 wait_for_client() {
     box="$tree/wait"
     rm -rf "$box"
-    mkdir -p "$box"
+    mkdir -p "$box/run"
     : > "$box/calls"
-    echo 4242 > "$box/daemon.pid"
+    echo 4242 > "$box/run/daemon.pid"
     sed -e "s|/etc/rc.subr|$tree/rc-wait.subr|" -e "s|/usr/local/bin/splicefsctl|$tree/splicefsctl|" \
-        -e "s|^rundir=.*|rundir=$box|" "$client_rc" > "$tree/rc.script"
+        -e "s|^rundir=.*|rundir=$box/run|" "$client_rc" > "$tree/rc.script"
     status=0
     box="$box" entry=splicefs_wait ANSWER_AT="$1" sh "$tree/rc.script" start > "$box/out" 2>&1 || status=$?
     asked="$(recorded ask)"
     slept="$(recorded sleep)"
     killed="$(grep '^kill' "$box/calls" | tr '\n' ';')" || killed=""
     wait_result="$status asks=$asked sleeps=$slept $killed"
+    wait_waited="$(grep '^wait_for_pids' "$box/calls" | tr '\n' ';')" || wait_waited=""
+    if [ -d "$box/run" ]; then wait_run=present; else wait_run=gone; fi
 }
 
 # Before the first answer the start does not return: it asks again each second.
@@ -144,6 +151,12 @@ same "splicefs: a client that never answers fails the start after 30 tries and e
     "1 asks=30 sleeps=29 kill 4242;" "$wait_result"
 said="$(cat "$box/out")"
 holds "splicefs: a start that fails says why" "does not answer" "$said"
+same "splicefs: a start that fails waits for the supervisor to end, while the run folder is still there" \
+    "wait_for_pids 4242 run=present;" "$wait_waited"
+same "splicefs: a start that fails takes the run folder away, as a stop does" gone "$wait_run"
+wait_for_client 3
+same "splicefs: a start that works leaves the run folder and waits for no process" "present" "$wait_run"
+same "splicefs: a start that works waits for no process" "" "$wait_waited"
 
 # --- stopping leaves no run folder ----------------------------------------------------------
 

@@ -24,7 +24,9 @@
 #      says so and installs nothing. A system the host cannot reach fetches the file itself, and the
 #      version of the baseline is the one of the file it got (record_fetched_version);
 #   2. the new package FILE is put over it the way scripts/upgrade-package-lib.sh says (an upgrade,
-#      or a reinstall when the version is the same); with no baseline it is installed. Every file the
+#      or a reinstall when the version is the same, and a published package newer than the package under
+#      test, which a release published during the run makes, fails the step: it never goes down); with no
+#      baseline it is installed. Every file the
 #      package promises is in its place (scripts/package-test-lib.sh), installing enabled and
 #      started nothing, and the configuration and data of step 1 are kept. Then the file is put
 #      over itself once more: the files, the configuration and the state of the service stay as
@@ -211,10 +213,23 @@ put_new_package_over() {
         '. scripts/upgrade-package-lib.sh; upgrade_package "$@"' sh "$format" "$2" "$VERSION" file "$new_file"
 }
 
+# Step 2 never goes down. A release published while the run was going is the newest package of the
+# site, which a system that fetches its baseline itself gets, and putting the older package under
+# test over it would be a downgrade, which no package manager treats as an upgrade. Nothing is
+# installed; the run is done again.
+refuse_downgrade() {
+    # published_is_newer is a test whose status is the answer, so set -e being off inside it changes nothing.
+    # shellcheck disable=SC2310
+    if published_is_newer "$old_debver" "$debver"; then
+        fail "step 2: $PROGRAM: the published $old_tag is newer than the package under test $VERSION; a newer release was published during this run, run it again"
+    fi
+}
+
 # Step 2, first part. With no baseline the package is installed, and the files that an upgrade
 # must keep are written.
 install_new_package() {
     if [ -n "$from" ]; then
+        refuse_downgrade
         must "putting the new package over the published one failed" put_new_package_over "$1" "$old_tag"
         must "the upgrade did not keep the configuration file and the data file" \
             in_upgrade_lib "$1" verify_markers_kept "upgrade"

@@ -83,6 +83,15 @@ newest_debver() {
     '
 }
 
+# Status 0 when the published deb version $1 is newer than the deb version $2 of a package under
+# test. A build that is not exactly a release (1.2.3+dirty) counts as the release it follows, so it is
+# never older than that release.
+published_is_newer() {
+    pn_under_test="${2%+dirty}"
+    pn_newest="$(printf '%s\n%s\n' "$1" "$pn_under_test" | newest_debver)"
+    [ "$pn_newest" = "$1" ] && [ "$1" != "$pn_under_test" ]
+}
+
 # Prints the published version the upgrade starts from: the one the build recorded
 # (UPGRADE_FROM, which use_recorded_version sets), so that a package published after the build,
 # which is newer than the packages, never turns the upgrade into a downgrade. A build that
