@@ -28,7 +28,11 @@
 #      test, which a release published during the run makes, fails the step: it never goes down); with no
 #      baseline it is installed. Every file the
 #      package promises is in its place (scripts/package-test-lib.sh), installing enabled and
-#      started nothing, and the configuration and data of step 1 are kept. Then the file is put
+#      started nothing (apart from the service step 1a started, which is still enabled and running), and
+#      the configuration and data of step 1 are kept. A service step 1a started is checked for the promise of
+#      the format (scripts/service-upgrade-lib.sh): deb, rpm and apk restarted it, so it runs in a new
+#      process as the new version; on pkg the old process runs as the old version until the restart the
+#      upgrade message names, which is then run. Then the file is put
 #      over itself once more: the files, the configuration and the state of the service stay as
 #      they were;
 #   1a. for a program whose service steps are built and that has a published package, its service is
@@ -425,6 +429,7 @@ step_new_package() {
     begin_step 2 "$PROGRAM" "the new package file is installed over it, and over itself"
     install_new_package "$system"
     check_installed_files "$system"
+    check_upgrade_of_running_service "$system"
     check_reinstall_changes_nothing "$system"
 }
 

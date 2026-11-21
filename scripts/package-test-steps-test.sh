@@ -39,7 +39,8 @@ cat >"$t/farm/scripts/service-run-local.sh" <<'STAND_IN'
 # firewalld: its zone files are the folder zones, which starts as a copy of zones-initial, are what
 # cp and test -f and rm -f of /etc/firewalld/zones see, and --add-port writes the zone with the port
 # and the zone before it; the port counts as open while the file public.xml says so, or always when
-# STAND_IN_PORT_OPEN is set.
+# STAND_IN_PORT_OPEN is set. An upgrade call (deb, rpm, apk) restarts a running service of the server, which
+# STAND_IN_NO_RESTART prevents and STAND_IN_STALE_VERSION lets run the old version.
 on_system() {
     shift
     call="$*"
@@ -168,7 +169,7 @@ stand_in_answer() {
         *is-enabled*) [ -f "$STAND_IN_DIR/enabled" ] ;;
         *is-active* | *"rc-service splicefsd status"*) [ -f "$STAND_IN_DIR/active" ] ;;
         *"rc-update show"*) [ ! -f "$STAND_IN_DIR/enabled" ] || echo " splicefsd | default" ;;
-        *"systemctl show"* | *'= "/usr/bin/$1"'*)
+        *"systemctl show"* | *'= "$2/$1"'*)
             [ -f "$STAND_IN_DIR/active" ] || return 1
             read -r process_id <"$STAND_IN_DIR/pid"
             echo "$process_id"
@@ -198,6 +199,16 @@ stand_in_answer() {
         *package_held*splicefs-server*) [ -f "$STAND_IN_DIR/installed.server" ] || [ -f "$STAND_IN_DIR/config.server" ] ;;
         *package_held*splicefs-client*) [ -f "$STAND_IN_DIR/installed.client" ] || [ -f "$STAND_IN_DIR/config.client" ] ;;
         *package_held*) return 1 ;;
+        *'upgrade_package "$@"'*)
+            # What the package does to a running service: deb, rpm and apk restart it (a new process that
+            # runs the new version, which STAND_IN_STALE_VERSION leaves at the old one), pkg does not.
+            name_programs
+            for each in $named; do echo "$VERSION" >"$STAND_IN_DIR/installed-version.$each"; done
+            if [ "$FORMAT" != pkg ] && [ -z "${STAND_IN_NO_RESTART:-}" ] && [ -f "$STAND_IN_DIR/active" ] && [ "$named" = server ]; then
+                [ -z "${STAND_IN_STALE_VERSION:-}" ] || echo "$PUBLISHED_VERSION" >"$STAND_IN_DIR/installed-version.server"
+                start_service
+            fi
+            ;;
         *"then echo steps/uninstall-dnf.sh"*) echo steps/uninstall-dnf.sh ;;
         *dpkg-query* | *"rpm -q"* | *"apk info -e"*)
             name_programs
@@ -271,12 +282,15 @@ scenario() {
     fetched_server=
     fetched_client=
     removal_lines_added=
+    no_restart=
+    stale_version=
 }
 
 # Runs the case $1 with the settings of scenario: $built names the programs whose packages are in
 # dist, the snapshot of step 0 is $first, the snapshot of step 9 is $last, the one after each reinstall
 # is $reinstalled, $cores are the cores listed at the fifth look (before step 3 of a run of the
-# server alone), $late_cores those listed at the look after the last snapshot, $user is the user the
+# server alone), $no_restart and $stale_version, when not empty, make the package leave a running service
+# alone, or restart it into the old version, $late_cores those listed at the look after the last snapshot, $user is the user the
 # service runs as, $format the package format of the system ($removal_lines_added, when not empty, is
 # added to the end of the steps file of the documented removal, as the file of FreeBSD has lines the
 # others do not). $firewalld, when not empty, makes the
@@ -329,6 +343,7 @@ launch() {
         export STAND_IN_FAIL="$fail_on" STAND_IN_DIR="$case_dir/dir" STAND_IN_USER="$user" \
             STAND_IN_FIREWALLD="$firewalld" STAND_IN_PORT_OPEN="$port_open" STAND_IN_FETCH="$fetch_hook" \
             STAND_IN_FETCHED_SERVER="$fetched_server" STAND_IN_FETCHED_CLIENT="$fetched_client" \
+            STAND_IN_NO_RESTART="$no_restart" STAND_IN_STALE_VERSION="$stale_version" \
             FORMAT="$format" PLATFORM=linux/amd64 PROGRAMS="$built" PACKAGE_TEST_OUT="$case_dir/out" BASELINES="$case_dir/baselines"
         steps="$case_dir/root/scripts/package-test-steps.sh"
         sh "$steps" phase1 || status=$?
@@ -491,6 +506,12 @@ published_apk_checked() {
 # Every case runs at the same time, because each is a process that starts a few hundred more.
 scenario; launch good
 scenario; record=1.2.3; launch same_version
+scenario; record=1.2.3; no_restart=1; launch same_version_no_restart
+scenario; no_restart=1; launch upgrade_does_not_restart
+scenario; stale_version=1; launch upgrade_restarts_into_the_old_version
+scenario; format=rpm; launch rpm_restarts
+scenario; format=apk; launch apk_restarts
+scenario; format=rpm; no_restart=1; launch rpm_does_not_restart
 scenario; record=none; launch nothing_published
 scenario; fail_on=check_links; launch file_check_fails
 scenario; fail_on="apt-get install"; launch baseline_install_fails
@@ -580,6 +601,8 @@ expect "the service is enabled once, configured once and started once: steps 3 a
 expect "step 3 finds the service enabled and its test configuration where the documentation says" \
     holds "ok: the service is still enabled and its test configuration is where the documentation says"
 expect "step 4 finds the service running as its own user and answering" holds "ok: the service is still running"
+expect "step 2 finds the service restarted by the package: a new process that reports the new version" \
+    holds "ok: the package restarted the service (process 4242, then 4243), which reports v1.2.3"
 expect "step 2 does not ask for an idle service: it ran before the package went over it" \
     lacks "ok: installed, not enabled and not running"
 expect "the service runs as its own user" holds "ok: runs as splicefs"
@@ -640,6 +663,22 @@ use_case same_version
 expect "a published file of the same version passes" passed_status
 expect "the same version is put over the published one with the reinstall, and again over itself" \
     sh -c "[ \"\$(grep -c 'sh deb v1.2.3 v1.2.3 file' '$dir/log')\" -eq 2 ]"
+
+use_case same_version_no_restart
+expect "a package of the published version that leaves the running service alone fails step 2" failed_in 2
+expect "the missing restart is named" holds "the upgrade did not start a new process of the service: it still runs as process 4242"
+use_case upgrade_does_not_restart
+expect "an upgrade that leaves the running service in its old process fails step 2" failed_in 2
+expect "that stops the run: no step 3" lacks "step 3:"
+use_case upgrade_restarts_into_the_old_version
+expect "an upgrade whose restarted service reports the old version fails step 2" failed_in 2
+expect "the versions are named" holds "after the upgrade the service reports v1.2.2, not the new v1.2.3"
+use_case rpm_restarts
+expect "an rpm upgrade restarts the running service" holds "ok: the package restarted the service"
+use_case apk_restarts
+expect "an apk upgrade restarts the running service" holds "ok: the package restarted the service"
+use_case rpm_does_not_restart
+expect "an rpm upgrade that does not restart the running service fails step 2" failed_in 2
 
 use_case nothing_published
 expect "a run with nothing published passes" passed_status
