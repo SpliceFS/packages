@@ -11,3 +11,17 @@ own_address() {
     # shellcheck disable=SC2312
     getent ahostsv4 "$(uname -n)" | awk '$1 !~ /^127\./ { print $1; exit }'
 }
+
+# The program of every process that runs in the system $1, one a line: the file the kernel says it runs
+# (/proc has it on every Linux system), also when the file was removed, which the kernel marks with a
+# suffix that is cut off here, so that a removed program is named as it was. A process the kernel does
+# not give a file (its own threads) has no line.
+running_programs() {
+    # The script is for the shell that sh -c starts, which reads its own variables.
+    # shellcheck disable=SC2016
+    on_system "$1" sh -c '
+        for dir in /proc/[0-9]*; do
+            program_file="$(readlink "$dir/exe" 2>/dev/null)" || continue
+            echo "${program_file% (deleted)}"
+        done'
+}

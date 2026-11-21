@@ -40,10 +40,16 @@ case "$1" in
     *) ;;
 esac
 STAND_IN
+# ps lists the processes as the file $PS_OUT says when it is asked for all of them, as the check for our processes
+# does; asked for the user of one process, it says splicefs.
 cat >"$work/bin/ps" <<'STAND_IN'
 #!/bin/sh
 echo "ps $*" >> "$CALLS"
-echo splicefs
+case " ${FAIL_TOOL:-} " in *" ps "*) exit 1 ;; esac
+case "$*" in
+    *-axww*) cat "$PS_OUT" ;;
+    *) echo splicefs ;;
+esac
 STAND_IN
 cat >"$work/bin/cat" <<'STAND_IN'
 #!/bin/sh
@@ -80,7 +86,7 @@ chmod 755 "$work"/bin/*
 runs() {
     : >"$work/calls"
     status=0
-    CALLS="$work/calls" INSTALLED="$work/installed" ROUTE_OUT="$work/route-out" IFCONFIG_OUT="$work/ifconfig-out" \
+    CALLS="$work/calls" INSTALLED="$work/installed" ROUTE_OUT="$work/route-out" IFCONFIG_OUT="$work/ifconfig-out" PS_OUT="$work/ps-out" \
         PATH="$work/bin:/usr/bin:/bin" PROGRAM=server name=splicefs-server defs=programs/server \
         program=splicefsd pkgver=1.2.3 servicedir=/usr/local/etc/rc.d platform=freebsd/amd64 own="$work/own" site_root=https://packages.example.org \
         sh -c "fail() { echo \"\$*\" >&2; exit 1; }; . scripts/service-run-local.sh; . scripts/service-test-pkg.sh; . scripts/package-test-pkg.sh; $4" \
@@ -248,6 +254,41 @@ runs "a version that a published package does not have is refused, and named" \
     "pkg query -F /fetched.pkg %v" 1 \
     "$lib; export PKG_QUERY_VERSION=0.10.0.20261112; published_baseline_version system /fetched.pkg"
 said "the refused version is named" "0.10.0.20261112 is not a FreeBSD package version this repository publishes"
+
+# FreeBSD does not mount /proc, so the programs that run are what ps lists. A line is the command line of a
+# process: a program started by daemon(8) is two, the supervisor under the title daemon(8) gives it, and the
+# program itself. The listing has the program of each process, one a line, the supervisor as the program
+# it supervises, which is what a stop or a plain removal must leave none of.
+cat >"$work/ps-out" <<'OUTPUT'
+/sbin/init
+daemon: /usr/local/bin/splicefsd[1234] (daemon)
+/usr/local/bin/splicefsd
+-sh (sh)
+ps -axww -o command=
+OUTPUT
+printf '%s\n' /sbin/init /usr/local/bin/splicefsd /usr/local/bin/splicefsd -sh ps >"$work/listed-want"
+runs "the programs that run are listed with ps, a supervisor of daemon(8) by the program it supervises" \
+    "ps -axww -o command=" 0 "running_programs system >$work/listed; cmp -s $work/listed $work/listed-want"
+runs "a ps that fails fails the listing" "ps -axww -o command=" 1 "FAIL_TOOL=ps running_programs system"
+
+# The check that nothing of ours runs, through that listing: the folder of the programs is the one of the
+# table for the format pkg.
+check='export FORMAT=pkg VERSION=v1.2.3 PACKAGE_DATE=20261112; . scripts/package-lib.sh; . scripts/system-state-lib.sh'
+runs "a program of ours that runs, with its supervisor, is found and named" "ps -axww -o command=" 1 "$check; no_process_of_ours system"
+said "the program that runs is named" "a process of ours is running: /usr/local/bin/splicefsd"
+printf '%s\n' /sbin/init 'daemon: /usr/local/bin/splicefsd[1234] (daemon)' >"$work/ps-out"
+runs "the supervisor alone is a process of ours" "ps -axww -o command=" 1 "$check; no_process_of_ours system"
+printf '%s\n' /sbin/init /usr/local/bin/splicefsd >"$work/ps-out"
+runs "the program alone is one too, also when its file was removed, which ps does not show" "ps -axww -o command=" 1 \
+    "$check; no_process_of_ours system"
+printf '%s\n' /sbin/init /usr/local/bin/splicefsdctl >"$work/ps-out"
+runs "the other programs of ours are found as well" "ps -axww -o command=" 1 "$check; no_process_of_ours system"
+printf '%s\n' /sbin/init /usr/sbin/cron -sh /tmp/build/splicefsd >"$work/ps-out"
+runs "no process of ours is the answer when none is listed, and a program of that name elsewhere is not ours" \
+    "ps -axww -o command=" 0 "$check; no_process_of_ours system"
+runs "a ps that fails is a failed check, not the answer that nothing runs" "ps -axww -o command=" 1 \
+    "$check; FAIL_TOOL=ps no_process_of_ours system"
+said "the failure says the listing failed" "listing the running programs failed"
 
 # The repository file is the setup script's own: what people get and what the test fetches from must be
 # the same text, for the public site, as the built script writes it. The adapter's function that takes

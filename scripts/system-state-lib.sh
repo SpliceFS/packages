@@ -23,18 +23,22 @@ in_system() {
         for check in "$@"; do "$check"; done' sh "$@"
 }
 
-# Nothing of our programs runs: no process has one of their files as its program, also not one
-# that was started from a file that is gone now. /proc is what every system has.
+# Nothing of ours runs: no process has a program of ours, the files named splicefs* in the folder of the
+# programs of the format (bindir of the table of scripts/package-lib.sh), also not one that was started from
+# a file that is gone now. Which programs run is for the adapter of the system to say, because what a
+# system keeps of its processes differs: running_programs of scripts/service-linux-lib.sh and of
+# scripts/service-test-pkg.sh. A listing that fails fails the run, so that it is never taken for an answer.
 no_process_of_ours() {
-    # The script is for the shell that sh -c starts, which reads its own variables.
-    # shellcheck disable=SC2016
-    on_system "$1" sh -c '
-        for dir in /proc/[0-9]*; do
-            case "$(readlink "$dir/exe" 2>/dev/null)" in
-                */splicefs*) exit 1 ;;
-                *) ;;
-            esac
-        done'
+    running_programs "$1" >"$own/running-programs" || fail "listing the running programs failed"
+    while IFS= read -r running_program; do
+        case "$running_program" in
+            "${bindir:?FORMAT is not set}"/splicefs*)
+                echo "a process of ours is running: $running_program"
+                return 1
+                ;;
+            *) ;;
+        esac
+    done <"$own/running-programs"
 }
 
 # Prints the package names of our programs that the package manager of the system $1 still holds
