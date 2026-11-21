@@ -1,5 +1,5 @@
 #!/bin/sh
-# check: core-files.sh: a core dump on the root filesystem is found and names the program that dumped it
+# check: core-files.sh: a core dump on the root filesystem is found and names the program that dumped it, and every path asked for is reported
 # Test of scripts/core-files.sh on a folder that stands in for the root of a system (CORE_ROOT),
 # with a core file made here byte by byte, so it needs no container and no crash (part of make
 # check). The core has a note before the process note, as a real one has, so the notes are walked.
@@ -54,7 +54,20 @@ got="$(cat "$t/out")"
 [ "$got" = "$expected" ] || fail "expected '$expected', got '$got'"
 echo "ok: the core dump is found with its pid, program and command line, other files named core are not"
 
-rm "$sys/core.119"
+# The paths of a comparison are each reported, also when they are no core dump (yet): a core
+# that the host's handler is still writing, a file of another kind, a file that is gone.
+fake_core 119 systemctl "systemctl daemon-reload" >"$sys/core.119"
+head -c 40 "$sys/core.119" >"$sys/core.2253"
+CORE_ROOT="$sys" sh "$root/scripts/core-files.sh" /core.119 /core.2253 /var/lib/app/core /core.7 >"$t/out"
+expected="/core.119 pid 119 program systemctl: systemctl daemon-reload
+/core.2253: not a 64-bit ELF core with a process note: 40 bytes, starting 177 E L F
+/var/lib/app/core: not a 64-bit ELF core with a process note: 5 bytes, starting t e x t
+/core.7: not a file"
+got="$(cat "$t/out")"
+[ "$got" = "$expected" ] || fail "expected '$expected', got '$got'"
+echo "ok: each path that is asked for is reported, with what it is when it is no core dump"
+
+rm "$sys/core.119" "$sys/core.2253"
 CORE_ROOT="$sys" sh "$root/scripts/core-files.sh" >"$t/out"
 got="$(cat "$t/out")"
 [ -z "$got" ] || fail "a system without a core dump printed '$got'"
