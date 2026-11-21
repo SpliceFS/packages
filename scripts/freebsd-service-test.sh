@@ -4,7 +4,8 @@
 # root (part of make check). The rc script runs against a stand-in for rc.subr, the install
 # scripts of the manifest run with stand-ins for service, sysrc and pw. What rc.subr and pkg
 # really do is proved in the machine, by scripts/freebsd-job.sh. The server's service is proved
-# by the package test (scripts/package-test-steps.sh), in the machine too, so it has no part here.
+# by the package test (scripts/package-test-steps.sh) and, for its messages and its upgrade, by
+# the job, in the machine too, so it has no part here.
 set -eu
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
