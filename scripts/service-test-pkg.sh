@@ -156,6 +156,16 @@ own_address() {
     echo "$address"
 }
 
+# The program of every process that runs in the system $1, one a line. FreeBSD does not mount /proc, so
+# ps says it: the first word of the command line, which a removal of the file does not change. A program
+# started by daemon(8) shows twice, the supervisor under the title "daemon: PROGRAM[PID] (daemon)", which
+# is named by the program it supervises, and the program itself. ps is asked first and its output read after
+# that, so that a ps that fails is a failed listing and not an empty one.
+running_programs() {
+    on_system "$1" ps -axww -o command= >"$own/ps-output" || return 1
+    awk '$1 == "daemon:" { sub(/\[[0-9]+\]$/, "", $2); print $2; next } { print $1 }' "$own/ps-output"
+}
+
 service_report() {
     on_system "$1" service "$program" onestatus || true
     on_system "$1" tail -n 30 "/var/log/$program.log" || true

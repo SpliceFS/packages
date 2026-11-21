@@ -158,6 +158,7 @@ stand_in_answer() {
         *"rc-update show"*) [ ! -f "$STAND_IN_DIR/enabled" ] || echo " splicefsd | default" ;;
         *"systemctl show"* | *'= "/usr/bin/$1"'*) [ -f "$STAND_IN_DIR/active" ] && echo 4242 ;;
         *getent*) echo "${STAND_IN_USER:-splicefs}" ;;
+        *readlink*) [ -z "${STAND_IN_PROCESS:-}" ] || echo "$STAND_IN_PROCESS" ;;
         *"grep -q /usr/local/bin"*) return 1 ;;
         *lifecycle-snapshot.sh*)
             next_number snapshot
@@ -233,6 +234,7 @@ scenario() {
     record=1.2.2
     client_record=1.3.9
     fail_on=
+    process_left=
     reinstalled="/etc/a"
     first="/etc/a"
     last="/etc/a"
@@ -260,7 +262,8 @@ scenario() {
 # package itself; $fetched_server and $fetched_client, when not empty, are the versions of the files it
 # fetches, which the site may have listed later than the host read it, else they are the host's), and $zones names the zone files it has before the test (public.xml and
 # public.xml.old, or neither); $port_open makes the port stay open in it. A call that holds the text
-# in $fail_on fails. The first phase runs, then the restart the host does (a service that is not
+# in $fail_on fails. $process_left, when not empty, is the program of a process that still runs, which the
+# list of the programs that run holds. The first phase runs, then the restart the host does (a service that is not
 # enabled does not come back), then the second phase, unless the first failed. Keeps the log of the
 # steps in $t/cases/$1/out/log, the result in $t/cases/$1/out/result, the calls in
 # $t/cases/$1/dir/log and the status of the last phase in $t/cases/$1/status; the cases are read
@@ -302,7 +305,7 @@ launch() {
     for zone in $zones; do printf 'zone %s\r\nas shipped' "$zone" >"$case_dir/dir/zones-initial/$zone"; done
     (
         status=0
-        export STAND_IN_FAIL="$fail_on" STAND_IN_DIR="$case_dir/dir" STAND_IN_USER="$user" \
+        export STAND_IN_FAIL="$fail_on" STAND_IN_PROCESS="$process_left" STAND_IN_DIR="$case_dir/dir" STAND_IN_USER="$user" \
             STAND_IN_FIREWALLD="$firewalld" STAND_IN_PORT_OPEN="$port_open" STAND_IN_FETCH="$fetch_hook" \
             STAND_IN_FETCHED_SERVER="$fetched_server" STAND_IN_FETCHED_CLIENT="$fetched_client" \
             FORMAT="$format" PLATFORM=linux/amd64 PROGRAMS="$built" PACKAGE_TEST_OUT="$case_dir/out" BASELINES="$case_dir/baselines"
@@ -483,7 +486,8 @@ scenario; fail_on=check_test_config; launch test_config_not_where_documented
 scenario; fail_on="systemctl start"; launch start_fails
 scenario; user=root; launch runs_as_root
 scenario; fail_on="systemctl restart"; launch restart_fails
-scenario; fail_on=readlink; launch process_left_after_stop
+scenario; process_left=/usr/bin/splicefsd; launch process_left_after_stop
+scenario; fail_on=readlink; launch listing_fails_after_stop
 scenario; fail_on="systemctl disable"; launch disable_fails
 scenario; fail_on="apt-get remove"; launch plain_removal_fails
 scenario; fail_on="verify_markers_kept plain removal"; launch plain_removal_takes_files
@@ -740,6 +744,10 @@ expect "a failing restart is step 5" failed_in 5
 use_case process_left_after_stop
 expect "a process of ours left after the stop is step 7" failed_in 7
 expect "that stops the run: no disable" lacks "step 8:"
+expect "the program that still runs is named" holds "a process of ours is running: /usr/bin/splicefsd"
+use_case listing_fails_after_stop
+expect "a listing of the programs that run that fails is step 7" failed_in 7
+expect "that is a failed check, not no process" holds "listing the running programs failed"
 use_case disable_fails
 expect "a failing disable command is step 8" failed_in 8
 expect "that stops the run: no removal" sh -c "! grep -q 'apt-get remove' '$dir/log'"
