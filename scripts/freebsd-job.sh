@@ -1,15 +1,15 @@
 #!/bin/sh
 # Runs inside the FreeBSD build machine as root, started by the first-boot script. The machine
 # is amd64 and its disk has pkg set up already. The job builds the packages for amd64 and arm64
-# with FreeBSD's own tools, installs the amd64 one and removes it again, with its links. Of the service it
-# proves, for every program, what the package test (scripts/package-test-steps.sh) does not: the install
-# message, an upgrade that leaves a running service running, and the remove message. It starts the service
-# for that. A program whose check-lib.sh sets expected_user gets every service check besides: it installs
-# idle, the documented commands turn it on and start it, it runs as that user, and removing the package
-# stops it and leaves rc.conf alone. The arm64 package is built for its ABI and not installed. What "the
-# service works" means for this program comes from check-lib.sh in the input folder
-# (programs/<program>/freebsd/check-lib.sh): answers, expected_user for the full checks, and extra_checks
-# when the program has checks of its own.
+# with FreeBSD's own tools, installs the amd64 one and removes it again, with its links. The service of
+# the server, its upgrade under a running service and the messages of its package are proved by the package
+# test (scripts/package-test-steps.sh), so the job makes none of those for it. A program that has a
+# check-lib.sh in the input folder (programs/<program>/freebsd/check-lib.sh) gets the service checks of the
+# job: it installs idle, the install message and the documented commands turn it on and start it, it runs as
+# expected_user, an upgrade leaves it running, and removing the package stops it and leaves rc.conf alone
+# (the remove message says how to delete the setting). The file says what "the service works" means for
+# the program: answers, expected_user, and extra_checks when the program has checks of its own. The arm64
+# package is built for its ABI and not installed.
 #
 # It also builds the signed package repository. The input archive on the fourth disk holds
 # keys/splicefs.rsa(.pub) and the packages published before (repo/FreeBSD:<major>:<cpu>/All/).
@@ -20,7 +20,7 @@
 #   freebsd-job.sh <input folder> <output folder> <package name> <program> <package version> <program version>
 #                  <upgrade package version>
 
-# expected_user and answers are set by check-lib.sh of the program, which ShellCheck cannot follow.
+# expected_user and answers are set by the check-lib.sh of a program, which ShellCheck cannot follow.
 # shellcheck disable=SC2154
 set -eu
 in="$1"
@@ -50,15 +50,16 @@ fail() {
     exit 1
 }
 
-# The file is the one of the program being packaged, so there is no fixed file to follow.
-# shellcheck source=/dev/null
-. "$in/check-lib.sh"
-
-# A program whose check-lib.sh sets expected_user gets every service check. The service of a program
-# without it is proved by the package test (scripts/package-test-steps.sh), so it gets only the checks
-# that test does not make: the install and remove messages and the upgrade under a running service.
+# A program that has a check-lib.sh gets the service checks. The service of a program without one is
+# proved by the package test (scripts/package-test-steps.sh), with its upgrade under a running service
+# and the messages of its package.
 service_checks=no
-if [ -n "${expected_user:-}" ]; then service_checks=yes; fi
+if [ -f "$in/check-lib.sh" ]; then
+    # The file is the one of the program being packaged, so there is no fixed file to follow.
+    # shellcheck source=/dev/null
+    . "$in/check-lib.sh"
+    service_checks=yes
+fi
 service_step() {
     if [ "$service_checks" = yes ]; then "$@"; fi
 }
@@ -313,10 +314,10 @@ check_remove_message() {
 }
 
 service_step check_service_idle_after_install
-check_install_message
-start_service
+service_step check_install_message
+service_step start_service
 service_step check_service_running
-phase_done "start the service and check it"
+service_step phase_done "start the service and check it"
 
 # What only this program has to prove, with the service running and answering.
 if command -v extra_checks >/dev/null 2>&1; then
@@ -324,7 +325,7 @@ if command -v extra_checks >/dev/null 2>&1; then
     phase_done "check what only this program needs"
 fi
 
-check_upgrade_under_running_service
+service_step check_upgrade_under_running_service
 
 # Removing the package takes the programs and the links away.
 pkg_run delete -y "$name"
@@ -335,7 +336,7 @@ done
 while read -r link _; do
     [ ! -L "$link" ] || fail "remove left the link $link behind"
 done < "$in/links"
-check_remove_message
+service_step check_remove_message
 phase_done "remove the package"
 
 # A repository that is not signed with our key is refused. Two copies of the repository are

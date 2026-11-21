@@ -3,9 +3,9 @@
 # Tests what the FreeBSD client package does about the service, on the host: no machine, no pkg, no
 # root (part of make check). The rc script runs against a stand-in for rc.subr, the install
 # scripts of the manifest run with stand-ins for service, sysrc and pw. What rc.subr and pkg
-# really do is proved in the machine, by scripts/freebsd-job.sh. The server's service is proved
-# by the package test (scripts/package-test-steps.sh) and, for its messages and its upgrade, by
-# the job, in the machine too, so it has no part here.
+# really do is proved in the machine, by scripts/freebsd-job.sh. The server's service, its
+# messages and its upgrade are proved by the package test (scripts/package-test-steps.sh), so it
+# has no part here.
 set -eu
 
 root="$(cd "$(dirname "$0")/.." && pwd)"

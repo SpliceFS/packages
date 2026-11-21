@@ -2,9 +2,9 @@
 # Builds the FreeBSD packages and proves them, on FreeBSD itself: for every FreeBSD release
 # in packaging/freebsd/releases it starts that release as a virtual machine (its prepared
 # image, scripts/freebsd-lib.sh), where pkg(8) builds the package for amd64 and for arm64,
-# installs the amd64 one and checks its install, its messages, its upgrade under a running service and
-# its removal (scripts/freebsd-job.sh). The
-# machine is amd64, so the arm64 package is built there for another ABI and is not installed;
+# installs the amd64 one and checks its install and its removal, and for a program that has service checks of
+# its own for the machine (programs/<program>/freebsd/check-lib.sh) its service too (scripts/freebsd-job.sh).
+# The machine is amd64, so the arm64 package is built there for another ABI and is not installed;
 # scripts/freebsd-package-check.sh shows that it is an arm64 package. It runs on the host
 # (make package-freebsd) and needs Docker and hardware virtualization (KVM).
 #
@@ -86,7 +86,9 @@ build_and_test() {
     # The definitions of the program: its rc script is named after the service program. The
     # packing list is made from program.conf, links and config-folders, so the job reads the
     # same facts.
-    cp "$defs/freebsd/$program.rc" "$defs/freebsd/manifest.in" "$defs/freebsd/check-lib.sh" "$job/"
+    cp "$defs/freebsd/$program.rc" "$defs/freebsd/manifest.in" "$job/"
+    # Only a program with service checks of its own for the machine has this file; the job reads its presence.
+    if [ -f "$defs/freebsd/check-lib.sh" ]; then cp "$defs/freebsd/check-lib.sh" "$job/"; fi
     package_freebsd_plist > "$job/plist"
     package_link_list > "$job/links"
     echo "FreeBSD $release: building $name $pkgver for amd64 and arm64, installing the amd64 package"

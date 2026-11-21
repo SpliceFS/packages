@@ -43,8 +43,9 @@ jobs:
   # needs the hardware virtualization that ubuntu-latest (amd64) offers; the make target stops
   # at once when /dev/kvm is missing (scripts/freebsd-require-kvm.sh). The machine builds the
   # packages for amd64 and arm64, installs the amd64 one from the repository it signed with the
-  # throwaway key, starts the service, upgrades and removes it, and checks the boot order and
-  # the fstab line (programs/<program>/freebsd/check-lib.sh). Its package files are kept as an
+  # throwaway key and removes it. For the client it also starts the service, upgrades it and checks
+  # the boot order and the fstab line (programs/client/freebsd/check-lib.sh); the server's service
+  # is proved by the package test. Its package files are kept as an
   # artifact for the package test of both programs on FreeBSD (ci.yml); no test of
   # test-packages.yml uses a FreeBSD package.
   freebsd:
