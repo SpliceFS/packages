@@ -34,6 +34,20 @@ check_idle_after_install() {
     echo "ok: installed, not enabled and not running"
 }
 
+# Enabling is a decision of its own, apart from starting: the service is on the list of what
+# starts at boot, and the next check starts it.
+check_enable() {
+    service_enable "$1" || fail "the documented enable command failed"
+    service_enabled "$1" || fail "the service is not enabled after the documented enable command"
+    echo "ok: the documented enable command enables it"
+}
+
+check_start() {
+    service_start "$1" || fail "the documented start command failed"
+    must "the service is not active 20 seconds after the documented start command" wait_for 20 service_active "$1"
+    echo "ok: the documented start command starts it"
+}
+
 check_documented_start() {
     service_start_enable "$1" || fail "the documented start command failed"
     service_enabled "$1" || fail "the service is not enabled after the documented start command"
@@ -83,6 +97,21 @@ check_upgrade_keeps_running() {
     [ "$after" != "$before" ] || fail "the upgrade did not restart the running service"
     service_enabled "$1" || fail "the upgrade turned the service off"
     echo "ok: an upgrade restarted the running service"
+}
+
+# A stopped service stays enabled, so that it comes back at the next boot: only the disable
+# check turns that off.
+check_stop() {
+    service_stop "$1" || fail "stopping the service failed"
+    must "the service is still active 10 seconds after it was stopped" wait_for 10 inactive "$1"
+    refuse "the service still answers after it was stopped" answers "$1"
+    echo "ok: stopped and silent"
+}
+
+check_disable() {
+    service_disable "$1" || fail "the documented disable command failed"
+    refuse "the service is still enabled after the documented disable command" service_enabled "$1"
+    echo "ok: the service is not enabled"
 }
 
 check_removal() {

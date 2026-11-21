@@ -15,6 +15,15 @@
 #      started nothing, and the configuration and data of step 1 are kept. Then the file is put
 #      over itself once more: the files, the configuration and the state of the service stay as
 #      they were;
+#   3. the service is enabled with the documented command, and the program's test configuration
+#      (programs/PROGRAM/test-config.sh: the server serves one share with one user) is written
+#      through the documented folders and found where the documentation says;
+#   4. the service is started with the documented command, runs as its own user and does its job
+#      (the service check of the program: the server answers its health endpoint from outside);
+#   5. the service is restarted, then the container is, and the service is active and does its job
+#      again, because it is enabled;
+#   7. the service is stopped: no process of ours is left and the service no longer answers;
+#   8. the service is disabled, and is not enabled;
 #   9. the package manager's plain removal: the programs are gone, the configuration and the data
 #      remain. Then the documented removal (the file of steps/ for this system, without the setup
 #      script's --remove, which belongs to the setup script test), run as written except that its
@@ -24,7 +33,8 @@
 #      the data, the configuration, the user and the group; nothing of ours is installed or
 #      running, and the snapshot equals the one of step 0, apart from the paths of
 #      scripts/lifecycle-excluded.
-# The numbers are those of the design of the test; the steps that are not built yet are not run.
+# The numbers are those of the design of the test; the steps that are not built yet are not run
+# (6, the modes of the client, and the client's own configuration).
 # Before every step, the core dumps that appeared since the step before are printed with the program
 # that dumped them (scripts/core-files.sh), and beside a difference in step 9 all of them are.
 # A failing system does not stop the others, so one run shows every system that is broken. Runs on
@@ -233,6 +243,22 @@ check_system_as_it_was() {
     echo "ok: the files and the checksums of /etc are as they were"
 }
 
+# Writes the test configuration of the program and finds it where the documentation says. A program
+# with no test configuration has none to write.
+write_and_check_test_config() {
+    [ -f "$defs/test-config.sh" ] || return 0
+    must "writing the test configuration failed" in_system "$1" write_test_config
+    must "the test configuration is not where the documentation says" in_system "$1" check_test_config
+    echo "ok: the test configuration is where the documentation says"
+}
+
+# What the test made outside the folders the documented removal deletes, so that the snapshot
+# compares only what the package and the documented steps did.
+remove_test_data_of_program() {
+    [ -f "$defs/test-config.sh" ] || return 0
+    must "removing the test data failed" in_system "$1" remove_test_data
+}
+
 # Starts the step $1: first the core dumps that appeared since the step before it. The number goes
 # into a file so that the report of the system names the step it stopped in.
 step() {
@@ -267,9 +293,32 @@ run_steps() {
     check_installed_files "$c"
     check_reinstall_changes_nothing "$c"
 
+    step "3: the service is enabled, and the test configuration is written through the documented folders"
+    check_enable "$c"
+    must "opening the port ${port:-} in the firewall failed" open_firewall "$c"
+    write_and_check_test_config "$c"
+
+    step "4: the service is started, runs as its own user and does its job"
+    check_start "$c"
+    check_user "$c"
+    check_answers "$c"
+
+    step "5: the service is restarted, then the container is, and it works again because it is enabled"
+    check_restart "$c"
+    check_reboot "$c"
+
+    step "7: the service is stopped"
+    check_stop "$c"
+    must "a process of ours is still running after the stop" no_process_of_ours "$c"
+    echo "ok: no process of ours is running after the stop"
+
+    step "8: the service is disabled"
+    check_disable "$c"
+
     step "9: the plain removal, the documented removal, and the system is as it was"
     check_plain_removal "$c"
     documented_removal "$c"
+    remove_test_data_of_program "$c"
     check_nothing_of_ours "$c"
     check_system_as_it_was "$c"
     note_new_cores "$c" "step 9"
@@ -289,10 +338,14 @@ test_system() {
     # shellcheck source=/dev/null
     . "scripts/lifecycle-test-$format.sh"
     started=0
+    # What the program's service check says the container needs to be reached: the server publishes
+    # its port, so that the health endpoint is asked from outside.
+    options="$(run_options)"
+    # run_options prints whole options and nothing else, so it is left unquoted on purpose.
     # boot_system is one test whose status is the answer, so set -e being off inside it changes nothing.
-    # shellcheck disable=SC2310
+    # shellcheck disable=SC2086,SC2310
     if boot_system --name "$container" --platform "$platform" \
-        -v "$root":/src:ro -v "$root/dist/$PROGRAM":/pkg:ro "$2" 2>"$log"; then
+        -v "$root":/src:ro -v "$root/dist/$PROGRAM":/pkg:ro $options "$2" 2>"$log"; then
         started=1
     fi
 

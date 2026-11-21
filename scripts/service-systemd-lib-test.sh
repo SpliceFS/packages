@@ -49,6 +49,9 @@ u=splicefs-test.service
 check_calls "the unit is the program's own" "user box systemctl is-active --quiet $u" service_active box
 check_calls "enabled is asked as a user" "user box systemctl is-enabled --quiet $u" service_enabled box
 check_calls "the documented start command runs as root" "root box systemctl enable --now $u" service_start_enable box
+check_calls "enable alone runs as root" "root box systemctl enable $u" service_enable box
+check_calls "start alone runs as root" "root box systemctl start $u" service_start box
+check_calls "disable runs as root" "root box systemctl disable $u" service_disable box
 check_calls "stop runs as root" "root box systemctl stop $u" service_stop box
 check_calls "restart runs as root" "root box systemctl restart $u" service_restart box
 check_calls "the process id is asked as a user" "user box systemctl show -p MainPID --value $u" service_pid box

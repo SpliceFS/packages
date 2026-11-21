@@ -64,9 +64,20 @@ service_enabled() {
 }
 
 # The commands of the install page, which is also where they are written down.
+service_enable() {
+    docker exec "$1" rc-update add "$program" default >/dev/null
+}
+
+service_start() {
+    docker exec "$1" rc-service "$program" start >/dev/null
+}
+
 service_start_enable() {
-    docker exec "$1" rc-update add "$program" default >/dev/null &&
-        docker exec "$1" rc-service "$program" start >/dev/null
+    service_enable "$1" && service_start "$1"
+}
+
+service_disable() {
+    docker exec "$1" rc-update del "$program" default >/dev/null
 }
 
 service_stop() {

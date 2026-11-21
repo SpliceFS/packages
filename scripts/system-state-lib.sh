@@ -8,12 +8,16 @@
 
 # Runs the package checks of scripts/package-test-lib.sh, which look at the system they run in,
 # inside the container $1: the checks named by the other arguments, for the program and version
-# of the caller. The repository is mounted at /src, where those scripts read their definitions.
+# of the caller. The repository is mounted at /src, where those scripts read their definitions. A
+# program that has a test configuration (programs/PROGRAM/test-config.sh) gets its functions too,
+# so that the same call writes it, checks it and removes what it made.
 in_system() {
     container_name="$1"
     shift
     docker exec -e PROGRAM -e VERSION -e PACKAGE_DATE -w /src "$container_name" sh -c \
-        '. scripts/package-lib.sh; . scripts/package-test-lib.sh; for check in "$@"; do "$check"; done' sh "$@"
+        '. scripts/package-lib.sh; . scripts/package-test-lib.sh
+        if [ -f "$defs/test-config.sh" ]; then . "$defs/test-config.sh"; fi
+        for check in "$@"; do "$check"; done' sh "$@"
 }
 
 # Nothing of our programs runs: no process has one of their files as its program, also not one

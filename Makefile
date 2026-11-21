@@ -33,7 +33,7 @@ lint: site ## Runs ShellCheck on every shell file (needs shellcheck)
 		programs/*/deb/postinst programs/*/deb/prerm programs/*/deb/postrm \
 		programs/*/alpine/*.post-install programs/*/alpine/*.post-upgrade \
 		programs/*/alpine/*.pre-deinstall programs/*/alpine/*.pre-install programs/*/package-test-extra.sh \
-		programs/*/service-check.sh programs/*/freebsd/check-lib.sh programs/*/freebsd/*.rc \
+		programs/*/service-check.sh programs/*/test-config.sh programs/*/freebsd/check-lib.sh programs/*/freebsd/*.rc \
 		packaging/service/*/*
 
 # Signs the built script with the key file named by SIGNING_KEY_FILE and proves the signature

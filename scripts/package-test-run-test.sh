@@ -38,7 +38,23 @@ printf 'rpm ghcr.io/splicefs/server-rocky-9:v1.0\napk ghcr.io/splicefs/server-al
     >>"$t/farm/packaging/test-systems"
 cat >"$t/bin/curl" <<'STAND_IN'
 #!/bin/sh
-# Stand-in curl: logs the address and writes a file for the output name.
+# Stand-in curl. The health endpoint of the service answers 200 while the service of that system is
+# active (the stand-in docker publishes the port 20000 plus the number of the system) and nothing
+# otherwise; it is not logged, so that the log holds the downloads only. Any other address is logged
+# and writes a file for the output name.
+case "$*" in
+    *"/api/v1/health"*)
+        for url; do :; done
+        port="${url#https://127.0.0.1:}"
+        number=$((${port%%/*} - 20000))
+        for active in "$STAND_IN_DIR"/active.*-"$number"; do
+            if [ -f "$active" ]; then printf 200; exit 0; fi
+        done
+        printf 000
+        exit 0
+        ;;
+    *) ;;
+esac
 echo "curl $*" >>"$STAND_IN_DIR/log"
 [ -z "${STAND_IN_NO_SITE:-}" ] || exit 22
 while [ "$#" -gt 0 ]; do
@@ -52,10 +68,13 @@ cat >"$t/bin/docker" <<'STAND_IN'
 #!/bin/sh
 # Stand-in docker. STAND_IN_DIR holds: log, installed.SYSTEM (exists while the package is installed
 # in the system), config.SYSTEM (exists while dpkg keeps the configuration of a package that was
-# removed and not purged: the other package managers keep nothing), and for the n-th snapshot or
-# core listing of a system the files snapshot.n and cores.n. A system is named in the call by its
-# container, so that the systems of one case, which run at the same time, do not share what the
-# stand-in remembers. The package manager commands of the three formats change that state.
+# removed and not purged: the other package managers keep nothing), enabled.SYSTEM and active.SYSTEM
+# (exist while the service is enabled and running), and for the n-th snapshot or core listing of a
+# system the files snapshot.n and cores.n. A system is named in the call by its container, so that
+# the systems of one case, which run at the same time, do not share what the stand-in remembers. The
+# package manager and service manager commands of the three formats change that state; a container
+# that restarts runs the service again when it is enabled, as a booted system does. STAND_IN_USER is
+# the user the service runs as.
 echo "docker $*" >>"$STAND_IN_DIR/log"
 # A pattern removed from $* is removed from each argument, so the call is joined first.
 call="$*"
@@ -69,7 +88,8 @@ next_number() {
 case "$1" in
     version) echo linux/amd64; exit 0 ;;
     inspect) echo true; exit 0 ;;
-    exec) ;;
+    port) echo "127.0.0.1:$((20000 + ${system##*-}))"; exit 0 ;;
+    exec | restart) ;;
     *) exit 0 ;;
 esac
 if [ -n "${STAND_IN_FAIL:-}" ]; then
@@ -78,13 +98,23 @@ fi
 case "$*" in
     *is-system-running*) echo running ;;
     *rc-status*) echo default ;;
-    *is-enabled* | *is-active*) exit 1 ;;
+    restart*) [ -f "$STAND_IN_DIR/enabled.$system" ] || rm -f "$STAND_IN_DIR/active.$system" ;;
+    *"systemctl enable"* | *"rc-update add"*) : >"$STAND_IN_DIR/enabled.$system" ;;
+    *"systemctl disable"* | *"rc-update del"*) rm -f "$STAND_IN_DIR/enabled.$system" ;;
+    *"systemctl start"* | *"systemctl restart"* | *"rc-service splicefsd start"* | *"rc-service splicefsd restart"*)
+        : >"$STAND_IN_DIR/active.$system"
+        ;;
+    *"systemctl stop"* | *"rc-service splicefsd stop"*) rm -f "$STAND_IN_DIR/active.$system" ;;
+    *is-enabled*) [ -f "$STAND_IN_DIR/enabled.$system" ] ;;
+    *is-active* | *"rc-service splicefsd status"*) [ -f "$STAND_IN_DIR/active.$system" ] ;;
+    *"rc-update show"*) [ ! -f "$STAND_IN_DIR/enabled.$system" ] || echo " splicefsd | default" ;;
+    *"systemctl show"* | *'= "/usr/bin/$1"'*) [ -f "$STAND_IN_DIR/active.$system" ] && echo 4242 ;;
+    *getent*) echo "${STAND_IN_USER:-splicefs}" ;;
     *"grep -q /usr/local/bin"*) exit 1 ;;
     *lifecycle-snapshot.sh*) cat "$STAND_IN_DIR/snapshot.$(next_number snapshot)" ;;
     *core-files.sh*) cat "$STAND_IN_DIR/cores.$(next_number cores)" 2>/dev/null || true ;;
     *package_held*splicefs-server*) [ -f "$STAND_IN_DIR/installed.$system" ] || [ -f "$STAND_IN_DIR/config.$system" ] ;;
     *package_held*) exit 1 ;;
-    *rc-service*) exit 1 ;;
     *"then echo steps/uninstall-dnf.sh"*) echo steps/uninstall-dnf.sh ;;
     *dpkg-query* | *"rpm -q"* | *"apk info -e"*) [ -f "$STAND_IN_DIR/installed.$system" ] ;;
     *"apt-get purge"*) rm -f "$STAND_IN_DIR/installed.$system" "$STAND_IN_DIR/config.$system" ;;
@@ -110,12 +140,14 @@ scenario() {
     first="/etc/a"
     last="/etc/a"
     cores=
+    user=splicefs
     target=ghcr.io/splicefs/server-debian-12:v1.0
 }
 
 # Starts the case $1 in the background with the settings of scenario: the snapshot of step 0 is
 # $first, the snapshot of step 9 is $last, the one after the reinstall is $reinstalled, $cores are
-# the cores listed at the fourth look (before step 9), $target the image or format. A call that
+# the cores listed at the fourth look (before step 3), $user is the user the service runs as, $target
+# the image or format. A call that
 # holds the text in $fail_on fails. Keeps the output in $t/cases/$1/out, the calls in
 # $t/cases/$1/dir/log and the status in $t/cases/$1/status; the cases are read with use_case, after
 # wait.
@@ -132,7 +164,7 @@ launch() {
     (
         status=0
         STAND_IN_FAIL="$fail_on" STAND_IN_DIR="$case_dir/dir" PATH="$t/bin:$PATH" PROGRAM=server ONLY="$target" \
-            STAND_IN_UNPROVEN="$unproven" STAND_IN_NO_SITE="$no_site" \
+            STAND_IN_UNPROVEN="$unproven" STAND_IN_NO_SITE="$no_site" STAND_IN_USER="$user" \
             sh "$case_dir/root/scripts/package-test.sh" >"$case_dir/out" 2>&1 || status=$?
         echo "$status" >"$case_dir/status"
     ) &
@@ -193,6 +225,14 @@ no_install_after_the_plain_removal_of() {
     removal="$(line_of "$2")"
     [ "$last_install" -lt "$removal" ]
 }
+# The removal of the test data (the folder the share serves) comes after the documented removal and
+# before the last snapshot, which is the last call of the log that takes one.
+test_data_removed_before_the_last_snapshot() {
+    last="$(grep -n -F lifecycle-snapshot.sh "$dir/log" | tail -n 1 | cut -d: -f1)"
+    purge="$(line_of 'apt-get purge')"
+    removed="$(line_of remove_test_data)"
+    [ "$purge" -gt 0 ] && [ "$removed" -gt "$purge" ] && [ "$removed" -lt "$last" ]
+}
 steps_run() {
     # The line that says the removal command is left out starts like a step and is no step.
     steps_seen="$(grep '^step ' "$out" | cut -c1-7 | uniq | tr '\n' ' ')"
@@ -220,6 +260,15 @@ scenario; reinstalled="/etc/changed"; launch reinstall_changes_files
 scenario; fail_on="verify_markers_kept reinstall"; launch reinstall_loses_files
 scenario; target=ghcr.io/splicefs/server-rocky-9:v1.0; launch rpm_holds_nothing
 scenario; target=ghcr.io/splicefs/server-alpine-3.22:v1.0; launch apk_holds_nothing
+scenario; fail_on="systemctl enable"; launch enable_fails
+scenario; fail_on=write_test_config; launch test_config_not_written
+scenario; fail_on=check_test_config; launch test_config_not_where_documented
+scenario; fail_on="systemctl start"; launch start_fails
+scenario; user=root; launch runs_as_root
+scenario; fail_on="systemctl restart"; launch restart_fails
+scenario; fail_on="restart splicefs-package-test"; launch container_restart_fails
+scenario; fail_on=readlink; launch process_left_after_stop
+scenario; fail_on="systemctl disable"; launch disable_fails
 scenario; fail_on="apt-get remove"; launch plain_removal_fails
 scenario; fail_on="verify_markers_kept plain removal"; launch plain_removal_takes_files
 scenario; fail_on=check_programs_removed; launch plain_removal_keeps_program
@@ -229,7 +278,8 @@ wait
 
 use_case good
 expect "a good run passes" passed_status
-expect "the steps run in order: 0, 1, 2, 9" steps_run 'step 0: step 1: step 2: step 9: '
+expect "the steps run in order: 0, 1, 2, 3, 4, 5, 7, 8, 9" \
+    steps_run 'step 0: step 1: step 2: step 3: step 4: step 5: step 7: step 8: step 9: '
 expect "the published package file is fetched from the site" sh -c "grep -q 'curl.*/server/$old_file' '$dir/log'"
 expect "the published package file is proven by the signed index" sh -c "grep -q 'verify $old_file ' '$dir/log'"
 expect "the first snapshot is taken before the published package is installed" \
@@ -239,6 +289,22 @@ expect "the new file goes over the published one, then over itself, then the pla
     "sh deb v1.2.2 v1.2.3 file /pkg/splicefs-server_1.2.3_amd64.deb" \
     "sh deb v1.2.3 v1.2.3 file /pkg/splicefs-server_1.2.3_amd64.deb" \
     "apt-get remove" "apt-get purge"
+expect "the service is enabled, configured, started, restarted, the container restarted, stopped, disabled, then removed" \
+    in_order "systemctl enable" write_test_config "systemctl start" "systemctl restart" "docker restart" \
+    "systemctl stop" "systemctl disable" "apt-get remove" "apt-get purge"
+expect "the test configuration is checked where the documentation says before the service starts" \
+    in_order write_test_config check_test_config "systemctl start"
+expect "the port of the service is published, so that the health endpoint is asked from outside" \
+    sh -c "grep -q 'docker run.* -p 127.0.0.1::8480 ' '$dir/log'"
+expect "the service runs as its own user" holds "ok: runs as splicefs"
+expect "the health endpoint answers from outside" holds "ok: answers 200 on /api/v1/health from outside"
+expect "the service is active and answering after a restart" holds "ok: active and answering after a restart"
+expect "the service is active and answering after the container restarts, because it is enabled" \
+    holds "ok: active and answering after a reboot, because it was enabled"
+expect "after the stop the service is silent and nothing of ours runs" holds "ok: stopped and silent"
+expect "after the stop no process of ours is left" holds "ok: no process of ours is running after the stop"
+expect "after the disable the service is not enabled" holds "ok: the service is not enabled"
+expect "the test data is removed after the documented removal, before the last snapshot" test_data_removed_before_the_last_snapshot
 expect "the removals fall between the first and the last snapshot" four_snapshots_around_the_removals
 expect "the package file is not installed again between the plain removal and the documented removal" \
     no_install_after_the_plain_removal_of 'apt-get install' 'apt-get remove'
@@ -291,7 +357,8 @@ expect "the same version is put over the published one with the reinstall, and a
 
 use_case nothing_published
 expect "a run with nothing published passes" passed_status
-expect "the steps run in order with nothing published" steps_run 'step 0: step 1: step 2: step 9: '
+expect "the steps run in order with nothing published" \
+    steps_run 'step 0: step 1: step 2: step 3: step 4: step 5: step 7: step 8: step 9: '
 expect "step 1 says nothing is published" holds "nothing is published for server"
 expect "nothing is fetched or proven" sh -c "! grep -q 'curl\|verify ' '$dir/log'"
 expect "no published file is installed" sh -c "! grep -q '/pkg/published' '$dir/log'"
@@ -331,6 +398,32 @@ expect "the change is shown" holds "/etc/changed"
 
 use_case reinstall_loses_files
 expect "a reinstall that loses the configuration or the data fails step 2" holds "FAIL deb $debian (step 2)"
+
+use_case enable_fails
+expect "a failing enable command is step 3" holds "FAIL deb $debian (step 3)"
+expect "that stops the run: no start" lacks "step 4:"
+use_case test_config_not_written
+expect "a test configuration that cannot be written is step 3" holds "FAIL deb $debian (step 3)"
+expect "that stops the run: no start" lacks "step 4:"
+use_case test_config_not_where_documented
+expect "a test configuration not where the documentation says is step 3" holds "FAIL deb $debian (step 3)"
+use_case start_fails
+expect "a failing start command is step 4" holds "FAIL deb $debian (step 4)"
+expect "that stops the run: no restart" lacks "step 5:"
+use_case runs_as_root
+expect "a service that runs as another user fails step 4" holds "FAIL deb $debian (step 4)"
+expect "the user is named" holds "the service runs as 'root', not as 'splicefs'"
+use_case restart_fails
+expect "a failing restart is step 5" holds "FAIL deb $debian (step 5)"
+use_case container_restart_fails
+expect "a failing restart of the container is step 5" holds "FAIL deb $debian (step 5)"
+expect "that stops the run: no stop" lacks "step 7:"
+use_case process_left_after_stop
+expect "a process of ours left after the stop is step 7" holds "FAIL deb $debian (step 7)"
+expect "that stops the run: no disable" lacks "step 8:"
+use_case disable_fails
+expect "a failing disable command is step 8" holds "FAIL deb $debian (step 8)"
+expect "that stops the run: no removal" sh -c "! grep -q 'apt-get remove' '$dir/log'"
 
 use_case plain_removal_fails
 expect "a failing plain removal fails step 9" holds "FAIL deb $debian (step 9)"

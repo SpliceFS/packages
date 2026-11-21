@@ -24,7 +24,6 @@
 # shellcheck source=upgrade-package-lib.sh
 . scripts/upgrade-package-lib.sh
 
-datadir="/var/lib/splicefs/${name#splicefs-}"
 # The package ships no configuration file, only empty folders for the administrator's files
 # (programs/PROGRAM/config-folders), so the file an administrator would write there is the one the
 # upgrade must leave alone. The package tests use the same name.

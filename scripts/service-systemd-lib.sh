@@ -31,6 +31,19 @@ service_start_enable() {
     on_system_as_root "$1" systemctl enable --now "$unit"
 }
 
+# The same in two commands, for a person who enables the service first and starts it later.
+service_enable() {
+    on_system_as_root "$1" systemctl enable "$unit"
+}
+
+service_start() {
+    on_system_as_root "$1" systemctl start "$unit"
+}
+
+service_disable() {
+    on_system_as_root "$1" systemctl disable "$unit"
+}
+
 service_stop() {
     on_system_as_root "$1" systemctl stop "$unit"
 }
