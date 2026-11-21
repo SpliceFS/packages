@@ -31,6 +31,10 @@
 #      started nothing, and the configuration and data of step 1 are kept. Then the file is put
 #      over itself once more: the files, the configuration and the state of the service stay as
 #      they were;
+#   1a. for a program whose service steps are built and that has a published package, its service is
+#      enabled, configured and started, the way steps 3 and 4 do it (one set of functions), and its
+#      process id and the version its health endpoint reports are written down. With nothing published
+#      the step says that the upgrade under a running service is not tested;
 #   3. the service is enabled with the documented command, and the program's test configuration
 #      (programs/PROGRAM/test-config.sh: the server serves one share with one user) is written
 #      through the documented folders and found where the documentation says;
@@ -92,6 +96,7 @@ cd "$root"
 . scripts/package-record.sh
 . scripts/package-test-program-lib.sh
 . scripts/service-check-lib.sh
+. scripts/service-upgrade-lib.sh
 . scripts/documented-removal-lib.sh
 . scripts/service-run-local.sh
 . scripts/system-state-lib.sh
@@ -157,7 +162,7 @@ check_installed_files() {
     must "the service definition does not name the program $bindir/$program" on_system "$1" grep -qF "$bindir/$program" "$definition"
     must "the user $expected_user was not created" on_system "$1" grep -q "^$expected_user:" /etc/passwd
     echo "ok: the package is installed, its files are in place and the user exists"
-    check_idle_after_install "$1"
+    check_service_after_package "$1"
 }
 
 # Where the published package file is: on a system the host reaches (a container) the host put it
@@ -428,6 +433,40 @@ service_enable_and_configure() {
     write_and_check_test_config "$system"
 }
 
+# Step 1a: the published package's service is turned on and started like steps 3 and 4 do it, and what
+# it is is written down; step 2 then puts the new package over a running service. With nothing published
+# there is no running service to upgrade.
+step_running_baseline() {
+    if [ -z "$from" ]; then
+        echo "nothing is published for $PROGRAM: the upgrade under a running service is not tested"
+        return 0
+    fi
+    service_enable_and_configure
+    service_start_and_check
+    note_running_service "$system" "$old_tag"
+}
+
+# Steps 3 and 4 turn the service on and start it, unless step 1a did and the upgrade kept it so: then they
+# check that it is still so.
+step_enable_and_configure() {
+    # ran_before_the_package is one test whose status is the answer, so set -e being off inside it changes nothing.
+    # shellcheck disable=SC2310
+    if ran_before_the_package; then
+        check_still_enabled_and_configured "$system"
+    else
+        service_enable_and_configure
+    fi
+}
+
+step_start_and_check() {
+    # shellcheck disable=SC2310
+    if ran_before_the_package; then
+        check_still_running "$system"
+    else
+        service_start_and_check
+    fi
+}
+
 service_start_and_check() {
     must "saving the firewall zone files failed" save_firewall_zones "$system" "$own/firewall-zones"
     must "opening the port ${port:-} in the firewall failed" open_firewall "$system"
@@ -499,10 +538,12 @@ phase1() {
     take_snapshot "$system" "$own/before"
 
     each_program step_baseline
+    each_service_program 1a "the published package's service is enabled, configured and started, to be upgraded while it runs" \
+        step_running_baseline
     each_program step_new_package
     each_service_program 3 "the service is enabled, and the test configuration is written through the documented folders" \
-        service_enable_and_configure
-    each_service_program 4 "the service is started, runs as its own user and does its job" service_start_and_check
+        step_enable_and_configure
+    each_service_program 4 "the service is started, runs as its own user and does its job" step_start_and_check
     step_restart
 }
 

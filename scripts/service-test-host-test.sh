@@ -14,7 +14,7 @@ failed=0
 mkdir "$work/bin"
 
 # Every stand-in writes its name and arguments to the file "calls". curl prints the status code
-# in FAKE_CODE, as the real one does for -w '%{http_code}'. sudo runs the command that follows,
+# in FAKE_CODE on its last line, as the real one does for -w '\n%{http_code}'. sudo runs the command that follows,
 # so the stand-in of the client's control command decides, with the status in FAKE_STATUS.
 # The dollar signs are for the shell that runs the stand-in, not for this one.
 # shellcheck disable=SC2016
@@ -22,7 +22,7 @@ for tool in apt-get systemctl; do
     printf '#!/bin/sh\necho "%s $*" >> "%s/calls"\n' "$tool" "$work" > "$work/bin/$tool"
 done
 # shellcheck disable=SC2016
-printf '#!/bin/sh\necho "curl $*" >> "%s/calls"\nprintf "%%s" "$FAKE_CODE"\n' "$work" > "$work/bin/curl"
+printf '#!/bin/sh\necho "curl $*" >> "%s/calls"\nprintf "\\n%%s" "$FAKE_CODE"\n' "$work" > "$work/bin/curl"
 printf '#!/bin/sh\necho "sudo $*" >> "%s/calls"\n"$@"\n' "$work" > "$work/bin/sudo"
 # shellcheck disable=SC2016
 printf '#!/bin/sh\nexit "$FAKE_STATUS"\n' > "$work/bin/splicefsctl"
