@@ -77,7 +77,7 @@ said() {
     if grep -qF "$2" "$work/out"; then
         printf 'ok   %s\n' "$1"
     else
-        printf 'FAIL %s: "%s" is not in "%s"\n' "$1" "$2" "$(cat "$work/out")"
+        printf 'FAIL %s: "%s" is not in "%s"\n' "$1" "$2" "$(cat "$work/out" || true)"
         failed=$((failed + 1))
     fi
 }
