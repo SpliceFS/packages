@@ -58,7 +58,7 @@
 # type by emulation, empty means this machine's own; ONLY limits the run to one format or image.
 #
 # What differs between package formats is in scripts/service-test-<format>.sh (install_package,
-# service_file, the service functions) and scripts/lifecycle-test-<format>.sh (package_installed,
+# service_file, the service functions) and scripts/package-test-<format>.sh (package_installed,
 # uninstall_file); what the service of the program does is in its service-check.sh. None of them
 # can be followed by ShellCheck.
 # shellcheck disable=SC2154
@@ -177,7 +177,7 @@ use_program_in_system() {
     # shellcheck source=/dev/null
     . "scripts/service-test-$format.sh"
     # shellcheck source=/dev/null
-    . "scripts/lifecycle-test-$format.sh"
+    . "scripts/package-test-$format.sh"
 }
 
 # The package files are installed by the system's package manager. It runs in the booted system,
@@ -548,7 +548,7 @@ while read -r format image; do
     # system_selected is one test whose status is the answer, so set -e being off inside it changes nothing.
     # shellcheck disable=SC2310
     system_selected "$format" "$image" || continue
-    for needed in "scripts/service-test-$format.sh" "scripts/lifecycle-test-$format.sh"; do
+    for needed in "scripts/service-test-$format.sh" "scripts/package-test-$format.sh"; do
         [ -f "$needed" ] || fail "$needed does not exist"
     done
     selected="$selected$format $image
