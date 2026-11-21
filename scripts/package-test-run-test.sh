@@ -34,6 +34,8 @@ STAND_IN
 chmod 755 "$t/farm/scripts/published-verify.sh"
 printf 'deb ghcr.io/splicefs/server-debian-12:v1.0\ndeb ghcr.io/splicefs/server-ubuntu-24.04:v1.0\n' \
     >"$t/farm/packaging/test-systems"
+printf 'rpm ghcr.io/splicefs/server-rocky-9:v1.0\napk ghcr.io/splicefs/server-alpine-3.22:v1.0\n' \
+    >>"$t/farm/packaging/test-systems"
 cat >"$t/bin/curl" <<'STAND_IN'
 #!/bin/sh
 # Stand-in curl: logs the address and writes a file for the output name.
@@ -49,9 +51,11 @@ chmod 755 "$t/bin/curl"
 cat >"$t/bin/docker" <<'STAND_IN'
 #!/bin/sh
 # Stand-in docker. STAND_IN_DIR holds: log, installed.SYSTEM (exists while the package is installed
-# in the system), and for the n-th snapshot or core listing of a system the files snapshot.n and
-# cores.n. A system is named in the call by its container, so that the systems of one case, which
-# run at the same time, do not share what the stand-in remembers.
+# in the system), config.SYSTEM (exists while dpkg keeps the configuration of a package that was
+# removed and not purged: the other package managers keep nothing), and for the n-th snapshot or
+# core listing of a system the files snapshot.n and cores.n. A system is named in the call by its
+# container, so that the systems of one case, which run at the same time, do not share what the
+# stand-in remembers. The package manager commands of the three formats change that state.
 echo "docker $*" >>"$STAND_IN_DIR/log"
 # A pattern removed from $* is removed from each argument, so the call is joined first.
 call="$*"
@@ -73,13 +77,23 @@ if [ -n "${STAND_IN_FAIL:-}" ]; then
 fi
 case "$*" in
     *is-system-running*) echo running ;;
+    *rc-status*) echo default ;;
     *is-enabled* | *is-active*) exit 1 ;;
     *"grep -q /usr/local/bin"*) exit 1 ;;
     *lifecycle-snapshot.sh*) cat "$STAND_IN_DIR/snapshot.$(next_number snapshot)" ;;
     *core-files.sh*) cat "$STAND_IN_DIR/cores.$(next_number cores)" 2>/dev/null || true ;;
-    *dpkg-query*) [ -f "$STAND_IN_DIR/installed.$system" ] ;;
-    *"apt-get purge"* | *"apt-get remove"*) rm -f "$STAND_IN_DIR/installed.$system" ;;
-    *"apt-get install"*) : >"$STAND_IN_DIR/installed.$system" ;;
+    *package_held*splicefs-server*) [ -f "$STAND_IN_DIR/installed.$system" ] || [ -f "$STAND_IN_DIR/config.$system" ] ;;
+    *package_held*) exit 1 ;;
+    *rc-service*) exit 1 ;;
+    *"then echo steps/uninstall-dnf.sh"*) echo steps/uninstall-dnf.sh ;;
+    *dpkg-query* | *"rpm -q"* | *"apk info -e"*) [ -f "$STAND_IN_DIR/installed.$system" ] ;;
+    *"apt-get purge"*) rm -f "$STAND_IN_DIR/installed.$system" "$STAND_IN_DIR/config.$system" ;;
+    *"apt-get remove"*) mv "$STAND_IN_DIR/installed.$system" "$STAND_IN_DIR/config.$system" ;;
+    *"dnf remove"* | *"apk del"*) rm -f "$STAND_IN_DIR/installed.$system" ;;
+    *"apt-get install"* | *"dnf install"* | *"apk add"*)
+        rm -f "$STAND_IN_DIR/config.$system"
+        : >"$STAND_IN_DIR/installed.$system"
+        ;;
     *) ;;
 esac
 STAND_IN
@@ -171,16 +185,17 @@ four_snapshots_around_the_removals() {
     removal="$(line_of 'apt-get purge')"
     [ "$snapshots" -eq 4 ] && [ "$removal" -gt 0 ] && [ "$removal" -lt "$last" ]
 }
-# The package file is installed again after the plain removal, so that the documented removal has
-# a package to remove.
-installed_again_before_the_documented_removal() {
-    last_install="$(grep -n -F 'apt-get install' "$dir/log" | tail -n 1 | cut -d: -f1)"
-    removal="$(line_of 'apt-get remove')"
-    purge="$(line_of 'apt-get purge')"
-    [ "$removal" -lt "$last_install" ] && [ "$last_install" -lt "$purge" ]
+# The package is not installed again between the plain removal and the documented removal: the
+# documented removal is for what the package manager still holds. $1 is the text of an install
+# call, $2 the text of the removal call.
+no_install_after_the_plain_removal_of() {
+    last_install="$(grep -n -F "$1" "$dir/log" | tail -n 1 | cut -d: -f1)"
+    removal="$(line_of "$2")"
+    [ "$last_install" -lt "$removal" ]
 }
 steps_run() {
-    steps_seen="$(grep '^step ' "$out" | cut -c1-7 | tr '\n' ' ')"
+    # The line that says the removal command is left out starts like a step and is no step.
+    steps_seen="$(grep '^step ' "$out" | cut -c1-7 | uniq | tr '\n' ' ')"
     [ "$steps_seen" = "$1" ]
 }
 failed_status() { [ "$status" -ne 0 ]; }
@@ -203,6 +218,8 @@ scenario; fail_on="sh deb v1.2.2 v1.2.3"; launch upgrade_fails
 scenario; fail_on="verify_markers_kept upgrade"; launch upgrade_loses_files
 scenario; reinstalled="/etc/changed"; launch reinstall_changes_files
 scenario; fail_on="verify_markers_kept reinstall"; launch reinstall_loses_files
+scenario; target=ghcr.io/splicefs/server-rocky-9:v1.0; launch rpm_holds_nothing
+scenario; target=ghcr.io/splicefs/server-alpine-3.22:v1.0; launch apk_holds_nothing
 scenario; fail_on="apt-get remove"; launch plain_removal_fails
 scenario; fail_on="verify_markers_kept plain removal"; launch plain_removal_takes_files
 scenario; fail_on=check_programs_removed; launch plain_removal_keeps_program
@@ -223,16 +240,44 @@ expect "the new file goes over the published one, then over itself, then the pla
     "sh deb v1.2.3 v1.2.3 file /pkg/splicefs-server_1.2.3_amd64.deb" \
     "apt-get remove" "apt-get purge"
 expect "the removals fall between the first and the last snapshot" four_snapshots_around_the_removals
-expect "the package file is installed again before the documented removal" installed_again_before_the_documented_removal
+expect "the package file is not installed again between the plain removal and the documented removal" \
+    no_install_after_the_plain_removal_of 'apt-get install' 'apt-get remove'
 expect "the configuration file and the data file are written after the published install, kept by the upgrade" \
     in_order "apt-get install -y -qq /pkg/published/" "write_markers deb" "sh deb v1.2.2 v1.2.3" "verify_markers_kept upgrade"
 expect "the plain removal checks the configuration and the data remain" sh -c "grep -q 'verify_markers_kept plain removal' '$dir/log'"
 expect "the system is named as passed" holds "ok   deb $debian"
-expect "the install is of the package file under /pkg" sh -c "grep -q 'apt-get install.* /pkg/splicefs-server_' '$dir/log'"
+expect "the install is of the package file under /pkg" sh -c "grep -q 'file /pkg/splicefs-server_' '$dir/log'"
 expect "no setup script and no repository are used" sh -c "! grep -q 'setup.sh\|apt-key\|sources.list' '$dir/log'"
 expect "the setup script's removal is not run" sh -c "! grep -q 'splicefs-setup.sh' '$dir/log'"
-expect "the documented removal names the package under test" sh -c "grep -q 'apt-get purge splicefs-server' '$dir/log'"
-expect "the documented removal leaves out the program that is not tested" sh -c "! grep -q 'splicefs-client' '$dir/log'"
+expect "the documented removal names the package the package manager still holds (dpkg keeps its configuration)" \
+    sh -c "grep -q 'apt-get purge splicefs-server' '$dir/log'"
+expect "the documented removal leaves out the program that is not held" sh -c "! grep -q 'apt-get purge.*splicefs-client' '$dir/log'"
+expect "the package manager is asked what it holds, once for each program" sh -c "[ \"\$(grep -c 'package_held' '$dir/log')\" -eq 2 ]"
+expect "a removal command with names does not say it is left out" lacks "the removal command is left out"
+expect "every other line of the steps file runs as written" \
+    sh -c "grep -q 'apt-get autoremove --purge' '$dir/log' && grep -q 'userdel splicefs' '$dir/log'"
+
+rocky=ghcr.io/splicefs/server-rocky-9:v1.0
+alpine=ghcr.io/splicefs/server-alpine-3.22:v1.0
+use_case rpm_holds_nothing
+expect "an rpm run passes" passed_status
+expect "the system is named as passed" holds "ok   rpm $rocky"
+expect "the documented removal says its removal command is left out, with the format" \
+    holds "step 9: rpm: nothing installed, the removal command is left out, as the steps say"
+expect "the removal command is not run again after the plain removal" sh -c "[ \"\$(grep -c 'dnf remove' '$dir/log')\" -eq 1 ]"
+expect "every other line of the steps file runs as written" \
+    sh -c "grep -q 'dnf autoremove' '$dir/log' && grep -q 'userdel splicefs' '$dir/log'"
+expect "the package file is not installed again" no_install_after_the_plain_removal_of 'dnf install' 'dnf remove'
+
+use_case apk_holds_nothing
+expect "an apk run passes" passed_status
+expect "the system is named as passed" holds "ok   apk $alpine"
+expect "the documented removal says its removal command is left out, with the format" \
+    holds "step 9: apk: nothing installed, the removal command is left out, as the steps say"
+expect "the removal command is not run again after the plain removal" sh -c "[ \"\$(grep -c 'apk del' '$dir/log')\" -eq 1 ]"
+expect "every other line of the steps file runs as written" \
+    sh -c "grep -q 'deluser splicefs' '$dir/log' && grep -q 'rm -rf /var/lib/splicefs' '$dir/log'"
+expect "the package file is not installed again" no_install_after_the_plain_removal_of 'apk add' 'apk del'
 
 use_case two_systems
 expect "two systems of one format pass" holds "passed: 2  failed: 0"

@@ -17,9 +17,13 @@
 #      they were;
 #   9. the package manager's plain removal: the programs are gone, the configuration and the data
 #      remain. Then the documented removal (the file of steps/ for this system, without the setup
-#      script's --remove, which belongs to the setup script test): the package, the data, the
-#      configuration, the user and the group; nothing of ours is installed or running, and the
-#      snapshot equals the one of step 0, apart from the paths of scripts/lifecycle-excluded.
+#      script's --remove, which belongs to the setup script test), run as written except that its
+#      removal command names only the packages the package manager still holds (dpkg keeps the
+#      configuration of a removed package, so apt-get purge still names it; the other package
+#      managers hold nothing, so the command is left out, as the steps tell a person to do):
+#      the data, the configuration, the user and the group; nothing of ours is installed or
+#      running, and the snapshot equals the one of step 0, apart from the paths of
+#      scripts/lifecycle-excluded.
 # The numbers are those of the design of the test; the steps that are not built yet are not run.
 # Before every step, the core dumps that appeared since the step before are printed with the program
 # that dumped them (scripts/core-files.sh), and beside a difference in step 9 all of them are.
@@ -148,18 +152,29 @@ check_reinstall_changes_nothing() {
     echo "ok: installing the package file over itself changed no file, no configuration and no service"
 }
 
-# The documented removal reads as the install page shows it, for both programs. A program that is
-# not part of the test is not installed, and a package manager refuses a name it does not know, so
-# the names of those packages are left out of the commands. The setup script's own removal is left
-# out: it removes the repository this test never set up.
+# The documented removal reads as the install page shows it, for both programs, and says "Leave out
+# the one you did not install": its removal command names the packages in $2 (what the package
+# manager still holds, separated by spaces) and the others are left out of it. With none named the
+# command is left out whole: a package manager refuses a name it does not hold, and a command with
+# no name does nothing. The setup script's own removal is left out too: it removes the repository
+# this test never set up.
 documented_removal_text() {
     {
         echo '/setup\.sh/d'
         for conf in programs/*/program.conf; do
             other="$(sed -n 's/^name=//p' "$conf")"
-            [ "$other" != "$name" ] || continue
-            echo "s/ $other\$//"
-            echo "s/ $other / /"
+            case " $2 " in
+                *" $other "*) ;;
+                *)
+                    if [ -n "$2" ]; then
+                        echo "s/ $other\$//"
+                        echo "s/ $other / /"
+                    else
+                        echo "/ $other\$/d"
+                        echo "/ $other /d"
+                    fi
+                    ;;
+            esac
         done
     } >"$own/removal.sed"
     sed -f "$own/removal.sed" "$1"
@@ -172,9 +187,14 @@ documented_removal_text() {
 # their defaults, the same yes. The first failing command ends the run.
 documented_removal() {
     file="$(uninstall_file "$1")" || fail "no uninstall file for this system"
-    # fail ends the system, so the function being part of a condition changes nothing.
+    # fail ends the system, so the functions being part of a condition change nothing.
     # shellcheck disable=SC2310
-    text="$(documented_removal_text "$file")" || fail "reading $file failed"
+    held="$(held_packages "$1")" || fail "asking the package manager what it holds failed"
+    if [ -z "$held" ]; then
+        echo "step 9: $format: nothing installed, the removal command is left out, as the steps say"
+    fi
+    # shellcheck disable=SC2310
+    text="$(documented_removal_text "$file" "$held")" || fail "reading $file failed"
     yes | docker exec -i -e DEBIAN_FRONTEND=noninteractive "$1" sh -c 'set -e
         sudo() { if [ "$1" = zypper ]; then shift; zypper --non-interactive "$@"; else "$@"; fi; }
         eval "$1"' sh "$text" ||
@@ -249,10 +269,6 @@ run_steps() {
 
     step "9: the plain removal, the documented removal, and the system is as it was"
     check_plain_removal "$c"
-    # The documented removal is for a person whose packages are installed: after the plain removal
-    # some package managers refuse its package names (apk does), so the package file is installed
-    # once more, as step 2 does with no baseline.
-    must "installing the package again failed" install_package "$c"
     documented_removal "$c"
     check_nothing_of_ours "$c"
     check_system_as_it_was "$c"

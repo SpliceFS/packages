@@ -28,6 +28,23 @@ no_process_of_ours() {
         done'
 }
 
+# Prints the package names of our programs that the package manager of the system $1 still holds
+# (scripts/package-held-lib.sh decides, for the format of the caller), separated by spaces. The names
+# are those of programs/*/program.conf.
+held_packages() {
+    held_list=""
+    for held_conf in programs/*/program.conf; do
+        held_name="$(sed -n 's/^name=//p' "$held_conf")"
+        # package_held is one test whose status is the answer, so set -e being off inside it changes nothing.
+        # shellcheck disable=SC2310
+        if docker exec -e PROGRAM -e VERSION -e PACKAGE_DATE -w /src "$1" sh -c '. scripts/package-lib.sh; . scripts/package-held-lib.sh; package_held "$@"' \
+            sh "$format" "$held_name"; then
+            held_list="$held_list${held_list:+ }$held_name"
+        fi
+    done
+    echo "$held_list"
+}
+
 # Writes the snapshot of the system into the file $2 on the host.
 take_snapshot() {
     docker exec "$1" sh /src/scripts/lifecycle-snapshot.sh >"$2" || fail "the snapshot of the system failed"
