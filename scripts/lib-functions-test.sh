@@ -4,7 +4,9 @@
 # one. A script that sources both gets the definition of whichever it sources last, so the same
 # name in two places means that a change to one of them is silently undone by the other. Every
 # function has one home. The adapters of the package formats (scripts/service-test-<format>.sh)
-# are not libraries: they define the same names on purpose, and a script sources one of them.
+# and the two ways to run a command on a system (scripts/service-run-container.sh and
+# scripts/service-run-local.sh) are not libraries: they define the same names on purpose, and a
+# script sources one of them.
 set -eu
 
 root="$(cd "$(dirname "$0")/.." && pwd)"

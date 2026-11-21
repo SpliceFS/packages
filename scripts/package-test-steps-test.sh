@@ -1,12 +1,13 @@
 #!/bin/sh
-# check: package-test.sh: the steps run in order, a failing check stops the system with its step named, cores are named
-# Test of scripts/package-test.sh with a stand-in docker command, so it needs no Docker and no
-# network. The stand-in writes every call to a log and answers like a system a package is installed
-# in: the package manager commands change what it says is installed, snapshots and core listings
-# come from files of the test, and a command that holds the text in STAND_IN_FAIL fails. The
-# package site is a stand-in curl, and the proof of a download a stand-in published-verify.sh,
-# which fails when the file is named in STAND_IN_UNPROVEN. The test reads the order of the steps
-# from the log.
+# check: package-test-steps.sh: the phases run their steps in order in a system, a failing check names its step in the result, cores are named
+# Test of scripts/package-test-steps.sh, the steps that run inside the system under test. The system
+# is a stand-in: its commands go through on_system (scripts/service-run-local.sh), which the
+# test replaces with one that writes every call to a log and answers like a system a package is
+# installed in, so it needs no Docker and no network. The package manager and service manager
+# commands change what the stand-in says is installed, enabled and running; snapshots and core
+# listings come from files of the test; a call that holds the text in STAND_IN_FAIL fails. The
+# restart the host does between the phases is done by the test. The test reads the order of the
+# steps from the log. The host's part is in scripts/package-test-test.sh.
 set -eu
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -15,203 +16,154 @@ trap 'rm -rf "$t"' EXIT
 failed=0
 
 # The repository as the script sees it, made once: the real scripts and definitions, apart from the
-# proof of a download, which needs the network and gpg, and the list of systems, which has two of
-# the format deb here. Every case gets its own folder of links to it and its own record of a build,
-# so that the cases run at the same time.
-mkdir -p "$t/farm/scripts" "$t/farm/packaging" "$t/bin"
+# commands of the system, which the stand-in on_system answers. Every case gets its own folder of
+# links to it and its own record of a build, so that the cases run at the same time.
+mkdir -p "$t/farm/scripts" "$t/bin"
 ln -s "$root/programs" "$t/farm/programs"
 ln -s "$root/steps" "$t/farm/steps"
 ln -s "$root/keys" "$t/farm/keys"
-for each in "$root"/scripts/* "$root"/packaging/*; do
+for each in "$root"/scripts/*; do
     ln -s "$each" "$t/farm/${each#"$root"/}"
 done
-rm "$t/farm/scripts/published-verify.sh" "$t/farm/packaging/test-systems"
-cat >"$t/farm/scripts/published-verify.sh" <<'STAND_IN'
-#!/bin/sh
-# Stand-in for the proof of a download: says what it was asked and fails for a named file.
-echo "verify $*" >>"$STAND_IN_DIR/log"
-[ -z "${STAND_IN_UNPROVEN:-}" ] || case "$1" in *"$STAND_IN_UNPROVEN"*) exit 1 ;; *) ;; esac
-STAND_IN
-chmod 755 "$t/farm/scripts/published-verify.sh"
-printf 'deb ghcr.io/splicefs/server-debian-12:v1.0\ndeb ghcr.io/splicefs/server-ubuntu-24.04:v1.0\n' \
-    >"$t/farm/packaging/test-systems"
-printf 'rpm ghcr.io/splicefs/server-rocky-9:v1.0\napk ghcr.io/splicefs/server-alpine-3.22:v1.0\n' \
-    >>"$t/farm/packaging/test-systems"
-cat >"$t/bin/curl" <<'STAND_IN'
-#!/bin/sh
-# Stand-in curl. The health endpoint of the service answers 200 while the service of that system is
-# active (the stand-in docker publishes the port 20000 plus the number of the system) and nothing
-# otherwise; it is not logged, so that the log holds the downloads only. Any other address is logged
-# and writes a file for the output name.
-case "$*" in
-    *"/api/v1/health"*)
-        for url; do :; done
-        port="${url#https://127.0.0.1:}"
-        number=$((${port%%/*} - 20000))
-        for active in "$STAND_IN_DIR"/active.*-"$number"; do
-            if [ -f "$active" ]; then printf 200; exit 0; fi
-        done
-        printf 000
-        exit 0
-        ;;
-    *) ;;
-esac
-echo "curl $*" >>"$STAND_IN_DIR/log"
-[ -z "${STAND_IN_NO_SITE:-}" ] || exit 22
-# The site serves the keys of the repository, or another key when STAND_IN_OTHER_KEY is set.
-for url; do :; done
-while [ "$#" -gt 0 ]; do
-    case "$1:$url" in
-        -o:*/keys/*) if [ -n "${STAND_IN_OTHER_KEY:-}" ]; then echo other >"$2"; else cp "$STAND_IN_KEYS/${url##*/}" "$2"; fi ;;
-        -o:*) echo published >"$2" ;;
-        *) ;;
-    esac
-    shift
-done
-STAND_IN
-chmod 755 "$t/bin/curl"
-
-cat >"$t/bin/docker" <<'STAND_IN'
-#!/bin/sh
-# Stand-in docker. STAND_IN_DIR holds: log, installed.SYSTEM.PROGRAM (exists while the package of the
-# program, server or client, is installed in the system), config.SYSTEM.PROGRAM (exists while dpkg
+rm "$t/farm/scripts/service-run-local.sh"
+cat >"$t/farm/scripts/service-run-local.sh" <<'STAND_IN'
+# Stand-in for the commands of the system. STAND_IN_DIR holds: log, installed.PROGRAM (exists while
+# the package of the program, server or client, is installed), config.PROGRAM (exists while dpkg
 # keeps the configuration of a package that was removed and not purged: the other package managers
-# keep nothing), enabled.SYSTEM and active.SYSTEM (exist while the service of the server is enabled
-# and running; the client's service never is), and for the n-th snapshot or core listing of a
-# system the files snapshot.n and cores.n, the look after the last snapshot (the file last-snapshot
-# holds its number) cores.after-snapshot, and for a core given by its path the answer of a core that
-# no step could read. A system is named in the call by its container, so that
-# the systems of one case, which run at the same time, do not share what the stand-in remembers. The
-# package manager and service manager commands of the three formats change that state; a container
-# that restarts runs the service again when it is enabled, as a booted system does. STAND_IN_USER is
-# the user the service runs as. STAND_IN_FIREWALLD, when set, makes every system run firewalld: its
-# zone files are the folder zones.SYSTEM, which starts as a copy of zones-initial, are what docker cp
-# and test -f and rm -f of /etc/firewalld/zones see, and --add-port writes the zone with the port and
-# the zone before it; the port counts as open while the file public.xml says so, or always when
+# keep nothing), enabled and active (exist while the service of the server is enabled and running;
+# the client's service never is), and for the n-th snapshot or core listing the files snapshot.n and
+# cores.n, the look after the last snapshot (the file last-snapshot holds its number)
+# cores.after-snapshot, and for a core given by its path the answer of a core that no step could
+# read. The package manager and service manager commands of the three formats change that state.
+# STAND_IN_USER is the user the service runs as. STAND_IN_FIREWALLD, when set, makes the system run
+# firewalld: its zone files are the folder zones, which starts as a copy of zones-initial, are what
+# cp and test -f and rm -f of /etc/firewalld/zones see, and --add-port writes the zone with the port
+# and the zone before it; the port counts as open while the file public.xml says so, or always when
 # STAND_IN_PORT_OPEN is set.
-echo "docker $*" >>"$STAND_IN_DIR/log"
-# A pattern removed from $* is removed from each argument, so the call is joined first.
-call="$*"
-rest="${call#*splicefs-package-test-}"
-system="${rest%% *}"
-# A path in the container, as docker cp names it, is CONTAINER:/path.
-system="${system%%:*}"
+on_system() {
+    shift
+    call="$*"
+    echo "$call" >>"$STAND_IN_DIR/log"
+    stand_in_answer "$@"
+}
+on_system_as_root() {
+    on_system "$@"
+}
+
 # The programs a call names by their package, as words: the install, removal and query commands.
 named_programs() {
     case "$call" in *splicefs-server*) echo server ;; *) ;; esac
     case "$call" in *splicefs-client*) echo client ;; *) ;; esac
 }
 next_number() {
-    n=$(($(cat "$STAND_IN_DIR/$1.$system.count" 2>/dev/null || echo 0) + 1))
-    echo "$n" >"$STAND_IN_DIR/$1.$system.count"
+    n=$(($(cat "$STAND_IN_DIR/$1.count" 2>/dev/null || echo 0) + 1))
+    echo "$n" >"$STAND_IN_DIR/$1.count"
     echo "$n"
 }
-case "$1" in
-    version) echo linux/amd64; exit 0 ;;
-    inspect) echo true; exit 0 ;;
-    port) echo "127.0.0.1:$((20000 + ${system##*-}))"; exit 0 ;;
-    exec | restart | cp) ;;
-    *) exit 0 ;;
-esac
 # The zone files of the system, made when a call first asks for them.
 zone_folder() {
-    [ -d "$STAND_IN_DIR/zones.$system" ] || cp -R "$STAND_IN_DIR/zones-initial" "$STAND_IN_DIR/zones.$system"
-    echo "$STAND_IN_DIR/zones.$system"
+    [ -d "$STAND_IN_DIR/zones" ] || cp -R "$STAND_IN_DIR/zones-initial" "$STAND_IN_DIR/zones"
+    echo "$STAND_IN_DIR/zones"
 }
-# The path on this machine of a path that docker cp names: a zone file of the container is in the folder.
+# The path on this machine of a path of the system: a zone file is in the folder.
 host_path() {
     case "$1" in
-        *:/etc/firewalld/zones/*) echo "$(zone_folder)/${1##*/}" ;;
+        /etc/firewalld/zones/*) echo "$(zone_folder)/${1##*/}" ;;
         *) echo "$1" ;;
     esac
 }
-if [ -n "${STAND_IN_FAIL:-}" ]; then
-    case "$*" in *"$STAND_IN_FAIL"*) exit 1 ;; *) ;; esac
-fi
-case "$*" in
-    *is-system-running*) echo running ;;
-    *rc-status*) echo default ;;
-    "cp "*) cp "$(host_path "$2")" "$(host_path "$3")" ;;
-    *"firewall-cmd --state") [ -n "${STAND_IN_FIREWALLD:-}" ] ;;
-    *"test -f /etc/firewalld/zones/"*) [ -f "$(zone_folder)/${call##*/}" ] ;;
-    *"rm -f /etc/firewalld/zones/"*) rm -f "$(zone_folder)/${call##*/}" ;;
-    *"firewall-cmd --permanent --add-port="*)
-        echo "zone before the last change" >"$(zone_folder)/public.xml.old"
-        echo "zone with the port ${call##*=}" >"$(zone_folder)/public.xml"
-        ;;
-    *"firewall-cmd --query-port="*)
-        if [ -n "${STAND_IN_PORT_OPEN:-}" ] || grep -q "with the port ${call##*=}" "$(zone_folder)/public.xml" 2>/dev/null; then
-            echo yes
-        else
-            echo no
-            exit 1
-        fi
-        ;;
-    restart*) [ -f "$STAND_IN_DIR/enabled.$system" ] || rm -f "$STAND_IN_DIR/active.$system" ;;
-    *"--quiet splicefs.service"* | *"rc-service splicefs status"*) exit 1 ;;
-    *"systemctl enable"* | *"rc-update add"*) : >"$STAND_IN_DIR/enabled.$system" ;;
-    *"systemctl disable"* | *"rc-update del"*) rm -f "$STAND_IN_DIR/enabled.$system" ;;
-    *"systemctl start"* | *"systemctl restart"* | *"rc-service splicefsd start"* | *"rc-service splicefsd restart"*)
-        : >"$STAND_IN_DIR/active.$system"
-        ;;
-    *"systemctl stop"* | *"rc-service splicefsd stop"*) rm -f "$STAND_IN_DIR/active.$system" ;;
-    *is-enabled*) [ -f "$STAND_IN_DIR/enabled.$system" ] ;;
-    *is-active* | *"rc-service splicefsd status"*) [ -f "$STAND_IN_DIR/active.$system" ] ;;
-    *"rc-update show"*) [ ! -f "$STAND_IN_DIR/enabled.$system" ] || echo " splicefsd | default" ;;
-    *"systemctl show"* | *'= "/usr/bin/$1"'*) [ -f "$STAND_IN_DIR/active.$system" ] && echo 4242 ;;
-    *getent*) echo "${STAND_IN_USER:-splicefs}" ;;
-    *"grep -q /usr/local/bin"*) exit 1 ;;
-    *lifecycle-snapshot.sh*) cat "$STAND_IN_DIR/snapshot.$(next_number snapshot)" ;;
-    *"core-files.sh /"*)
-        for asked in ${call#*core-files.sh }; do
-            echo "$asked: not a 64-bit ELF core with a process note: 40 bytes, starting 177 E L F"
-        done
-        ;;
-    *core-files.sh*)
-        look="cores.$(next_number cores)"
-        if [ "$(cat "$STAND_IN_DIR/snapshot.$system.count" 2>/dev/null)" = "$(cat "$STAND_IN_DIR/last-snapshot")" ]; then
-            look=cores.after-snapshot
-        fi
-        cat "$STAND_IN_DIR/$look" 2>/dev/null || true
-        ;;
-    *package_held*splicefs-server*) [ -f "$STAND_IN_DIR/installed.$system.server" ] || [ -f "$STAND_IN_DIR/config.$system.server" ] ;;
-    *package_held*splicefs-client*) [ -f "$STAND_IN_DIR/installed.$system.client" ] || [ -f "$STAND_IN_DIR/config.$system.client" ] ;;
-    *package_held*) exit 1 ;;
-    *"then echo steps/uninstall-dnf.sh"*) echo steps/uninstall-dnf.sh ;;
-    *dpkg-query* | *"rpm -q"* | *"apk info -e"*) [ -f "$STAND_IN_DIR/installed.$system.$(named_programs)" ] ;;
-    *"apt-get purge"*)
-        for named in $(named_programs); do rm -f "$STAND_IN_DIR/installed.$system.$named" "$STAND_IN_DIR/config.$system.$named"; done
-        ;;
-    *"apt-get remove"*)
-        for named in $(named_programs); do mv "$STAND_IN_DIR/installed.$system.$named" "$STAND_IN_DIR/config.$system.$named"; done
-        ;;
-    *"dnf remove"* | *"apk del"*)
-        for named in $(named_programs); do rm -f "$STAND_IN_DIR/installed.$system.$named"; done
-        ;;
-    *"apt-get install"* | *"dnf install"* | *"apk add"*)
-        for named in $(named_programs); do
-            rm -f "$STAND_IN_DIR/config.$system.$named"
-            : >"$STAND_IN_DIR/installed.$system.$named"
-        done
-        ;;
-    *) ;;
-esac
+stand_in_answer() {
+    if [ -n "${STAND_IN_FAIL:-}" ]; then
+        case "$call" in *"$STAND_IN_FAIL"*) return 1 ;; *) ;; esac
+    fi
+    case "$call" in
+        "cp "*"/etc/firewalld/zones/"*) cp "$(host_path "$2")" "$(host_path "$3")" ;;
+        *"firewall-cmd --state") [ -n "${STAND_IN_FIREWALLD:-}" ] ;;
+        *"test -f /etc/firewalld/zones/"*) [ -f "$(zone_folder)/${call##*/}" ] ;;
+        *"rm -f /etc/firewalld/zones/"*) rm -f "$(zone_folder)/${call##*/}" ;;
+        *"firewall-cmd --permanent --add-port="*)
+            echo "zone before the last change" >"$(zone_folder)/public.xml.old"
+            echo "zone with the port ${call##*=}" >"$(zone_folder)/public.xml"
+            ;;
+        *"firewall-cmd --query-port="*)
+            if [ -n "${STAND_IN_PORT_OPEN:-}" ] || grep -q "with the port ${call##*=}" "$(zone_folder)/public.xml" 2>/dev/null; then
+                echo yes
+            else
+                echo no
+                return 1
+            fi
+            ;;
+        *"--quiet splicefs.service"* | *"rc-service splicefs status"*) return 1 ;;
+        *"systemctl enable"* | *"rc-update add"*) : >"$STAND_IN_DIR/enabled" ;;
+        *"systemctl disable"* | *"rc-update del"*) rm -f "$STAND_IN_DIR/enabled" ;;
+        *"systemctl start"* | *"systemctl restart"* | *"rc-service splicefsd start"* | *"rc-service splicefsd restart"*)
+            : >"$STAND_IN_DIR/active"
+            ;;
+        *"systemctl stop"* | *"rc-service splicefsd stop"*) rm -f "$STAND_IN_DIR/active" ;;
+        *is-enabled*) [ -f "$STAND_IN_DIR/enabled" ] ;;
+        *is-active* | *"rc-service splicefsd status"*) [ -f "$STAND_IN_DIR/active" ] ;;
+        *"rc-update show"*) [ ! -f "$STAND_IN_DIR/enabled" ] || echo " splicefsd | default" ;;
+        *"systemctl show"* | *'= "/usr/bin/$1"'*) [ -f "$STAND_IN_DIR/active" ] && echo 4242 ;;
+        *getent*) echo "${STAND_IN_USER:-splicefs}" ;;
+        *"grep -q /usr/local/bin"*) return 1 ;;
+        *lifecycle-snapshot.sh*) cat "$STAND_IN_DIR/snapshot.$(next_number snapshot)" ;;
+        *"core-files.sh /"*)
+            for asked in ${call#*core-files.sh }; do
+                echo "$asked: not a 64-bit ELF core with a process note: 40 bytes, starting 177 E L F"
+            done
+            ;;
+        *core-files.sh*)
+            look="cores.$(next_number cores)"
+            if [ "$(cat "$STAND_IN_DIR/snapshot.count" 2>/dev/null)" = "$(cat "$STAND_IN_DIR/last-snapshot")" ]; then
+                look=cores.after-snapshot
+            fi
+            cat "$STAND_IN_DIR/$look" 2>/dev/null || true
+            ;;
+        *package_held*splicefs-server*) [ -f "$STAND_IN_DIR/installed.server" ] || [ -f "$STAND_IN_DIR/config.server" ] ;;
+        *package_held*splicefs-client*) [ -f "$STAND_IN_DIR/installed.client" ] || [ -f "$STAND_IN_DIR/config.client" ] ;;
+        *package_held*) return 1 ;;
+        *"then echo steps/uninstall-dnf.sh"*) echo steps/uninstall-dnf.sh ;;
+        *dpkg-query* | *"rpm -q"* | *"apk info -e"*) [ -f "$STAND_IN_DIR/installed.$(named_programs)" ] ;;
+        *"apt-get purge"*)
+            for named in $(named_programs); do rm -f "$STAND_IN_DIR/installed.$named" "$STAND_IN_DIR/config.$named"; done
+            ;;
+        *"apt-get remove"*)
+            for named in $(named_programs); do mv "$STAND_IN_DIR/installed.$named" "$STAND_IN_DIR/config.$named"; done
+            ;;
+        *"dnf remove"* | *"apk del"*)
+            for named in $(named_programs); do rm -f "$STAND_IN_DIR/installed.$named"; done
+            ;;
+        *"apt-get install"* | *"dnf install"* | *"apk add"*)
+            for named in $(named_programs); do
+                rm -f "$STAND_IN_DIR/config.$named"
+                : >"$STAND_IN_DIR/installed.$named"
+            done
+            ;;
+        *) ;;
+    esac
+}
 STAND_IN
-chmod 755 "$t/bin/docker"
+# The two commands the checks of the server run in the shell of the steps itself: the address of the
+# system and the answer of its health endpoint, which is 200 while the service is active.
+cat >"$t/bin/getent" <<'STAND_IN'
+#!/bin/sh
+echo "172.17.0.2        STREAM stand-in"
+STAND_IN
+cat >"$t/bin/curl" <<'STAND_IN'
+#!/bin/sh
+if [ -f "$STAND_IN_DIR/active" ]; then printf 200; else printf 000; fi
+STAND_IN
+chmod 755 "$t/bin/getent" "$t/bin/curl"
 
 # What every case starts from: only the server is built (v1.2.3, and its record names 1.2.2 as the
 # published version; the client is v1.4.0 and its record names 1.3.9), no call fails, no file
-# changes, and the system of the image debian-12 is tested.
+# changes, and the system is of the format deb.
 scenario() {
     built="server"
-    empty_client=
     record=1.2.2
     client_record=1.3.9
     fail_on=
     reinstalled="/etc/a"
-    unproven=
-    no_site=
-    other_key=
     first="/etc/a"
     last="/etc/a"
     cores=
@@ -220,23 +172,27 @@ scenario() {
     firewalld=
     zones=
     port_open=
-    target=ghcr.io/splicefs/server-debian-12:v1.0
+    format=deb
 }
 
-# Starts the case $1 in the background with the settings of scenario: $built names the programs whose
-# packages are in dist ($empty_client makes a folder of the client with nothing in it), the snapshot of
-# step 0 is $first, the snapshot of step 9 is $last, the one after each reinstall is $reinstalled,
-# $cores are the cores listed at the fourth look (before step 3 of a run of the server alone),
-# $late_cores those listed at the look after the last snapshot, $user is the user the service runs as, $target the image or format. $firewalld, when not empty, makes the systems run firewalld, and $zones names the
-# zone files it has before the test (public.xml and public.xml.old, or neither); $port_open makes the
-# port stay open in it. A call that
-# holds the text in $fail_on fails. Keeps the output in $t/cases/$1/out, the calls in
-# $t/cases/$1/dir/log and the status in $t/cases/$1/status; the cases are read with use_case, after
-# wait.
+# Runs the case $1 with the settings of scenario: $built names the programs whose packages are in
+# dist, the snapshot of step 0 is $first, the snapshot of step 9 is $last, the one after each reinstall
+# is $reinstalled, $cores are the cores listed at the fourth look (before step 3 of a run of the
+# server alone), $late_cores those listed at the look after the last snapshot, $user is the user the
+# service runs as, $format the package format of the system. $firewalld, when not empty, makes the
+# system run firewalld, and $zones names the zone files it has before the test (public.xml and
+# public.xml.old, or neither); $port_open makes the port stay open in it. A call that holds the text
+# in $fail_on fails. The first phase runs, then the restart the host does (a service that is not
+# enabled does not come back), then the second phase, unless the first failed. Keeps the log of the
+# steps in $t/cases/$1/out/log, the result in $t/cases/$1/out/result, the calls in
+# $t/cases/$1/dir/log and the status of the last phase in $t/cases/$1/status; the cases are read
+# with use_case, after wait.
 launch() {
     case_dir="$t/cases/$1"
-    mkdir -p "$case_dir/dir" "$case_dir/root/dist"
-    for each in scripts packaging programs steps keys; do ln -s "$t/farm/$each" "$case_dir/root/$each"; done
+    mkdir -p "$case_dir/dir" "$case_dir/root/dist" "$case_dir/baselines"
+    for each in scripts packaging programs steps keys; do
+        [ ! -e "$t/farm/$each" ] || ln -s "$t/farm/$each" "$case_dir/root/$each"
+    done
     # The snapshots are taken in step 0, twice around the reinstall of each program built, and in step 9.
     printf '%s\n' "$first" >"$case_dir/dir/snapshot.1"
     taken=1
@@ -246,12 +202,16 @@ launch() {
             server) printf 'VERSION=v1.2.3\nPACKAGE_DATE=20261112\nUPGRADE_FROM=%s\n' "$record" ;;
             *) printf 'VERSION=v1.4.0\nPACKAGE_DATE=20261113\nUPGRADE_FROM=%s\n' "$client_record" ;;
         esac >"$case_dir/root/dist/$program/version"
+        case "$program:$record:$client_record" in
+            server:none:* | client:*:none) : >"$case_dir/baselines/$program" ;;
+            server:*) printf '%s\n' "$record" >"$case_dir/baselines/$program" ;;
+            *) printf '%s\n' "$client_record" >"$case_dir/baselines/$program" ;;
+        esac
         printf '%s\n' "$first" >"$case_dir/dir/snapshot.$((taken + 1))"
         printf '%s\n' "$reinstalled" >"$case_dir/dir/snapshot.$((taken + 2))"
         taken=$((taken + 2))
     done
     printf '%s\n' "$last" >"$case_dir/dir/snapshot.$((taken + 1))"
-    [ -z "$empty_client" ] || mkdir "$case_dir/root/dist/client"
     [ -z "$cores" ] || printf '%s\n' "$cores" >"$case_dir/dir/cores.4"
     [ -z "$late_cores" ] || printf '%s\n' "$late_cores" >"$case_dir/dir/cores.after-snapshot"
     echo "$((taken + 1))" >"$case_dir/dir/last-snapshot"
@@ -260,19 +220,27 @@ launch() {
     for zone in $zones; do printf 'zone %s\r\nas shipped' "$zone" >"$case_dir/dir/zones-initial/$zone"; done
     (
         status=0
-        STAND_IN_FAIL="$fail_on" STAND_IN_DIR="$case_dir/dir" PATH="$t/bin:$PATH" ONLY="$target" \
-            STAND_IN_UNPROVEN="$unproven" STAND_IN_NO_SITE="$no_site" STAND_IN_USER="$user" \
-            STAND_IN_KEYS="$root/keys" STAND_IN_OTHER_KEY="$other_key" \
+        export STAND_IN_FAIL="$fail_on" STAND_IN_DIR="$case_dir/dir" PATH="$t/bin:$PATH" STAND_IN_USER="$user" \
             STAND_IN_FIREWALLD="$firewalld" STAND_IN_PORT_OPEN="$port_open" \
-            sh "$case_dir/root/scripts/package-test.sh" >"$case_dir/out" 2>&1 || status=$?
+            FORMAT="$format" PLATFORM=linux/amd64 PROGRAMS="$built" PACKAGE_TEST_OUT="$case_dir/out" BASELINES="$case_dir/baselines"
+        steps="$case_dir/root/scripts/package-test-steps.sh"
+        sh "$steps" phase1 || status=$?
+        if [ "$status" -eq 0 ]; then
+            # The host restarts the system between the phases: what is not enabled does not come back.
+            echo "the system is restarted" >>"$case_dir/dir/log"
+            [ -f "$case_dir/dir/enabled" ] || rm -f "$case_dir/dir/active"
+            sh "$steps" phase2 || status=$?
+        fi
         echo "$status" >"$case_dir/status"
     ) &
 }
 
-# Points the checks that follow at the case $1: $out, $dir and $status.
+# Points the checks that follow at the case $1: $out (the log of the steps), $dir, $result and
+# $status.
 use_case() {
-    out="$t/cases/$1/out"
+    out="$t/cases/$1/out/log"
     dir="$t/cases/$1/dir"
+    result="$(cat "$t/cases/$1/out/result" 2>/dev/null || echo "no result")"
     read -r status <"$t/cases/$1/status"
 }
 
@@ -317,6 +285,10 @@ in_order() {
 }
 # The number of lines of the log that hold the text $1.
 calls_of() { grep -c -F -e "$1" "$dir/log" || true; }
+# The result of the run is the line of the step $1, which failed.
+failed_in() {
+    case "$result" in "step $1:"*) return 0 ;; *) return 1 ;; esac
+}
 # The package is removed between the first snapshot and the last, which is the last call of the
 # log that takes one; the first four calls that take one are those of steps 0, 2 (twice) and 9.
 four_snapshots_around_the_removals() {
@@ -378,14 +350,14 @@ firewall_zones_saved_then_put_back_by() {
 }
 # The zone files of the system are what they were before the test, byte for byte, and no file is left
 # that was not there.
-zones_as_they_were() { diff -r "$dir/zones-initial" "$dir"/zones.* >/dev/null; }
+zones_as_they_were() { diff -r "$dir/zones-initial" "$dir/zones" >/dev/null; }
 steps_run() {
     # The line that says the removal command is left out starts like a step and is no step.
     steps_seen="$(grep '^step ' "$out" | cut -c1-7 | uniq | tr '\n' ' ')"
     [ "$steps_seen" = "$1" ]
 }
 failed_status() { [ "$status" -ne 0 ]; }
-passed_status() { [ "$status" -eq 0 ]; }
+passed_status() { [ "$status" -eq 0 ] && [ "$result" = ok ]; }
 
 # The published rpm is installed by the package manager after the key was imported, and the line of
 # that install holds no flag that switches the check off.
@@ -406,17 +378,10 @@ published_apk_checked() {
         ! grep -F '/pkg/server/published/' "$dir/log" | grep -q -e allow-untrusted -e nogpgcheck
 }
 
-debian=ghcr.io/splicefs/server-debian-12:v1.0
-old_file=apt/pool/main/s/splicefs-server/splicefs-server_1.2.2_amd64.deb
-
 # Every case runs at the same time, because each is a process that starts a few hundred more.
 scenario; launch good
-scenario; target=deb; launch two_systems
 scenario; record=1.2.3; launch same_version
 scenario; record=none; launch nothing_published
-scenario; no_site=1; launch no_site
-scenario; unproven=.deb; launch unproven
-scenario; other_key=1; launch other_key
 scenario; fail_on=check_links; launch file_check_fails
 scenario; fail_on="apt-get install"; launch baseline_install_fails
 scenario; record=none; fail_on="apt-get install"; launch install_fails
@@ -424,15 +389,14 @@ scenario; fail_on="sh deb v1.2.2 v1.2.3"; launch upgrade_fails
 scenario; fail_on="verify_markers_kept upgrade"; launch upgrade_loses_files
 scenario; reinstalled="/etc/changed"; launch reinstall_changes_files
 scenario; fail_on="verify_markers_kept reinstall"; launch reinstall_loses_files
-scenario; target=ghcr.io/splicefs/server-rocky-9:v1.0; launch rpm_holds_nothing
-scenario; target=ghcr.io/splicefs/server-alpine-3.22:v1.0; launch apk_holds_nothing
+scenario; format=rpm; launch rpm_holds_nothing
+scenario; format=apk; launch apk_holds_nothing
 scenario; fail_on="systemctl enable"; launch enable_fails
 scenario; fail_on=write_test_config; launch test_config_not_written
 scenario; fail_on=check_test_config; launch test_config_not_where_documented
 scenario; fail_on="systemctl start"; launch start_fails
 scenario; user=root; launch runs_as_root
 scenario; fail_on="systemctl restart"; launch restart_fails
-scenario; fail_on="restart splicefs-package-test"; launch container_restart_fails
 scenario; fail_on=readlink; launch process_left_after_stop
 scenario; fail_on="systemctl disable"; launch disable_fails
 scenario; fail_on="apt-get remove"; launch plain_removal_fails
@@ -444,36 +408,27 @@ scenario; cores="/core.7 pid 7 program splicefsd: /usr/bin/splicefsd"; last="$(p
 scenario; late_cores="/core.9 pid 9 program splicefsd: /usr/bin/splicefsd"; last="$(printf '/etc/a\n/core.9')"; launch core_after_the_snapshot
 scenario; last="$(printf '/etc/a\n/core.5')"; launch core_no_step_could_read
 scenario; last="$(printf '/etc/a\n0123abcd  /etc/core.conf')"; launch checksum_of_a_core_named_file
-rocky=ghcr.io/splicefs/server-rocky-9:v1.0
-alpine=ghcr.io/splicefs/server-alpine-3.22:v1.0
 scenario; built=client; launch client_only
 scenario; built="server client"; launch both
-scenario; built="server client"; target=$rocky; launch both_rpm
-scenario; built="server client"; target=$alpine; launch both_apk
-scenario; built=; launch none
-scenario; empty_client=1; launch empty_client_folder
+scenario; built="server client"; format=rpm; launch both_rpm
+scenario; built="server client"; format=apk; launch both_apk
 scenario; built="server client"; fail_on="apt-get install -y -qq /pkg/client/published"; launch client_baseline_fails
 scenario; built="server client"; fail_on="sh deb v1.3.9 v1.4.0"; launch client_upgrade_fails
 scenario; built="server client"; fail_on="apt-get remove -y -qq splicefs-client"; launch client_plain_removal_fails
 scenario; built="server client"; last="/etc/b"; launch both_snapshot_differs
-scenario; target=$rocky; firewalld=1; zones="public.xml public.xml.old"; launch zones_existed
-scenario; target=$rocky; firewalld=1; launch zones_missing
-scenario; target=$rocky; firewalld=1; zones="public.xml.old"; launch one_zone_existed
-scenario; target=$rocky; firewalld=1; port_open=1; launch port_stays_open
-scenario; target=$rocky; firewalld=1; zones="public.xml public.xml.old"; fail_on="firewall-zones/public.xml.old"; launch zone_not_saved
+scenario; format=rpm; firewalld=1; zones="public.xml public.xml.old"; launch zones_existed
+scenario; format=rpm; firewalld=1; launch zones_missing
+scenario; format=rpm; firewalld=1; zones="public.xml.old"; launch one_zone_existed
+scenario; format=rpm; firewalld=1; port_open=1; launch port_stays_open
+scenario; format=rpm; firewalld=1; zones="public.xml public.xml.old"; fail_on="firewall-zones/public.xml.old"; launch zone_not_saved
 wait
 
 use_case good
 expect "a good run passes" passed_status
 expect "the steps run in order: 0, 1, 2, 3, 4, 5, 7, 8, 9" \
     steps_run 'step 0: step 1: step 2: step 3: step 4: step 5: step 7: step 8: step 9: '
-expect "the signing keys are fetched from the site once, and the package files after them" \
-    sh -c "[ \"\$(grep -c 'curl.*/keys/splicefs.asc' '$dir/log')\" -eq 1 ] && [ \"\$(grep -c 'curl.*/keys/splicefs.rsa.pub' '$dir/log')\" -eq 1 ]"
-expect "the keys of the site are mounted read only at /keys" sh -c "grep -q 'docker run.* -v .*/keys:/keys:ro' '$dir/log'"
 expect "the key is in place for the install of the published file only" \
     in_order "install -m 0644 /keys/splicefs.asc /etc/apt/keyrings/splicefs.asc" "apt-get install -y -qq /pkg/server/published/" "rm -f /etc/apt/keyrings/splicefs.asc"
-expect "the published package file is fetched from the site" sh -c "grep -q 'curl.*/server/$old_file' '$dir/log'"
-expect "the published package file is proven by the signed index" sh -c "grep -q 'verify $old_file ' '$dir/log'"
 expect "the first snapshot is taken before the published package is installed" \
     in_order lifecycle-snapshot.sh "apt-get install -y -qq /pkg/server/published/splicefs-server_1.2.2_amd64.deb"
 expect "the new file goes over the published one, then over itself, then the plain removal, then the documented" \
@@ -482,12 +437,10 @@ expect "the new file goes over the published one, then over itself, then the pla
     "sh deb v1.2.3 v1.2.3 file /pkg/server/splicefs-server_1.2.3_amd64.deb" \
     "apt-get remove" "apt-get purge"
 expect "the service is enabled, configured, started, restarted, the container restarted, stopped, disabled, then removed" \
-    in_order "systemctl enable" write_test_config "systemctl start" "systemctl restart" "docker restart" \
+    in_order "systemctl enable" write_test_config "systemctl start" "systemctl restart" "the system is restarted" \
     "systemctl stop" "systemctl disable" "apt-get remove" "apt-get purge"
 expect "the test configuration is checked where the documentation says before the service starts" \
     in_order write_test_config check_test_config "systemctl start"
-expect "the port of the service is published, so that the health endpoint is asked from outside" \
-    sh -c "grep -q 'docker run.* -p 127.0.0.1::8480 ' '$dir/log'"
 expect "the service runs as its own user" holds "ok: runs as splicefs"
 expect "the health endpoint answers from outside" holds "ok: answers 200 on /api/v1/health from outside"
 expect "the service is active and answering after a restart" holds "ok: active and answering after a restart"
@@ -498,14 +451,13 @@ expect "after the stop no process of ours is left" holds "ok: no process of ours
 expect "after the disable the service is not enabled" holds "ok: the service is not enabled"
 expect "the test data is removed after the documented removal, before the last snapshot" test_data_removed_before_the_last_snapshot
 expect "a system without firewalld has nothing changed in its firewall" \
-    sh -c "! grep -q -e '--add-port' -e '--reload' -e 'docker cp' '$dir/log'"
+    sh -c "! grep -q -e '--add-port' -e '--reload' -e 'cp /etc/firewalld' '$dir/log'"
 expect "the removals fall between the first and the last snapshot" four_snapshots_around_the_removals
 expect "the package file is not installed again between the plain removal and the documented removal" \
     no_install_after_the_plain_removal_of 'apt-get install' 'apt-get remove'
 expect "the configuration file and the data file are written after the published install, kept by the upgrade" \
     in_order "apt-get install -y -qq /pkg/server/published/" "write_markers deb" "sh deb v1.2.2 v1.2.3" "verify_markers_kept upgrade"
 expect "the plain removal checks the configuration and the data remain" sh -c "grep -q 'verify_markers_kept plain removal' '$dir/log'"
-expect "the system is named as passed" holds "ok   deb $debian"
 expect "the install is of the package file under /pkg" sh -c "grep -q 'file /pkg/server/splicefs-server_' '$dir/log'"
 expect "no setup script and no repository are used" sh -c "! grep -q 'setup.sh\|apt-key\|sources.list' '$dir/log'"
 expect "the setup script's removal is not run" sh -c "! grep -q 'splicefs-setup.sh' '$dir/log'"
@@ -516,18 +468,12 @@ expect "the package manager is asked what it holds, once for each program" sh -c
 expect "a removal command with names does not say it is left out" lacks "the removal command is left out"
 expect "every other line of the steps file runs as written" \
     sh -c "grep -q 'apt-get autoremove --purge' '$dir/log' && grep -q 'userdel splicefs' '$dir/log'"
-expect "a program with no packages is left out, and said" holds "client: no packages, left out"
-expect "a program with packages is not said to be left out" lacks "server: no packages"
-expect "the package folder of the program is mounted at /pkg/PROGRAM" \
-    sh -c "grep -q 'docker run.* -v $t/cases/good/root/dist/server:/pkg/server:ro' '$dir/log'"
-expect "no folder of a program with no packages is mounted" sh -c "! grep -q 'dist/client' '$dir/log'"
 expect "the service steps are those of the server" holds "step 3: server: "
 
 use_case rpm_holds_nothing
 expect "an rpm run passes" passed_status
 expect "the published rpm is installed with the key imported first, and no flag that skips the check" \
     published_rpm_checked
-expect "the system is named as passed" holds "ok   rpm $rocky"
 expect "the documented removal says its removal command is left out, with the format" \
     holds "step 9: rpm: nothing installed, the removal command is left out, as the steps say"
 expect "the removal command is not run again after the plain removal" sh -c "[ \"\$(grep -c 'dnf remove' '$dir/log')\" -eq 1 ]"
@@ -539,18 +485,12 @@ use_case apk_holds_nothing
 expect "an apk run passes" passed_status
 expect "the published apk is installed with the site's key in place for that install only, and no flag that skips the check" \
     published_apk_checked
-expect "the system is named as passed" holds "ok   apk $alpine"
 expect "the documented removal says its removal command is left out, with the format" \
     holds "step 9: apk: nothing installed, the removal command is left out, as the steps say"
 expect "the removal command is not run again after the plain removal" sh -c "[ \"\$(grep -c 'apk del' '$dir/log')\" -eq 1 ]"
 expect "every other line of the steps file runs as written" \
     sh -c "grep -q 'deluser splicefs' '$dir/log' && grep -q 'rm -rf /var/lib/splicefs' '$dir/log'"
 expect "the package file is not installed again" no_install_after_the_plain_removal_of 'apk add' 'apk del'
-
-use_case two_systems
-expect "two systems of one format pass" holds "passed: 2  failed: 0"
-expect "the published file of a format is fetched once for all its systems" \
-    sh -c "[ \"\$(grep -c 'curl.*/server/$old_file' '$dir/log')\" -eq 1 ] && [ \"\$(grep -c 'verify $old_file ' '$dir/log')\" -eq 1 ]"
 
 use_case same_version
 expect "a published file of the same version passes" passed_status
@@ -562,89 +502,71 @@ expect "a run with nothing published passes" passed_status
 expect "the steps run in order with nothing published" \
     steps_run 'step 0: step 1: step 2: step 3: step 4: step 5: step 7: step 8: step 9: '
 expect "step 1 says nothing is published" holds "nothing is published for server"
-expect "nothing is fetched or proven" sh -c "! grep -q 'curl\|verify ' '$dir/log'"
 expect "no published file is installed" sh -c "! grep -q '/published/' '$dir/log'"
 expect "the new file is installed, and the configuration file and the data file are written" \
     in_order "apt-get install -y -qq /pkg/server/splicefs-server_1.2.3_amd64.deb" "write_markers deb" "sh deb v1.2.3 v1.2.3 file"
 
-use_case other_key
-expect "a signing key on the site that is not the repository's key fails the run" failed_status
-expect "the keys are named" holds "could not download and verify the signing keys"
-expect "no system is started when the keys do not prove" sh -c "! grep -q 'docker run' '$dir/log'"
-
-use_case no_site
-expect "a download that fails fails the run" failed_status
-expect "the failed download is named" holds "could not download and verify"
-expect "no system is started when the download failed" sh -c "! grep -q 'docker run' '$dir/log'"
-
-use_case unproven
-expect "a file that does not prove fails the run" failed_status
-expect "the file that does not prove is named" holds "could not download and verify"
-
 use_case file_check_fails
 expect "a failing file check fails the system" failed_status
-expect "the failing step is named" holds "FAIL deb $debian (step 2)"
+expect "the failing step is named" failed_in 2
 expect "a failing check stops the run: no step 9" lacks "step 9:"
 expect "a failing check stops the run: no removal" sh -c "! grep -q 'apt-get purge' '$dir/log'"
 
 use_case baseline_install_fails
-expect "a failing install of the published file is step 1" holds "FAIL deb $debian (step 1)"
+expect "a failing install of the published file is step 1" failed_in 1
 use_case install_fails
-expect "a failing install with no published file is step 2" holds "FAIL deb $debian (step 2)"
+expect "a failing install with no published file is step 2" failed_in 2
 
 use_case upgrade_fails
-expect "a failing upgrade is step 2" holds "FAIL deb $debian (step 2)"
+expect "a failing upgrade is step 2" failed_in 2
 expect "a failing upgrade is named" holds "putting the new package over the published one failed"
 
 use_case upgrade_loses_files
-expect "an upgrade that loses the configuration or the data fails step 2" holds "FAIL deb $debian (step 2)"
+expect "an upgrade that loses the configuration or the data fails step 2" failed_in 2
 
 use_case reinstall_changes_files
-expect "a file that changes when the package is installed over itself fails step 2" holds "FAIL deb $debian (step 2)"
+expect "a file that changes when the package is installed over itself fails step 2" failed_in 2
 expect "the change is shown" holds "/etc/changed"
 
 use_case reinstall_loses_files
-expect "a reinstall that loses the configuration or the data fails step 2" holds "FAIL deb $debian (step 2)"
+expect "a reinstall that loses the configuration or the data fails step 2" failed_in 2
 
 use_case enable_fails
-expect "a failing enable command is step 3" holds "FAIL deb $debian (step 3)"
+expect "a failing enable command is step 3" failed_in 3
 expect "that stops the run: no start" lacks "step 4:"
 use_case test_config_not_written
-expect "a test configuration that cannot be written is step 3" holds "FAIL deb $debian (step 3)"
+expect "a test configuration that cannot be written is step 3" failed_in 3
 expect "that stops the run: no start" lacks "step 4:"
 use_case test_config_not_where_documented
-expect "a test configuration not where the documentation says is step 3" holds "FAIL deb $debian (step 3)"
+expect "a test configuration not where the documentation says is step 3" failed_in 3
 use_case start_fails
-expect "a failing start command is step 4" holds "FAIL deb $debian (step 4)"
+expect "a failing start command is step 4" failed_in 4
 expect "that stops the run: no restart" lacks "step 5:"
 use_case runs_as_root
-expect "a service that runs as another user fails step 4" holds "FAIL deb $debian (step 4)"
+expect "a service that runs as another user fails step 4" failed_in 4
 expect "the user is named" holds "the service runs as 'root', not as 'splicefs'"
 use_case restart_fails
-expect "a failing restart is step 5" holds "FAIL deb $debian (step 5)"
-use_case container_restart_fails
-expect "a failing restart of the container is step 5" holds "FAIL deb $debian (step 5)"
-expect "that stops the run: no stop" lacks "step 7:"
+expect "a failing restart is step 5" failed_in 5
 use_case process_left_after_stop
-expect "a process of ours left after the stop is step 7" holds "FAIL deb $debian (step 7)"
+expect "a process of ours left after the stop is step 7" failed_in 7
 expect "that stops the run: no disable" lacks "step 8:"
 use_case disable_fails
-expect "a failing disable command is step 8" holds "FAIL deb $debian (step 8)"
+expect "a failing disable command is step 8" failed_in 8
 expect "that stops the run: no removal" sh -c "! grep -q 'apt-get remove' '$dir/log'"
 
 use_case plain_removal_fails
-expect "a failing plain removal fails step 9" holds "FAIL deb $debian (step 9)"
+expect "a failing plain removal fails step 9" failed_in 9
 expect "a failing plain removal stops the run: no documented removal" sh -c "! grep -q 'apt-get purge' '$dir/log'"
 
 use_case plain_removal_takes_files
-expect "a plain removal that takes the configuration or the data fails step 9" holds "FAIL deb $debian (step 9)"
+expect "a plain removal that takes the configuration or the data fails step 9" failed_in 9
 expect "that stops the run: no documented removal" sh -c "! grep -q 'apt-get purge' '$dir/log'"
 
 use_case plain_removal_keeps_program
 expect "a program left behind by the plain removal fails step 9" holds "the plain removal left a program"
 
 use_case snapshot_differs
-expect "a snapshot that differs fails step 9" holds "FAIL deb $debian (step 9)"
+expect "a snapshot that differs fails step 9" failed_in 9
 expect "the difference is shown" holds "/etc/b"
 expect "a difference with no core in it names no core" lacks "core dump"
 expect "the cores are looked for again after the last snapshot" cores_looked_for_after_the_last_snapshot
@@ -653,7 +575,7 @@ use_case core_dump
 expect "a core dump is named with the step before which it was found" holds "core dump after step 2: server: /core pid 7"
 
 use_case core_named_by_a_step
-expect "a core in the difference fails step 9" holds "FAIL deb $debian (step 9)"
+expect "a core in the difference fails step 9" failed_in 9
 expect "the core in the difference is named next to it, with the step that found it" \
     named_after_the_difference "> /core.7" "core dump after step 2: server: /core.7 pid 7 program splicefsd: /usr/bin/splicefsd"
 expect "a core a step named is not looked at again" sh -c "! grep -q 'core-files.sh /' '$dir/log'"
@@ -665,7 +587,7 @@ expect "and it is named next to the difference" \
     named_after_the_difference "> /core.9" "core dump after step 9: /core.9 pid 9 program splicefsd"
 
 use_case core_no_step_could_read
-expect "a core that no step named fails step 9" holds "FAIL deb $debian (step 9)"
+expect "a core that no step named fails step 9" failed_in 9
 expect "it is looked at by its path" sh -c "grep -q 'core-files.sh /core.5' '$dir/log'"
 expect "it is named next to the difference, with what the file is" \
     named_after_the_difference "> /core.5" "core dump no step could read: /core.5: not a 64-bit ELF core with a process note: 40 bytes, starting 177 E L F"
@@ -680,10 +602,6 @@ expect "a run of both programs passes" passed_status
 expect "the steps run in order, each once for the boot" \
     steps_run 'step 0: step 1: step 2: step 3: step 4: step 5: step 7: step 8: step 9: '
 expect "neither program is left out" lacks "no packages, left out"
-expect "the system is booted once" sh -c "[ \"\$(grep -c 'docker run' '$dir/log')\" -eq 1 ]"
-expect "the folder of each program is mounted at /pkg/PROGRAM" \
-    sh -c "grep -q 'docker run.* -v $t/cases/both/root/dist/server:/pkg/server:ro -v $t/cases/both/root/dist/client:/pkg/client:ro' '$dir/log'"
-expect "the port of the server is published" sh -c "grep -q 'docker run.* -p 127.0.0.1::8480 ' '$dir/log'"
 expect "the baseline and the new package are put in for the server, then for the client" \
     in_order "apt-get install -y -qq /pkg/server/published/splicefs-server_1.2.2_amd64.deb" \
     "apt-get install -y -qq /pkg/client/published/splicefs-client_1.3.9_amd64.deb" \
@@ -692,8 +610,6 @@ expect "the baseline and the new package are put in for the server, then for the
 expect "each program is installed over itself: the server and the client, each with its own version" \
     in_order "sh deb v1.2.3 v1.2.3 file /pkg/server/splicefs-server_1.2.3_amd64.deb" \
     "sh deb v1.4.0 v1.4.0 file /pkg/client/splicefs-client_1.4.0_amd64.deb"
-expect "each program's published file is fetched from its own folder of the site and proven" \
-    sh -c "grep -q 'curl.*/server/apt/pool/main/s/splicefs-server/splicefs-server_1.2.2_amd64.deb' '$dir/log' && grep -q 'curl.*/client/apt/pool/main/s/splicefs-client/splicefs-client_1.3.9_amd64.deb' '$dir/log' && grep -q 'verify apt/pool/main/s/splicefs-client/splicefs-client_1.3.9_amd64.deb' '$dir/log'"
 expect "the client's own file checks run" sh -c "[ \"\$(grep -c 'check_extras' '$dir/log')\" -eq 4 ]"
 expect "each step runs for the server, then for the client" \
     lines_in_order "step 1: server: " "step 1: client: " "step 2: server: " "step 2: client: " \
@@ -714,15 +630,10 @@ expect "the plain removal of the server, then of the client, then one documented
 expect "the documented removal names both programs, in one command" \
     sh -c "[ \"\$(grep -c 'apt-get purge' '$dir/log')\" -eq 1 ] && grep -q 'apt-get purge splicefs-server splicefs-client' '$dir/log'"
 expect "the test data is removed once" sh -c "[ \"\$(grep -c 'remove_test_data' '$dir/log')\" -eq 1 ]"
-expect "the system is named as passed" holds "ok   deb $debian"
 
 use_case client_only
 expect "a run of the client alone passes" passed_status
-expect "the server is left out, and said" holds "server: no packages, left out"
 expect "the steps run in order" steps_run 'step 0: step 1: step 2: step 3: step 4: step 5: step 7: step 8: step 9: '
-expect "only the folder of the client is mounted" \
-    sh -c "grep -q 'dist/client:/pkg/client:ro' '$dir/log' && ! grep -q 'dist/server' '$dir/log'"
-expect "no port is published" sh -c "! grep -q 'docker run.* -p ' '$dir/log'"
 expect "the client's service steps wait" \
     sh -c "for n in 3 4 5 7 8; do grep -qx \"step \$n: client: service steps wait for the client's certificate trust setting\" '$out' || exit 1; done"
 expect "nothing is configured, started or stopped" \
@@ -745,40 +656,30 @@ expect "both programs pass on an apk system" passed_status
 expect "each program is removed once, and the documented removal has no command left" \
     sh -c "[ \"\$(grep -c 'apk del' '$dir/log')\" -eq 2 ]"
 
-use_case none
-expect "a run with no packages fails" failed_status
-expect "both programs are said to be left out" sh -c "grep -q 'server: no packages, left out' '$out' && grep -q 'client: no packages, left out' '$out'"
-expect "the failure says what to do" holds "no packages in dist/server or dist/client: run make packages first"
-expect "no system is started" sh -c "! grep -q 'docker run' '$dir/log'"
-
-use_case empty_client_folder
-expect "an empty folder of a program leaves it out" holds "client: no packages, left out"
-expect "the rest of the run passes" passed_status
-
 use_case client_baseline_fails
-expect "a failing install of the client's published file is step 1" holds "FAIL deb $debian (step 1)"
+expect "a failing install of the client's published file is step 1" failed_in 1
 expect "the step names the client" holds "step 1: client: "
 expect "that stops the run: no step 2" lacks "step 2:"
 
 use_case client_upgrade_fails
-expect "a failing upgrade of the client is step 2" holds "FAIL deb $debian (step 2)"
+expect "a failing upgrade of the client is step 2" failed_in 2
 expect "the server's step 2 ran first" sh -c "grep -q '^step 2: server: ' '$out' && grep -q '^step 2: client: ' '$out'"
 expect "that stops the run: no step 3" lacks "step 3:"
 
 use_case client_plain_removal_fails
-expect "a failing plain removal of the client is step 9" holds "FAIL deb $debian (step 9)"
+expect "a failing plain removal of the client is step 9" failed_in 9
 expect "that stops the run: no documented removal" sh -c "! grep -q 'apt-get purge' '$dir/log'"
 
 use_case both_snapshot_differs
-expect "a snapshot that differs after both are removed fails step 9" holds "FAIL deb $debian (step 9)"
+expect "a snapshot that differs after both are removed fails step 9" failed_in 9
 
 # Step 4 opens the port in the firewall and changes zone files that did not exist before; step 9 puts
 # each file back as it was, or deletes it when it was not there.
 use_case zones_existed
 expect "a run on a system with firewalld passes" passed_status
 expect "the zone files are saved, the port opened, and the saved files put back before the last snapshot" \
-    firewall_zones_saved_then_put_back_by 'firewall-zones/public.xml splicefs-package-test-'
-expect "both zone files are put back" sh -c "grep -q 'firewall-zones/public.xml.old splicefs-package-test-' '$dir/log'"
+    firewall_zones_saved_then_put_back_by 'firewall-zones/public.xml /etc/firewalld/zones/public.xml'
+expect "both zone files are put back" sh -c "grep -q 'firewall-zones/public.xml.old /etc/firewalld/zones/public.xml.old' '$dir/log'"
 expect "the zone files are as they were, byte for byte" zones_as_they_were
 expect "no zone file is deleted when it existed" sh -c "! grep -q 'rm -f /etc/firewalld' '$dir/log'"
 
@@ -788,26 +689,26 @@ expect "the missing zone files are deleted after the removals, before the last s
     firewall_zones_saved_then_put_back_by 'rm -f /etc/firewalld/zones/public.xml.old'
 expect "both zone files are deleted" sh -c "grep -q 'rm -f /etc/firewalld/zones/public.xml\$' '$dir/log'"
 expect "no zone file is left that was not there" zones_as_they_were
-expect "nothing is copied back into the system" sh -c "! grep -q 'firewall-zones/public.xml.* splicefs-package-test-' '$dir/log'"
+expect "nothing is copied back into the system" sh -c "! grep -q 'firewall-zones/public.xml.* /etc/firewalld/zones/' '$dir/log'"
 
 use_case one_zone_existed
 expect "a run where one zone file existed passes" passed_status
 expect "the file that existed is put back and the file that did not is deleted" \
-    sh -c "grep -q 'firewall-zones/public.xml.old splicefs-package-test-' '$dir/log' && grep -q 'rm -f /etc/firewalld/zones/public.xml\$' '$dir/log'"
+    sh -c "grep -q 'firewall-zones/public.xml.old /etc/firewalld/zones/public.xml.old' '$dir/log' && grep -q 'rm -f /etc/firewalld/zones/public.xml\$' '$dir/log'"
 expect "a file that existed is not deleted" sh -c "! grep -q 'rm -f /etc/firewalld/zones/public.xml.old' '$dir/log'"
 expect "the zone files are as they were" zones_as_they_were
 
 use_case port_stays_open
 expect "a port that is still open after the zone files are put back fails the run" failed_status
-expect "that is step 9" holds "FAIL rpm $rocky (step 9)"
+expect "that is step 9" failed_in 9
 expect "the open port is named" holds "the port 8480 is still open in the firewall"
 
 use_case zone_not_saved
-expect "a zone file that cannot be saved fails step 4" holds "FAIL rpm $rocky (step 4)"
+expect "a zone file that cannot be saved fails step 4" failed_in 4
 expect "the port is not opened before the zone files are saved" sh -c "! grep -q -e '--add-port' '$dir/log'"
 
 if [ "$failed" -ne 0 ]; then
-    echo "$failed package-test case(s) failed"
+    echo "$failed package-test-steps case(s) failed"
     exit 1
 fi
-echo "package-test: all cases as expected"
+echo "package-test-steps: all cases as expected"

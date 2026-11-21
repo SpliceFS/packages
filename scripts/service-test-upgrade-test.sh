@@ -38,7 +38,7 @@ upgrade() {
     status=0
     CALLS="$work/calls" PATH="$2:$work/bin:/usr/bin:/bin" PROGRAM=server name=splicefs-server \
         debver=1.2.3 rpmver=1.2.3 rpmrel=1 platform=linux/amd64 VERSION=v1.2.3 format="$3" sh -c \
-        '. "scripts/service-test-$format.sh"; upgrade_package container' || status=$?
+        '. scripts/service-run-container.sh; . "scripts/service-test-$format.sh"; upgrade_package container' || status=$?
     got="$(cat "$work/calls")"
     if [ "$got" = "$4" ] && [ "$status" -eq 0 ]; then
         printf 'ok   %s\n' "$1"
@@ -54,7 +54,7 @@ install_published() {
     status=0
     CALLS="$work/calls" PATH="$2:$work/bin:/usr/bin:/bin" PROGRAM=server name=splicefs-server \
         platform=linux/amd64 format=rpm sh -c \
-        '. scripts/service-test-rpm.sh; install_published_package container /pkg/server/published/a.rpm' || status=$?
+        '. scripts/service-run-container.sh; . scripts/service-test-rpm.sh; install_published_package container /pkg/server/published/a.rpm' || status=$?
     got="$(cat "$work/calls")"
     if [ "$got" = "$3" ] && [ "$status" -eq 0 ]; then
         printf 'ok   %s\n' "$1"
@@ -76,7 +76,7 @@ removal() {
     : > "$work/calls"
     status=0
     CALLS="$work/calls" PATH="$2:$work/bin:/usr/bin:/bin" PROGRAM=server name=splicefs-server \
-        platform=linux/amd64 format=rpm sh -c '. scripts/service-test-rpm.sh; remove_package container' || status=$?
+        platform=linux/amd64 format=rpm sh -c '. scripts/service-run-container.sh; . scripts/service-test-rpm.sh; remove_package container' || status=$?
     got="$(cat "$work/calls")"
     if [ "$got" = "$3" ] && [ "$status" -eq 0 ]; then
         printf 'ok   %s\n' "$1"

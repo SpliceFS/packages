@@ -1,12 +1,11 @@
 #!/bin/sh
-# Rocky Linux, Amazon Linux and openSUSE (systemd) functions of scripts/package-test.sh; the
+# Rocky Linux, Amazon Linux and openSUSE (systemd) functions of scripts/package-test-steps.sh; the
 # file is sourced, so it runs nothing itself. The service functions are those of
 # scripts/service-systemd-lib.sh. $name, $rpmver and $program come from scripts/package-lib.sh
-# and $platform from the harness.
+# and $platform from the harness, which also says where a command runs (on_system:
+# scripts/service-run-container.sh or scripts/service-run-local.sh) before it sources this file.
 # shellcheck disable=SC2154 # those variables are set by the file that sources this one
 
-# shellcheck source=service-container-lib.sh
-. scripts/service-container-lib.sh
 # shellcheck source=service-systemd-lib.sh
 . scripts/service-systemd-lib.sh
 
@@ -20,11 +19,13 @@ package_file() {
     echo "/pkg/$PROGRAM/$name-$rpmver-$rpmrel.$arch.rpm"
 }
 
-# Installs the package file $2 in the container $1. The system's package manager resolves the
+# Installs the package file $2 in the system $1. The system's package manager resolves the
 # dependencies of a local file; rpm -i alone would not. The build key is a throwaway, so zypper
 # must be told to accept an unsigned file.
 install_file() {
-    docker exec "$1" sh -c '
+    # The script is for the shell that sh -c starts, which reads its own variables.
+    # shellcheck disable=SC2016
+    on_system "$1" sh -c '
         if command -v dnf >/dev/null 2>&1; then
             dnf install -y -q "$1"
         else
@@ -34,7 +35,7 @@ install_file() {
 
 install_package() {
     pkg="$(package_file)"
-    docker exec "$1" test -f "$pkg" || fail "$pkg does not exist; run make packages first"
+    on_system "$1" test -f "$pkg" || fail "$pkg does not exist; run make packages first"
     install_file "$1" "$pkg"
 }
 
@@ -42,11 +43,11 @@ install_package() {
 # says, and the package manager checks the signature: no flag turns the check off. dnf checks a
 # file only when it is told to; zypper always does.
 install_published_package() {
-    docker exec "$1" rpm --import /keys/splicefs.asc || return 1
-    if docker exec "$1" sh -c 'command -v dnf' >/dev/null 2>&1; then
-        docker exec "$1" dnf install -y -q --setopt=localpkg_gpgcheck=1 "$2" >/dev/null
+    on_system "$1" rpm --import /keys/splicefs.asc || return 1
+    if on_system "$1" sh -c 'command -v dnf' >/dev/null 2>&1; then
+        on_system "$1" dnf install -y -q --setopt=localpkg_gpgcheck=1 "$2" >/dev/null
     else
-        docker exec "$1" zypper --non-interactive install "$2" >/dev/null
+        on_system "$1" zypper --non-interactive install "$2" >/dev/null
     fi
 }
 
@@ -59,7 +60,9 @@ upgrade_package() {
 # dnf takes the packages the package needed along with it by its own setting; zypper does it only
 # when told (the documented removal says so), so a system with either ends the same.
 remove_package() {
-    docker exec "$1" sh -c '
+    # The script is for the shell that sh -c starts, which reads its own variables.
+    # shellcheck disable=SC2016
+    on_system "$1" sh -c '
         if command -v dnf >/dev/null 2>&1; then
             dnf remove -y -q "$1"
         else

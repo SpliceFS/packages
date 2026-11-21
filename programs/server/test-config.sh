@@ -2,7 +2,7 @@
 # The test configuration of the server: one share and one user, written the way docs/configuration.md
 # of the server says (a share is a file in shares.d, a user is a file in the state folder, made by
 # splicefsdctl user add when the release has it), and checked where the documentation says it is. Sourced inside a system the package is installed in
-# (scripts/package-test.sh, through scripts/system-state-lib.sh), after scripts/package-lib.sh, which
+# (scripts/package-test-steps.sh, through scripts/system-state-lib.sh), after scripts/package-lib.sh, which
 # says where the configuration and the data are (confdir, datadir). The functions read those
 # variables when they run, so a test can move them.
 # shellcheck disable=SC2154

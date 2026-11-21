@@ -1,5 +1,5 @@
 # shellcheck shell=sh
-# Sourced inside a system a package is installed in, by scripts/package-test.sh (through
+# Sourced inside a system a package is installed in, by scripts/package-test-steps.sh (through
 # scripts/system-state-lib.sh), with PROGRAM, VERSION, PACKAGE_DATE and PUBLISHED_VERSION (the
 # program version of the package that is upgraded) in the environment. The scripts that source this
 # file read these variables; this file reads none of them.

@@ -28,7 +28,9 @@ cd "$root"
 . scripts/package-record.sh
 use_recorded_version
 . scripts/package-lib.sh
-# install_package and service_start_enable, the same commands the install page documents.
+# install_package and service_start_enable, the same commands the install page documents, run in
+# the container with docker exec.
+. scripts/service-run-container.sh
 . scripts/service-test-apk.sh
 
 platform="${PLATFORM:-$(docker version --format '{{.Server.Os}}/{{.Server.Arch}}')}"
