@@ -45,7 +45,7 @@ groups "the install tests only" '["install"]' 'tests/run.sh
 groups "the install tests and a document" '["install"]' 'tests/systems
 README.md
 '
-groups "the setup script is tested by the install tests alone, which build no package" '["install"]' 'setup.sh.in
+groups "the setup script is tested by the install tests and the FreeBSD package test, which writes its repository file with it" '["freebsd","install"]' 'setup.sh.in
 '
 groups "the workflow of the install tests" '["install"]' '.github/workflows/install-tests.yml
 '
