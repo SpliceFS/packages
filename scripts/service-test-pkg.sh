@@ -29,12 +29,25 @@ install_published_package() {
     install_file "$1" "$2"
 }
 
+# Prints the repository file as the setup script writes it: the function pkg_conf of the script $1
+# (setup.sh.in, or the built one), for the address $2 of the site and the key file $3. The script
+# cannot run whole, because its last line runs it and its functions write under /etc as root, so what
+# is sourced is the rest of it, which only sets variables and defines functions. The address and the
+# key are set after that, because the script sets its own. What people get and what the test fetches
+# from are one text this way.
+setup_repo_file_text() {
+    sed '$d' "$1" >"$own/setup-functions.sh" || return 1
+    # The variables are those of the shell that sh -c starts.
+    # shellcheck disable=SC2016
+    sh -c '. "$1"; BASE_URL=$2; PKG_KEY=$3; pkg_conf' sh "$own/setup-functions.sh" "$2" "$3"
+}
+
 # The published package of the program is not on the machine, which has no mount of the host: pkg
 # fetches it from the public repository the way a person's pkg does after the setup script ran, with
 # the signed catalog and the checksums of the packages checked. The repository file and the key are
-# written as the setup script writes them and taken away again, with the folders made for them, so
-# that the new package is installed on a system that does not know the public repository, as on
-# Linux. Prints the path of the file.
+# written as the setup script writes them (setup_repo_file_text) and taken away again, with the folders
+# made for them, so that the new package is installed on a system that does not know the public
+# repository, as on Linux. Prints the path of the file.
 fetch_published_package() {
     config="${PKG_CONFIG_DIR:-/usr/local/etc/pkg}"
     key="$config/keys/splicefs.rsa.pub"
@@ -46,17 +59,14 @@ fetch_published_package() {
         mkdir -p "$folder"
     done
     cp keys/splicefs.rsa.pub "$key"
-    cat >"$repo_file" <<REPO
-splicefs-$PROGRAM: {
-  url: "$site_root/$PROGRAM/freebsd/\${ABI}",
-  mirror_type: "none",
-  signature_type: "pubkey",
-  pubkey: "$key",
-  enabled: yes
-}
-REPO
     fetch_status=0
-    on_system "$1" pkg fetch -y -r "splicefs-$PROGRAM" -o "$fetched" "$name" >&2 || fetch_status=$?
+    # The file is written by a function whose status is the answer, so set -e being off inside it changes nothing.
+    # shellcheck disable=SC2310
+    if setup_repo_file_text setup.sh.in "$site_root" "$key" >"$repo_file"; then
+        on_system "$1" pkg fetch -y -r "splicefs-$PROGRAM" -o "$fetched" "$name" >&2 || fetch_status=$?
+    else
+        fetch_status=1
+    fi
     rm -f "$key" "$repo_file"
     # The folders go in the order they are listed: the inner ones first.
     for folder in $made; do rmdir "$folder"; done

@@ -12,7 +12,8 @@ work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 failed=0
 
-mkdir "$work/bin"
+# The folder of the steps, which they made before the adapter runs.
+mkdir "$work/bin" "$work/own"
 for tool in pkg sysrc service; do
     # The stand-in expands its own variables when it runs. A tool named in FAIL_TOOL fails.
     # shellcheck disable=SC2016
@@ -30,6 +31,8 @@ case "$1" in
         while [ "$1" != -o ]; do shift; done
         mkdir -p "$2/All"
         : >"$2/All/splicefs-server-1.2.2.pkg"
+        # What pkg reads when it fetches, kept for the test to look at.
+        cp "$PKG_CONFIG_DIR/repos/splicefs.conf" "$CALLS.repo"
         ;;
     info) [ -f "$INSTALLED" ] ;;
     *) ;;
@@ -118,10 +121,50 @@ runs "the user of the service is the owner of its process, found by the pid file
 mkdir -p "$work/etc/pkg"
 runs "the published package is fetched from the repository of the program, which is set up and taken away again" \
     "pkg fetch -y -r splicefs-server -o $work/own/published/server splicefs-server" 0 \
-    "PKG_CONFIG_DIR=$work/etc/pkg; published_file=\$(fetch_published_package system) && [ \"\$published_file\" = $work/own/published/server/All/splicefs-server-1.2.2.pkg ] && [ ! -e $work/etc/pkg/repos ] && [ ! -e $work/etc/pkg/keys ]"
+    "export PKG_CONFIG_DIR=$work/etc/pkg; published_file=\$(fetch_published_package system) && [ \"\$published_file\" = $work/own/published/server/All/splicefs-server-1.2.2.pkg ] && [ ! -e $work/etc/pkg/repos ] && [ ! -e $work/etc/pkg/keys ]"
 runs "a fetch that fails takes the repository away and fails" \
     "pkg fetch -y -r splicefs-server -o $work/own/published/server splicefs-server" 1 \
-    "PKG_CONFIG_DIR=$work/etc/pkg; FAIL_TOOL=pkg fetch_published_package system; status=\$?; [ ! -e $work/etc/pkg/repos ] && exit \$status"
+    "export PKG_CONFIG_DIR=$work/etc/pkg; FAIL_TOOL=pkg fetch_published_package system; status=\$?; [ ! -e $work/etc/pkg/repos ] && exit \$status"
+
+# The repository file is the setup script's own: what people get and what the test fetches from must be
+# the same text, for the public site, as the built script writes it. The adapter's function that takes
+# the text out of a setup script is run on the built one, and the file the stand-in pkg saw must be
+# that text, which also holds the address and the key as the repository file of pkg wants them.
+[ -f dist/site/setup.sh ] || { echo "run make site first" >&2; exit 1; }
+runs "the repository file text of the built setup script is made, for the site of the test and the key of the machine" "" 0 \
+    "setup_repo_file_text dist/site/setup.sh https://packages.example.org $work/etc/pkg/keys/splicefs.rsa.pub >$work/want.conf"
+rm -f "$work/calls.repo"
+runs "the repository file the machine fetches from is made for the program" \
+    "pkg fetch -y -r splicefs-server -o $work/own/published/server splicefs-server" 0 \
+    "export PKG_CONFIG_DIR=$work/etc/pkg; fetch_published_package system >/dev/null"
+if cmp -s "$work/want.conf" "$work/calls.repo"; then
+    echo "ok   the repository file is the text of the built setup script"
+else
+    diff "$work/want.conf" "$work/calls.repo" || true
+    echo "FAIL the repository file differs from the one the built setup script writes"
+    failed=$((failed + 1))
+fi
+# Not only equal to what the same function makes of the built script: the stanza of each program is
+# there, with the address of the site and the key of the machine, and pkg's own variable left alone.
+# The text is what the file must hold, a dollar sign of pkg's among it.
+# shellcheck disable=SC2016
+for wanted in 'splicefs-server: {' 'splicefs-client: {' 'url: "https://packages.example.org/server/freebsd/${ABI}",' \
+    'url: "https://packages.example.org/client/freebsd/${ABI}",' "pubkey: \"$work/etc/pkg/keys/splicefs.rsa.pub\","; do
+    if grep -qF "$wanted" "$work/calls.repo"; then
+        echo "ok   the repository file holds $wanted"
+    else
+        echo "FAIL the repository file lacks $wanted"
+        failed=$((failed + 1))
+    fi
+done
+
+# With no text of the setup script to take it from, nothing is fetched and nothing is left behind.
+mkdir -p "$work/no-setup"
+ln -s "$root/scripts" "$work/no-setup/scripts"
+ln -s "$root/keys" "$work/no-setup/keys"
+echo "main" >"$work/no-setup/setup.sh.in"
+runs "a setup script without the repository file fails the fetch before pkg is asked, and takes the files away" "" 1 \
+    "export PKG_CONFIG_DIR=$work/etc/pkg; cd $work/no-setup; fetch_published_package system; status=\$?; [ ! -e $work/etc/pkg/repos ] && [ ! -e $work/etc/pkg/keys ] && exit \$status"
 
 [ "$failed" -eq 0 ] || { echo "$failed failed"; exit 1; }
 echo "service test pkg: all cases as expected"

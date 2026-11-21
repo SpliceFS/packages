@@ -16,8 +16,9 @@ package_of() {
 }
 
 # Writes the input archive of the machine, $2, for the programs named by the other arguments and the
-# release major version $1: the repository files the steps read, the package files, and the version of
-# each baseline. The Mac's own attributes are left out: FreeBSD's tar reports them as errors.
+# release major version $1: the repository files the steps read (setup.sh.in is the setup script's text,
+# which the repository file of the test is taken from), the package files, and the version of each
+# baseline. The Mac's own attributes are left out: FreeBSD's tar reports them as errors.
 make_input() {
     major="$1"
     archive="$2"
@@ -25,7 +26,7 @@ make_input() {
     stage="$work/input-$major"
     rm -rf "$stage"
     mkdir -p "$stage/src/dist" "$stage/pkg" "$stage/baselines"
-    for copied in scripts programs steps keys packaging; do
+    for copied in scripts programs steps keys packaging setup.sh.in; do
         cp -RL "$root/$copied" "$stage/src/$copied"
     done
     for each in "$@"; do

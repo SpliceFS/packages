@@ -16,7 +16,7 @@ trap 'rm -rf "$t"' EXIT
 failed=0
 
 mkdir -p "$t/repo" "$t/baselines" "$t/bin"
-for each in scripts programs steps keys packaging; do ln -s "$root/$each" "$t/repo/$each"; done
+for each in scripts programs steps keys packaging setup.sh.in; do ln -s "$root/$each" "$t/repo/$each"; done
 mkdir -p "$t/repo/dist/server/freebsd/FreeBSD-15-amd64" "$t/repo/dist/server/freebsd/FreeBSD-14-amd64" "$t/repo/dist/client/freebsd/FreeBSD-15-amd64"
 printf 'VERSION=v1.2.3\nPACKAGE_DATE=20261112\nUPGRADE_FROM=1.2.2\n' >"$t/repo/dist/server/version"
 printf 'VERSION=v1.4.0\nPACKAGE_DATE=20261113\nUPGRADE_FROM=none\n' >"$t/repo/dist/client/version"
@@ -122,12 +122,13 @@ lacks "a program that was not built gives no path" "$got" "FAIL"
 # --- make_input ---
 
 host 'make_input 15 "$work/input.tar" server client' >"$t/made"
-listing="$(tar -tf "$t/work/input.tar")"
+tar -tf "$t/work/input.tar" >"$t/listing"
+listing="$(cat "$t/listing")"
 has() {
-    holds "the input archive holds $1" "$listing" "$1"
+    check "the input archive holds $1" grep -q "/$1\$" "$t/listing"
 }
 for wanted in src/scripts/freebsd-package-test-lib.sh src/scripts/package-test-steps.sh src/programs/server/program.conf \
-    src/steps/uninstall-pkg.sh src/keys/splicefs.rsa.pub src/packaging/freebsd/releases \
+    src/steps/uninstall-pkg.sh src/keys/splicefs.rsa.pub src/packaging/freebsd/releases src/setup.sh.in \
     src/dist/server/version src/dist/client/version "pkg/server/$server_package" "pkg/client/$client_package" \
     baselines/server baselines/client; do
     has "$wanted"
