@@ -2,8 +2,8 @@
 pkg delete splicefs-server splicefs-client
 
 # Delete the settings of the services from /etc/rc.conf, which removing a package leaves alone:
-sysrc -x splicefsd_enable
-sysrc -x splicefs_enable
+sysrc -i -x splicefsd_enable
+sysrc -i -x splicefs_enable
 
 # Remove the packages they needed that nothing else needs now:
 pkg autoremove
