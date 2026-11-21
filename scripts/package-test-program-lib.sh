@@ -10,8 +10,22 @@
 # each program, which holds the version of its published baseline, empty when nothing is published),
 # and may set $given_version (a VERSION given by hand, which must be the recorded one) and define
 # prepare_baseline, which runs after the words of the program are set and before its baseline is read:
-# the host fetches the baseline into the file there, the steps need nothing.
+# the host makes the file of the baseline there (save_baseline_version), the steps need nothing.
 # shellcheck disable=SC2154 # the caller sets platform, baselines and given_version, the libraries the rest
+
+# Writes the version of the published baseline of the program into its file in $baselines, once for the
+# whole run, for the hook prepare_baseline of a host: the newest published package of the program,
+# which step 1 installs and step 2 upgrades, is the version the record of the build names (the newest
+# on the site when it names none). The file is empty when nothing is published.
+save_baseline_version() {
+    baseline_file="$baselines/$PROGRAM"
+    [ ! -f "$baseline_file" ] || return 0
+    # upgrade_from_version is a test whose status is the answer, so set -e being off inside it changes nothing.
+    # shellcheck disable=SC2310
+    upgrade_from_version >"$baseline_file.new" ||
+        fail "could not read the newest published package of $PROGRAM from $site_url"
+    mv "$baseline_file.new" "$baseline_file"
+}
 
 # Sets $from (empty when nothing is published), and PUBLISHED_VERSION, which the scripts that run in
 # the steps read: the program version of the published package, or the new one when there is none.

@@ -65,6 +65,22 @@ holds "the hook runs after the version and the words of the program are set" "$g
 got="$(choose 1.2.2 'n=0; prepare_baseline() { n=$((n + 1)); }; use_program server; use_program server; use_program client; use_program server; echo "hook ran $n times"')"
 holds "choosing the program that is chosen already does nothing, another program is chosen again" "$got" "hook ran 3 times"
 
+# The baseline the host reads from the package site (save_baseline_version) is one function for every
+# host. The site is not asked in these cases: upgrade_from_version is replaced inside the hook, which
+# runs after the library sourced the real one.
+got="$(choose none 'prepare_baseline() { save_baseline_version && echo "saved:$(cat "$baselines/$PROGRAM")"; }; use_program server; echo "from:$from"')"
+holds "the baseline is read once into the file of the program, from the recorded version" "$got" "saved:1.2.2"
+
+got="$(choose 1.2.0 'prepare_baseline() { upgrade_from_version() { return 1; }; save_baseline_version && echo "saved:$(cat "$baselines/$PROGRAM")"; }; use_program server')"
+holds "a file that is there is kept, the site is not asked again" "$got" "saved:1.2.0"
+
+got="$(choose none 'prepare_baseline() { upgrade_from_version() { :; }; save_baseline_version && echo "saved:[$(cat "$baselines/$PROGRAM")]"; }; use_program server')"
+holds "nothing published makes an empty file" "$got" "saved:[]"
+
+got="$(choose none 'prepare_baseline() { upgrade_from_version() { return 1; }; save_baseline_version; }; use_program server; echo "not reached"')"
+holds "a site that cannot be read ends the caller and names the program and the site" "$got" "could not read the newest published package of server from https://packages.splicefs.org/server"
+case "$got" in *"not reached"*) printf 'FAIL the caller went on after a site that cannot be read\n'; failed=$((failed + 1)) ;; *) ;; esac
+
 got="$(choose 1.2.2 'given_version=v9.9.9; use_program server')"
 holds "a version given by the caller must be the recorded one" "$got" "is not the recorded v1.2.3"
 

@@ -41,17 +41,10 @@ trap 'rm -rf "$work" 2>/dev/null || true' EXIT
 
 all_programs="server client"
 
-# Where the baseline of a program is read from the package site, once for the whole run, as
-# scripts/package-test.sh does it: the machine fetches the package itself and needs only the version.
+# The hook of scripts/package-test-program-lib.sh: the machine fetches the package itself and needs only the
+# version, which is read once for the whole run, as scripts/package-test.sh does.
 prepare_baseline() {
-    baseline_file="$baselines/$PROGRAM"
-    [ -f "$baseline_file" ] || {
-        # upgrade_from_version is a test whose status is the answer, so set -e being off inside it changes nothing.
-        # shellcheck disable=SC2310
-        upgrade_from_version >"$baseline_file.new" ||
-            fail "could not read the newest published package of $PROGRAM from $site_url"
-        mv "$baseline_file.new" "$baseline_file"
-    }
+    save_baseline_version
 }
 
 # Prints the package file of the program $1 for the release major version $2, or nothing.
