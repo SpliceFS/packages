@@ -65,6 +65,41 @@ mkdir "$work/gone" "$work/left"
 removal_runs "a removal that left no program in the program folder of the format passes" "$work/gone" ok
 removal_runs "a program left in the program folder of the format is found" "$work/left" "remove left splicefsdctl behind"
 
+# The client's own file checks look for the mount helper in the helper folder of the table of the
+# format, not in a folder written in the check: the folder of the table is replaced by a fake one,
+# holding a helper that behaves as the case says. $1 case name, $2 the helper folder, $3 what the
+# checks must answer: ok, or the text of their refusal.
+helper_runs() {
+    got="$(FORMAT=pkg PROGRAM=client VERSION=v1.2.3 PACKAGE_DATE=20261112 sh -c \
+        '. scripts/package-lib.sh; . scripts/package-test-lib.sh; helperdir="$1"; check_extras' sh "$2" 2>&1)" &&
+        status=ok || status="$got"
+    case "$status" in
+        *"$3"*) printf 'ok   %s\n' "$1" ;;
+        *)
+            printf 'FAIL %s: wanted "%s" got "%s"\n' "$1" "$3" "$status"
+            failed=$((failed + 1))
+            ;;
+    esac
+}
+
+# Puts a helper in the folder $1 that prints $2 and ends with status $3.
+helper_saying() {
+    mkdir "$1"
+    printf '#!/bin/sh\necho "%s"\nexit %s\n' "$2" "$3" > "$1/mount.splicefs"
+    chmod 755 "$1/mount.splicefs"
+}
+
+helper_saying "$work/helper-good" "usage: mount.splicefs cluster:/path folder" 1
+helper_saying "$work/helper-succeeds" "usage: mount.splicefs cluster:/path folder" 0
+helper_saying "$work/helper-silent" "nothing useful" 1
+mkdir "$work/helper-none"
+helper_runs "a mount helper in the helper folder of the format that prints its usage passes" "$work/helper-good" ok
+helper_runs "a mount helper that is not in the helper folder of the format is found" "$work/helper-none" \
+    "$work/helper-none/mount.splicefs is missing"
+helper_runs "a mount helper that succeeds without arguments is found" "$work/helper-succeeds" \
+    "mount.splicefs without arguments succeeded"
+helper_runs "a mount helper that prints no usage is found" "$work/helper-silent" "mount.splicefs does not print its usage"
+
 if [ "$failed" -ne 0 ]; then
     echo "$failed package-test-lib case(s) failed"
     exit 1

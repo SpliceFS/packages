@@ -43,6 +43,7 @@ for program_name in server client; do
         confdir="$(table "$format" "$program_name" confdir)"
         datadir="$(table "$format" "$program_name" datadir)"
         servicedir="$(table "$format" "$program_name" servicedir)"
+        helperdir="$(table "$format" "$program_name" helperdir)"
         usrdir="$(table "$format" "$program_name" usrdir)"
         label="$format $program_name"
         case "$format" in
@@ -50,6 +51,7 @@ for program_name in server client; do
                 holds scripts/package-deb.sh "\$root${bindir}/\$built" "$label: programs in $bindir"
                 holds scripts/package-deb.sh "\$root$servicedir/\$program.service" "$label: service definition in $servicedir"
                 holds "$defs/deb/postrm" "rm -rf $confdir" "$label: purge removes $confdir"
+                [ "$program_name" != client ] || holds "$defs/deb/postinst" "$helperdir/mount.splicefs" "$label: the helper link in $helperdir"
                 if [ "$program_name" = server ]; then
                     holds "$defs/systemd/$program.service" "$datadir" "$label: the unit names the state folder $datadir"
                 fi
@@ -58,6 +60,7 @@ for program_name in server client; do
                 for each in $programs; do holds "$defs/rpm/$name.spec" "$bindir/$each" "$label: $each in $bindir"; done
                 holds "$defs/rpm/$name.spec" "$servicedir/$program.service" "$label: service definition in $servicedir"
                 holds "$defs/rpm/$name.spec" "%dir $confdir" "$label: configuration folder $confdir"
+                [ "$program_name" != client ] || holds "$defs/rpm/$name.spec" "$helperdir/mount.splicefs" "$label: the helper link in $helperdir"
                 for folder in $folders; do holds "$defs/rpm/$name.spec" "%dir $confdir/$folder" "$label: $confdir/$folder"; done
                 ;;
             apk)
@@ -65,6 +68,7 @@ for program_name in server client; do
                 holds "$defs/alpine/APKBUILD" "\$pkgdir$servicedir/$program" "$label: service definition in $servicedir"
                 for folder in $folders; do holds "$defs/alpine/APKBUILD" "\$pkgdir$confdir/$folder" "$label: $confdir/$folder"; done
                 holds "$defs/openrc/$program.initd" "command=$bindir/$program" "$label: the service runs $bindir/$program"
+                [ "$program_name" != client ] || holds "$defs/alpine/splicefs-client.post-install" "$helperdir/mount.splicefs" "$label: the helper link in $helperdir"
                 if [ "$program_name" = server ]; then
                     holds "$defs/openrc/$program.initd" "$datadir" "$label: the service definition names the state folder $datadir"
                 fi
@@ -81,6 +85,10 @@ for program_name in server client; do
                     { printf 'FAIL %s: the packing list lacks the service definition\n' "$label"; failed=$((failed + 1)); }
                 printf '%s\n' "$plist" | grep -qxF "@dir ${confdir#"$usrdir"/}" ||
                     { printf 'FAIL %s: the packing list lacks %s\n' "$label" "$confdir"; failed=$((failed + 1)); }
+                if [ "$program_name" = client ]; then
+                    printf '%s\n' "$plist" | grep -qxF "${helperdir#"$usrdir"/}/mount.splicefs" ||
+                        { printf 'FAIL %s: the packing list lacks the helper in %s\n' "$label" "$helperdir"; failed=$((failed + 1)); }
+                fi
                 holds "$defs/freebsd/manifest.in" "prefix: \"$usrdir\"" "$label: the package prefix is $usrdir"
                 holds "$defs/freebsd/$program.rc" "program=$bindir/$program" "$label: the rc script runs $bindir/$program"
                 if [ "$program_name" = server ]; then

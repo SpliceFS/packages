@@ -18,6 +18,7 @@
 #   confdir     the configuration folder of the program
 #   datadir     the state folder: what the program makes and what the administrator adds to it
 #   servicedir  the folder of the service definitions
+#   helperdir   the folder mount(8) looks in for the helper of a file system type, mount.TYPE
 # What program.conf sets is unknown to ShellCheck, which cannot follow it.
 # shellcheck disable=SC2154
 case "${FORMAT:-}" in
@@ -27,6 +28,7 @@ case "${FORMAT:-}" in
         confdir="/etc/splicefs/${name#splicefs-}"
         datadir="/var/lib/splicefs/${name#splicefs-}"
         servicedir=/usr/lib/systemd/system
+        helperdir=/sbin
         ;;
     apk)
         usrdir=/usr
@@ -34,6 +36,7 @@ case "${FORMAT:-}" in
         confdir="/etc/splicefs/${name#splicefs-}"
         datadir="/var/lib/splicefs/${name#splicefs-}"
         servicedir=/etc/init.d
+        helperdir=/sbin
         ;;
     pkg)
         usrdir=/usr/local
@@ -41,6 +44,7 @@ case "${FORMAT:-}" in
         confdir="$usrdir/etc/splicefs/${name#splicefs-}"
         datadir="/var/db/splicefs/${name#splicefs-}"
         servicedir="$usrdir/etc/rc.d"
+        helperdir="$usrdir/sbin"
         ;;
     "") ;;
     *) fail "FORMAT $FORMAT is not deb, rpm, apk or pkg" ;;
