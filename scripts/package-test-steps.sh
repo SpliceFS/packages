@@ -265,7 +265,9 @@ documented_removal_text() {
 # manager asks. The file says sudo, which root does not have in a container, so sudo is a function
 # that runs its arguments. zypper reads its questions from the terminal only and fails on a pipe
 # ("Cannot read input"), so the function gives zypper --non-interactive, which answers them with
-# their defaults, the same yes. The first failing command ends the run.
+# their defaults, the same yes. The first failing command ends the run, and tracing (set -x) puts each
+# command in the log, so the last one before the failure is the one that failed: a command that
+# fails without a message is named that way.
 documented_removal() {
     file="$(uninstall_file "$1")" || fail "no uninstall file for this system"
     # fail ends the system, so the functions being part of a condition change nothing.
@@ -279,7 +281,7 @@ documented_removal() {
     # on_system is one command whose status is the answer, so set -e being off inside it changes nothing.
     # The script is for the shell that sh -c starts, which reads its own variables.
     # shellcheck disable=SC2016,SC2310
-    yes | on_system "$1" env DEBIAN_FRONTEND=noninteractive sh -c 'set -e
+    yes | on_system "$1" env DEBIAN_FRONTEND=noninteractive sh -c 'set -ex
         sudo() { if [ "$1" = zypper ]; then shift; zypper --non-interactive "$@"; else "$@"; fi; }
         eval "$1"' sh "$text" ||
         fail "the commands of $file failed"

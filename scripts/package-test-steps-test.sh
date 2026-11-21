@@ -527,6 +527,8 @@ expect "the plain removal checks the configuration and the data remain" sh -c "g
 expect "the install is of the package file under /pkg" sh -c "grep -q 'file /pkg/server/splicefs-server_' '$dir/log'"
 expect "no setup script and no repository are used" sh -c "! grep -q 'setup.sh\|apt-key\|sources.list' '$dir/log'"
 expect "the setup script's removal is not run" sh -c "! grep -q 'splicefs-setup.sh' '$dir/log'"
+expect "the documented removal traces its commands, so the log names the one that failed" \
+    sh -c "grep -q \"sh -c set -ex\" '$dir/log'"
 expect "the documented removal names the package the package manager still holds (dpkg keeps its configuration)" \
     sh -c "grep -q 'apt-get purge splicefs-server' '$dir/log'"
 expect "the documented removal leaves out the program that is not held" sh -c "! grep -q 'apt-get purge.*splicefs-client' '$dir/log'"
