@@ -1,5 +1,5 @@
 #!/bin/sh
-# check: service-upgrade-lib.sh: after an upgrade over a running service, deb, rpm and apk restart it and pkg leaves the old process running; a same-version reinstall on pkg prints the install message
+# check: service-upgrade-lib.sh: after an upgrade over a running service, deb, rpm and apk restart it, also on a same-version reinstall, and pkg leaves the old process running; a same-version reinstall on pkg prints the install message
 # Test of check_upgrade_of_running_service of scripts/service-upgrade-lib.sh. The service functions it
 # asks are stand-ins that read the process id and the version of the running service from files of the
 # test, and a restart writes the files of the case: so each case says what the upgrade did and what a
@@ -61,19 +61,18 @@ else
     echo "ok   no restart is run by the test for a package that restarts the service"
 fi
 
-# A reinstall of the same version is not an upgrade. deb and rpm run their scripts on it, so they restart the
-# service as for an upgrade; apk and pkg do not (pkg add -f installs the files again and ends no process), so the
-# same process keeps running, as the same version.
+# A reinstall of the same version is not an upgrade. deb, rpm and apk run their scripts on it (apk add of the
+# file replaces the installed package and runs post-upgrade), so they restart the service as for an upgrade; pkg
+# does not (pkg add -f installs the files again and ends no process), so the same process keeps running, as the
+# same version.
 new_version=v1.0.0
-for format in deb rpm; do
+for format in deb rpm apk; do
     upgrade_runs "$format, same version: a restart by the package passes" "$format" 200 v1.0.0 0 "" "restarted the service"
     upgrade_runs "$format, same version: a service that kept its process is found" "$format" 100 v1.0.0 0 "" "the upgrade did not start a new process of the service"
 done
-for format in apk pkg; do
-    upgrade_runs "$format, same version: the process that keeps running passes" "$format" 100 v1.0.0 0 "" "kept running"
-    upgrade_runs "$format, same version: a restart nobody asked for is found" "$format" 200 v1.0.0 0 "" "a reinstall of the same version on $format restarted the service"
-    upgrade_runs "$format, same version: a service that reports another version is found" "$format" 100 v1.1.0 0 "" "after a reinstall of the same version on $format the service reports v1.1.0, not v1.0.0"
-done
+upgrade_runs "pkg, same version: the process that keeps running passes" pkg 100 v1.0.0 0 "" "kept running"
+upgrade_runs "pkg, same version: a restart nobody asked for is found" pkg 200 v1.0.0 0 "" "a reinstall of the same version on pkg restarted the service"
+upgrade_runs "pkg, same version: a service that reports another version is found" pkg 100 v1.1.0 0 "" "after a reinstall of the same version on pkg the service reports v1.1.0, not v1.0.0"
 if [ -f "$work/pkg, same version: the process that keeps running passes/calls" ]; then
     echo "FAIL the test ran a restart itself after a reinstall of the same version on pkg"
     failed=$((failed + 1))
