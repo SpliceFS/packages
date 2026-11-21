@@ -49,6 +49,40 @@ done
 fb_first="${freebsd_dirs# }"
 fb_first="${fb_first%% *}"
 
+# The index files of one generation, as the build writes them: a Release that lists the files by
+# hash (apt-ftparchive's layout: a hash, a size, a path), every listed file also in by-hash, and
+# a repomd.xml that names the hash-named files of repodata. N is the number the hashes are made
+# from, so a test can hold several generations side by side.
+hash_of() { printf '%064x' "$1"; }
+write_apt_generation() {
+    dir="$1/apt/dists/stable"
+    hash="$(hash_of "$2")"
+    mkdir -p "$dir/main/binary-amd64/by-hash/SHA256"
+    echo "Packages $2" > "$dir/main/binary-amd64/Packages"
+    echo "Packages.gz $2" > "$dir/main/binary-amd64/Packages.gz"
+    echo "Packages $2" > "$dir/main/binary-amd64/by-hash/SHA256/$hash"
+    printf 'Acquire-By-Hash: yes\nSHA256:\n %s 12 main/binary-amd64/Packages\n' "$hash" > "$dir/Release"
+}
+write_rpm_generation() {
+    dir="$1/rpm/x86_64/repodata"
+    hash="$(hash_of "$2")"
+    mkdir -p "$dir"
+    echo "primary $2" > "$dir/$hash-primary.xml.gz"
+    printf '<repomd><data type="primary"><location href="repodata/%s-primary.xml.gz"/></data></repomd>\n' \
+        "$hash" > "$dir/repomd.xml"
+}
+# Only the files a generation names: what an older generation leaves behind in the same folders.
+write_leftovers() {
+    hash="$(hash_of "$2")"
+    echo "old $2" > "$1/apt/dists/stable/main/binary-amd64/by-hash/SHA256/$hash"
+    echo "old $2" > "$1/rpm/x86_64/repodata/$hash-primary.xml.gz"
+}
+write_generation() { write_apt_generation "$@"; write_rpm_generation "$@"; }
+write_generation "$base" 2
+hash_0="$(hash_of 0)"
+hash_1="$(hash_of 1)"
+hash_2="$(hash_of 2)"
+
 chmod_ok=1
 rsync --chmod=F644 --list-only "$tmp" >/dev/null 2>&1 || chmod_ok=0
 # A refused send is a result to check, not a reason to stop. send always returns 0 and leaves
@@ -212,120 +246,169 @@ fi
 # after each, and makes the pass named by FAIL_PASS fail, so the state between the passes can
 # be looked at. The index files are named here again, as a person reading the layout would:
 # the apt dists folder, the rpm repodata folders, APKINDEX.tar.gz and the files next to them.
-if [ "$chmod_ok" -eq 1 ]; then
-    real_rsync="$(command -v rsync)"
-    mkdir "$tmp/wrap"
-    cat > "$tmp/wrap/rsync" <<'WRAP'
+real_rsync="$(command -v rsync)"
+mkdir "$tmp/wrap"
+cat > "$tmp/wrap/rsync" <<'WRAP'
 #!/bin/sh
 set -eu
-# A dry run is not a pass, and neither is the second process that some rsync versions start
-# for a local copy (it is called with --server).
+# Where rsync has no --chmod (openrsync), the option is dropped, which changes nothing the checks
+# look at.
+for arg; do
+    shift
+    case "$arg" in
+        --chmod=*) ;;
+        *) set -- "$@" "$arg" ;;
+    esac
+done
+# A pass is a call that moves files into place with --delay-updates. A dry run is not one, nor
+# is the read of the replaced Release, nor the second process that some rsync versions start for
+# a local copy (it is called with --server).
+pass=0
 for arg in "$@"; do
     case "$arg" in
         --dry-run | --server) exec "$REAL_RSYNC" "$@" ;;
+        --delay-updates) pass=1 ;;
         *) ;;
     esac
 done
+[ "$pass" -eq 1 ] || exec "$REAL_RSYNC" "$@"
 count=0
 [ ! -f "$PASS_DIR/count" ] || count="$(cat "$PASS_DIR/count")"
 count=$((count + 1))
 echo "$count" > "$PASS_DIR/count"
+printf '%s\n' "$@" > "$PASS_DIR/args-$count"
 [ "$count" != "${FAIL_PASS:-0}" ] || { echo "test wrapper: pass $count fails" >&2; exit 23; }
 "$REAL_RSYNC" "$@"
 for dest; do :; done
 cp -R "$dest" "$PASS_DIR/after-$count"
 WRAP
-    chmod 755 "$tmp/wrap/rsync"
-    # Sends $1 to $2 through the wrapper. $3 is the number of the pass that fails, if any. The
-    # number of passes that were run is left in pass_total.
-    send_logged() {
-        rm -rf "$tmp/passes"
-        mkdir "$tmp/passes"
-        send_status=0
-        PATH="$tmp/wrap:$PATH" REAL_RSYNC="$real_rsync" PASS_DIR="$tmp/passes" \
-            FAIL_PASS="${3:-0}" PROGRAM="$program" REPO_DIR="$1" UPLOAD_TARGET="$2" \
-            sh scripts/publish-program.sh send >"$tmp/out" 2>&1 || send_status=$?
-        pass_total=0
-        [ ! -f "$tmp/passes/count" ] || pass_total="$(cat "$tmp/passes/count")"
-    }
-    files_in() { (cd "$1" && find . -type f | sed 's|^\./||' | sort); }
+chmod 755 "$tmp/wrap/rsync"
+# Sends $1 to $2 through the wrapper. $3 is the number of the pass that fails, if any. The
+# number of passes that were run is left in pass_total.
+send_logged() {
+    rm -rf "$tmp/passes"
+    mkdir "$tmp/passes"
+    send_status=0
+    PATH="$tmp/wrap:$PATH" REAL_RSYNC="$real_rsync" PASS_DIR="$tmp/passes" \
+        FAIL_PASS="${3:-0}" PROGRAM="$program" REPO_DIR="$1" UPLOAD_TARGET="$2" \
+        sh scripts/publish-program.sh send >"$tmp/out" 2>&1 || send_status=$?
+    pass_total=0
+    [ ! -f "$tmp/passes/count" ] || pass_total="$(cat "$tmp/passes/count")"
+}
+files_in() { (cd "$1" && find . -type f | sed 's|^\./||' | sort); }
 
-    index_re='^(apt/dists/|rpm/[^/]+/repodata/|alpine/[^/]+/(APKINDEX\.tar\.gz|[^/]+\.(sig|asc))$'
-    index_re="$index_re"'|freebsd/[^/]+/(meta|meta\.conf|packagesite\.pkg|data\.pkg|[^/]+\.(sig|asc))$)'
-    files_in "$base" > "$tmp/all_files"
-    grep -E "$index_re" "$tmp/all_files" > "$tmp/index_files" || true
-    grep -Ev "$index_re" "$tmp/all_files" > "$tmp/other_files" || true
-    if grep -qx 'apt/dists/stable/InRelease' "$tmp/index_files" &&
-        grep -q '^rpm/x86_64/repodata/repomd.xml.asc$' "$tmp/index_files" &&
-        grep -q '^alpine/x86_64/APKINDEX.tar.gz$' "$tmp/index_files" &&
-        grep -q '/packagesite.pkg$' "$tmp/index_files" &&
-        ! grep -q '\.deb$\|\.rpm$\|\.apk$\|/All/' "$tmp/index_files" &&
-        grep -q '\.deb$' "$tmp/other_files"; then
-        pass "i the index files are told apart from the packages"
-    else
-        fail "i the list of index files is wrong"
-    fi
+index_re='^(apt/dists/|rpm/[^/]+/repodata/|alpine/[^/]+/(APKINDEX\.tar\.gz|[^/]+\.(sig|asc))$'
+index_re="$index_re"'|freebsd/[^/]+/(meta|meta\.conf|packagesite\.pkg|data\.pkg|[^/]+\.(sig|asc))$)'
+# The entry files are the ones that name the other index files, or are the only index file of
+# their format: they go last. Everything else of the apt dists folder and of repodata (Packages,
+# the by-hash copies, the files with a hash in their name) must be in place before them.
+entry_re='^(apt/dists/[^/]+/(Release|Release\.gpg|InRelease)|rpm/[^/]+/repodata/repomd\.xml[^/]*'
+entry_re="$entry_re"'|alpine/[^/]+/(APKINDEX\.tar\.gz|[^/]+\.(sig|asc))'
+entry_re="$entry_re"'|freebsd/[^/]+/(meta|meta\.conf|packagesite\.pkg|data\.pkg|[^/]+\.(sig|asc)))$'
+files_in "$base" > "$tmp/all_files"
+grep -E "$index_re" "$tmp/all_files" > "$tmp/index_files" || true
+grep -Ev "$index_re" "$tmp/all_files" > "$tmp/other_files" || true
+grep -E "$entry_re" "$tmp/index_files" > "$tmp/entry_files" || true
+grep -Ev "$entry_re" "$tmp/index_files" > "$tmp/named_files" || true
+if grep -qx 'apt/dists/stable/InRelease' "$tmp/index_files" &&
+    grep -q '^rpm/x86_64/repodata/repomd.xml.asc$' "$tmp/index_files" &&
+    grep -q '^alpine/x86_64/APKINDEX.tar.gz$' "$tmp/index_files" &&
+    grep -q '/packagesite.pkg$' "$tmp/index_files" &&
+    ! grep -q '\.deb$\|\.rpm$\|\.apk$\|/All/' "$tmp/index_files" &&
+    grep -q '\.deb$' "$tmp/other_files" &&
+    grep -qx 'apt/dists/stable/main/binary-amd64/Packages' "$tmp/named_files" &&
+    grep -q '/by-hash/SHA256/' "$tmp/named_files" &&
+    grep -q "^rpm/x86_64/repodata/$hash_2-primary.xml.gz$" "$tmp/named_files" &&
+    ! grep -q 'Release\|repomd' "$tmp/named_files"; then
+    pass "i the index files are told apart from the packages, and the entry files from the rest"
+else
+    fail "i the list of index files is wrong"
+fi
 
-    # The first publication: pass 1 leaves a folder without any index file, pass 2 completes it.
-    mkdir "$tmp/first"
-    send_logged "$base" "$tmp/first"
-    after_first="$(files_in "$tmp/passes/after-1")"
-    want_first="$(cat "$tmp/other_files")"
-    if [ "$send_status" -eq 0 ] && [ "$pass_total" = 2 ] && [ "$after_first" = "$want_first" ] &&
-        diff -r "$base" "$tmp/first" >/dev/null; then
-        pass "i a send is two passes: all packages first, then the index files"
-    else
-        fail "i the passes of a first send (status $send_status, $pass_total passes)"
-        sed 's/^/     /' "$tmp/out"
-    fi
+# The first publication: pass 1 leaves a folder without any index file, pass 2 adds every index
+# file that an entry file names (Packages, by-hash, the files of repodata), and pass 3 the entry
+# files, so a client never reads a Release or a repomd.xml that names a file that is not there.
+mkdir "$tmp/first"
+send_logged "$base" "$tmp/first"
+after_first="$(files_in "$tmp/passes/after-1")"
+after_second="$(files_in "$tmp/passes/after-2")"
+want_first="$(cat "$tmp/other_files")"
+want_second="$(cat "$tmp/other_files" "$tmp/named_files" | sort)"
+if [ "$send_status" -eq 0 ] && [ "$pass_total" = 3 ] && [ "$after_first" = "$want_first" ] &&
+    [ "$after_second" = "$want_second" ] && diff -r "$base" "$tmp/first" >/dev/null; then
+    pass "i a send is three passes: packages, then the files the index names, then the entry files"
+else
+    fail "i the passes of a first send (status $send_status, $pass_total passes)"
+    sed 's/^/     /' "$tmp/out"
+fi
 
-    # An upgrade: the index of the old release stays until pass 2, and so do the deletions.
-    cp -R "$base" "$tmp/upgrade"
-    new_pkg="rpm/x86_64/splicefs-server-1.rpm"
-    rm "$tmp/upgrade/$new_pkg"
-    old_text="the index of the release before"
-    # Each old index gets the time stamp of the new one: a file can change in the second it was
-    # published in, and some old indexes are as long as the new ones (each stand-in holds its own
-    # path, and freebsd/FreeBSD:14:aarch64/meta is as long as the old text). The send must still
-    # see the change; without this the case passed or failed with the speed of the machine.
-    while read -r f; do
-        echo "$old_text" > "$tmp/upgrade/$f"
-        touch -r "$base/$f" "$tmp/upgrade/$f"
-    done < "$tmp/index_files"
-    stale=rpm/x86_64/repodata/stale-primary.xml.gz
-    echo stale > "$tmp/upgrade/$stale"
-    send_logged "$base" "$tmp/upgrade"
-    old_kept=1
-    while read -r f; do
-        grep -qx "$old_text" "$tmp/passes/after-1/$f" || old_kept=0
-    done < "$tmp/index_files"
-    if [ "$send_status" -eq 0 ] && [ "$pass_total" = 2 ] && [ "$old_kept" -eq 1 ] &&
-        [ -f "$tmp/passes/after-1/$new_pkg" ] && [ -f "$tmp/passes/after-1/$stale" ] &&
-        [ ! -e "$tmp/upgrade/$stale" ] && diff -r "$base" "$tmp/upgrade" >/dev/null; then
-        pass "i an upgrade: the new package is there before any new index, the deletion comes last"
-    else
-        fail "i the passes of an upgrade (status $send_status)"
-        sed 's/^/     /' "$tmp/out"
-    fi
+# An upgrade: the entry files of the old release stay until pass 3, and so do the deletions.
+cp -R "$base" "$tmp/upgrade"
+new_pkg="rpm/x86_64/splicefs-server-1.rpm"
+rm "$tmp/upgrade/$new_pkg"
+old_text="the index of the release before"
+# Each old index gets the time stamp of the new one: a file can change in the second it was
+# published in, and some old indexes are as long as the new ones (each stand-in holds its own
+# path, and freebsd/FreeBSD:14:aarch64/meta is as long as the old text). The send must still
+# see the change; without this the case passed or failed with the speed of the machine.
+while read -r f; do
+    echo "$old_text" > "$tmp/upgrade/$f"
+    touch -r "$base/$f" "$tmp/upgrade/$f"
+done < "$tmp/index_files"
+stale=rpm/x86_64/repodata/stale-primary.xml.gz
+echo stale > "$tmp/upgrade/$stale"
+send_logged "$base" "$tmp/upgrade"
+old_kept=1
+while read -r f; do
+    grep -qx "$old_text" "$tmp/passes/after-1/$f" || old_kept=0
+done < "$tmp/index_files"
+while read -r f; do
+    grep -qx "$old_text" "$tmp/passes/after-2/$f" || old_kept=0
+done < "$tmp/entry_files"
+new_named=1
+while read -r f; do
+    grep -qx "$old_text" "$tmp/passes/after-2/$f" && new_named=0
+done < "$tmp/named_files"
+# openrsync does not delete by filter rules; only GNU rsync (the one that has --chmod) does.
+upgrade_done=1
+if [ "$chmod_ok" -eq 1 ] && { [ -e "$tmp/upgrade/$stale" ] || ! diff -r "$base" "$tmp/upgrade" >/dev/null; }; then
+    upgrade_done=0
+fi
+if [ "$send_status" -eq 0 ] && [ "$pass_total" = 3 ] && [ "$old_kept" -eq 1 ] && [ "$new_named" -eq 1 ] &&
+    [ -f "$tmp/passes/after-1/$new_pkg" ] && [ -f "$tmp/passes/after-2/$stale" ] &&
+    [ "$upgrade_done" -eq 1 ]; then
+    pass "i an upgrade: the new package is there before any new index, the deletion comes last"
+else
+    fail "i the passes of an upgrade (status $send_status)"
+    sed 's/^/     /' "$tmp/out"
+fi
 
-    # A failed pass ends the script: no later pass runs and nothing is reported as published.
-    mkdir "$tmp/fail1" "$tmp/fail2"
-    send_logged "$base" "$tmp/fail1" 1
-    left="$(files_in "$tmp/fail1")"
-    if [ "$send_status" -ne 0 ] && [ "$pass_total" = 1 ] && [ -z "$left" ] &&
-        grep -q 'pass 1' "$tmp/out" && ! grep -q '^published to' "$tmp/out"; then
-        pass "i when pass 1 fails the script stops and nothing was sent"
-    else
-        fail "i a failing pass 1 (status $send_status)"; sed 's/^/     /' "$tmp/out"
-    fi
-    send_logged "$base" "$tmp/fail2" 2
-    left="$(files_in "$tmp/fail2")"
-    if [ "$send_status" -ne 0 ] && [ "$pass_total" = 2 ] && [ "$left" = "$want_first" ] &&
-        grep -q 'pass 2' "$tmp/out" && ! grep -q '^published to' "$tmp/out"; then
-        pass "i when pass 2 fails the script stops, and no index file was sent"
-    else
-        fail "i a failing pass 2 (status $send_status)"; sed 's/^/     /' "$tmp/out"
-    fi
+# A failed pass ends the script: no later pass runs and nothing is reported as published.
+mkdir "$tmp/fail1" "$tmp/fail2"
+send_logged "$base" "$tmp/fail1" 1
+left="$(files_in "$tmp/fail1")"
+if [ "$send_status" -ne 0 ] && [ "$pass_total" = 1 ] && [ -z "$left" ] &&
+    grep -q 'pass 1' "$tmp/out" && ! grep -q '^published to' "$tmp/out"; then
+    pass "i when pass 1 fails the script stops and nothing was sent"
+else
+    fail "i a failing pass 1 (status $send_status)"; sed 's/^/     /' "$tmp/out"
+fi
+send_logged "$base" "$tmp/fail2" 2
+left="$(files_in "$tmp/fail2")"
+if [ "$send_status" -ne 0 ] && [ "$pass_total" = 2 ] && [ "$left" = "$want_first" ] &&
+    grep -q 'pass 2' "$tmp/out" && ! grep -q '^published to' "$tmp/out"; then
+    pass "i when pass 2 fails the script stops, and no index file was sent"
+else
+    fail "i a failing pass 2 (status $send_status)"; sed 's/^/     /' "$tmp/out"
+fi
+mkdir "$tmp/fail3"
+send_logged "$base" "$tmp/fail3" 3
+left="$(files_in "$tmp/fail3")"
+if [ "$send_status" -ne 0 ] && [ "$pass_total" = 3 ] && [ "$left" = "$want_second" ] &&
+    grep -q 'pass 3' "$tmp/out" && ! grep -q '^published to' "$tmp/out"; then
+    pass "i when pass 3 fails the script stops, and no entry file was sent"
+else
+    fail "i a failing pass 3 (status $send_status)"; sed 's/^/     /' "$tmp/out"
 fi
 
 # (j) A published package is never replaced by a file with other content under the same name: a
@@ -391,6 +474,61 @@ if [ "$send_status" -eq 0 ] && [ -f "$tmp/j_target/$newpkg" ] && grep -qx "$pkg"
     pass "j a package under a new name is sent next to the published one"
 else
     fail "j a package under a new name"; sed 's/^/     /' "$tmp/out"
+fi
+
+# (l) The previous generation stays. A client that read the Release or repomd.xml that is replaced
+# by this send is still fetching the files it names, so a file is deleted only when neither the
+# new nor the replaced Release (repomd.xml) names it. The remote holds generation 1 and the
+# leftovers of generation 0; the send brings generation 2.
+write_old_remote() {
+    rm -rf "$1"
+    mkdir "$1"
+    cp -R "$base/." "$1"
+    write_generation "$1" 1
+    write_leftovers "$1" 0
+}
+write_old_remote "$tmp/l_target"
+mkdir "$tmp/l_passes"
+send_logged "$base" "$tmp/l_target"
+# P * is the last rule of pass 3, for everything else; only the names before it are of interest.
+filters="$(grep '^--filter=P [^*]' "$tmp/passes/args-3" || true)"
+want_filters="$(printf '%s\n' "--filter=P $hash_1" "--filter=P $hash_1-primary.xml.gz" | sort)"
+got_filters="$(printf '%s\n' "$filters" | sort)"
+if [ "$send_status" -eq 0 ] && [ "$got_filters" = "$want_filters" ] &&
+    ! grep -q '^--filter=P' "$tmp/passes/args-2" "$tmp/passes/args-1"; then
+    pass "l the deletions of the last pass protect what the replaced Release and repomd.xml name, and nothing else"
+else
+    fail "l the protected names (status $send_status)"; printf '%s\n' "$filters"; sed 's/^/     /' "$tmp/out"
+fi
+
+# The deletions themselves: only GNU rsync (the one that has --chmod) deletes by filter rules.
+if [ "$chmod_ok" -eq 0 ]; then
+    skip "l the previous generation is kept and the one before it deleted: rsync has no --chmod"
+else
+    old_apt="apt/dists/stable/main/binary-amd64/by-hash/SHA256"
+    if [ -f "$tmp/l_target/$old_apt/$hash_2" ] && [ -f "$tmp/l_target/$old_apt/$hash_1" ] &&
+        [ ! -e "$tmp/l_target/$old_apt/$hash_0" ]; then
+        pass "l by-hash: the new and the replaced generation are kept, the one before is deleted"
+    else
+        fail "l by-hash deletions"; find "$tmp/l_target/apt" -type f | sed 's/^/     /'
+    fi
+    old_rpm="rpm/x86_64/repodata"
+    if [ -f "$tmp/l_target/$old_rpm/$hash_2-primary.xml.gz" ] &&
+        [ -f "$tmp/l_target/$old_rpm/$hash_1-primary.xml.gz" ] &&
+        [ ! -e "$tmp/l_target/$old_rpm/$hash_0-primary.xml.gz" ]; then
+        pass "l repodata: the new and the replaced generation are kept, the one before is deleted"
+    else
+        fail "l repodata deletions"; find "$tmp/l_target/rpm" -type f | sed 's/^/     /'
+    fi
+fi
+
+# The first publication has no Release and no repomd.xml to read, and protects nothing.
+mkdir "$tmp/l_first"
+send_logged "$base" "$tmp/l_first"
+if [ "$send_status" -eq 0 ] && [ "$pass_total" = 3 ] && ! grep -q '^--filter=P [^*]' "$tmp/passes/args-3"; then
+    pass "l a first send protects nothing and works without a published Release"
+else
+    fail "l a first send"; sed 's/^/     /' "$tmp/out"
 fi
 
 [ "$failed" -eq 0 ] || { echo "$failed check(s) failed"; exit 1; }
