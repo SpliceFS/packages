@@ -1,7 +1,10 @@
 #!/bin/sh
 # Builds or updates the signed apt repository in OUTPUT_DIR/repo/apt from the .deb files in
 # OUTPUT_DIR. It runs in the Go image (make repo), with the keys in /keys. The pool keeps
-# every file already in it, so older versions stay installable.
+# every file already in it, so older versions stay installable. Every index file that Release
+# lists is also stored under its hash (by-hash), so a client that is in the middle of an update
+# still gets the file its Release names, which a Packages file that was replaced meanwhile
+# would not be.
 set -eu
 
 out="${1:?usage: repo-apt.sh OUTPUT_DIR}"
@@ -39,13 +42,21 @@ done
 # Paths in Packages are relative to the repository root, so the commands run from there.
 cd "$repo"
 rm -f "dists/$suite/Release" "dists/$suite/Release.gpg" "dists/$suite/InRelease"
+# The folders hold the files of this build only: what the generation before it still needs is
+# kept by the upload (scripts/publish-program.sh), which knows what is published. apt-ftparchive
+# prunes old files by a count of its own, which would also drop files of this Release.
+mkdir -p "dists/$suite"
+find "dists/$suite" -type d -name by-hash -exec rm -rf {} +
 for arch in $archs; do
     dir="dists/$suite/main/binary-$arch"
     mkdir -p "$dir"
     apt-ftparchive --arch "$arch" packages pool > "$dir/Packages"
     gzip -n -9 -c "$dir/Packages" > "$dir/Packages.gz"
 done
+# DoByHash writes the by-hash copies of every file Release lists (the hash types apt trusts, SHA256
+# and SHA512, of which apt uses the strongest) and the line Acquire-By-Hash: yes into Release.
 apt-ftparchive \
+    -o APT::FTPArchive::DoByHash=true \
     -o APT::FTPArchive::Release::Origin=SpliceFS \
     -o APT::FTPArchive::Release::Label=SpliceFS \
     -o APT::FTPArchive::Release::Suite="$suite" \
