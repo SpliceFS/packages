@@ -55,12 +55,20 @@ check_still_running() {
     echo "ok: the service is still running"
 }
 
-# Whether the package of the format restarts a running service on upgrade by itself. deb, rpm and apk do
-# (packaging/service/systemd/after-files, packaging/service/openrc/after-files). pkg cannot, because it
-# ends every program a package script starts: the old process keeps running until the administrator runs
-# the restart the upgrade message names.
-upgrade_restarts_service() {
-    [ "$format" != pkg ]
+# What putting the new package over a running service does, for the package format of the system: the one
+# place that says it. Usage: upgrade_effect OLD NEW (the program versions, v1.2.3), prints one of
+#   restarts   the package restarts the service itself: deb and rpm always (their scripts run on a reinstall
+#              of the same version too), apk on an upgrade
+#   keeps      the old process keeps running until the administrator restarts it: pkg, which ends every
+#              program a package script starts, so the upgrade message names the restart
+#   untouched  the service is not touched at all: apk on a reinstall of the same version, because apk
+#              runs no package script on a reinstall of the same version
+upgrade_effect() {
+    case "$format:$1" in
+        pkg:*) echo keeps ;;
+        apk:"$2") echo untouched ;;
+        *) echo restarts ;;
+    esac
 }
 
 # The service answers, and runs in a process other than $2, as the version $VERSION. $3 says what
@@ -73,28 +81,42 @@ check_new_process_and_version() {
     [ "$reported" = "$VERSION" ] || fail "after $3 the service reports $reported, not the new $VERSION"
 }
 
+# The service answers, in the process $2 it ran in before, as the version $3. $4 says what was done to it
+# and is not meant to have restarted it, for the messages.
+check_same_process_and_version() {
+    pid="$(service_pid "$1")" || fail "the service is not running after $4: the old process was meant to keep running"
+    [ "$pid" = "$2" ] || fail "$4 restarted the service, which it does not do (process $2, then $pid)"
+    reported="$(reported_version "$1")" || fail "the service does not answer after $4"
+    [ "$reported" = "$3" ] || fail "after $4 the service reports $reported, not $3"
+}
+
 # Step 2, after the new package was put over the service that step 1a started: what the package of the
-# format promises. deb, rpm and apk restart the service themselves, so it runs in a new process as the new
+# format does to it (upgrade_effect). A service the package restarted runs in a new process as the new
 # version. On pkg the old process keeps running as the old version until the restart the upgrade message
-# names, which is then run, and the service runs the new version. The same holds when the new package
-# has the version of the published one (a change to the packaging alone): the new process is the proof.
+# names, which is then run, and the service runs the new version. On apk, for a package of the version
+# that is installed, the same process keeps running as the same version. A new process is the proof of a
+# restart, so it also shows one when the new package has the published version (a change to the
+# packaging alone).
 check_upgrade_of_running_service() {
     # ran_before_the_package is one test whose status is the answer, so set -e being off inside it changes nothing.
     # shellcheck disable=SC2310
     ran_before_the_package || return 0
     read -r old_pid <"$own/running-pid.$PROGRAM"
     read -r old_version <"$own/running-version.$PROGRAM"
-    # shellcheck disable=SC2310
-    if upgrade_restarts_service; then
-        check_new_process_and_version "$1" "$old_pid" "the upgrade"
-        echo "ok: the package restarted the service (process $old_pid, then $new_pid), which reports $VERSION"
-        return 0
-    fi
-    pid="$(service_pid "$1")" || fail "the service is not running after the upgrade: the old process was meant to keep running"
-    [ "$pid" = "$old_pid" ] || fail "the upgrade restarted the service, which a pkg package does not do (process $old_pid, then $pid)"
-    reported="$(reported_version "$1")" || fail "the old service does not answer after the upgrade"
-    [ "$reported" = "$old_version" ] || fail "before the restart the service reports $reported, not the old $old_version"
-    service_restart "$1" || fail "the restart the upgrade message names failed"
-    check_new_process_and_version "$1" "$old_pid" "the restart"
-    echo "ok: the old process ($old_pid) kept running as $old_version until the restart, which started process $new_pid as $VERSION"
+    case "$(upgrade_effect "$old_version" "$VERSION")" in
+        restarts)
+            check_new_process_and_version "$1" "$old_pid" "the upgrade"
+            echo "ok: the package restarted the service (process $old_pid, then $new_pid), which reports $VERSION"
+            ;;
+        untouched)
+            check_same_process_and_version "$1" "$old_pid" "$VERSION" "a reinstall of the same version on apk"
+            echo "ok: the service kept running as process $old_pid, which reports $VERSION: apk runs no package script on a reinstall of the same version"
+            ;;
+        *)
+            check_same_process_and_version "$1" "$old_pid" "$old_version" "the upgrade, before its restart,"
+            service_restart "$1" || fail "the restart the upgrade message names failed"
+            check_new_process_and_version "$1" "$old_pid" "the restart"
+            echo "ok: the old process ($old_pid) kept running as $old_version until the restart, which started process $new_pid as $VERSION"
+            ;;
+    esac
 }

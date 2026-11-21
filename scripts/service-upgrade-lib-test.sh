@@ -11,6 +11,8 @@ cd "$root"
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 failed=0
+# The version of the new package, which a case may set to the installed one (v1.0.0) for a same-version reinstall.
+new_version=v1.1.0
 
 # $1 case name, $2 the format, $3 the process id and $4 the version the service has after the upgrade
 # (before it is 100 and v1.0.0), $5 the process id and $6 the version it has after a restart, $7 what
@@ -24,7 +26,7 @@ upgrade_runs() {
     echo "$4" >"$case_dir/version"
     # The script is for the shell that env starts, which reads its own variables.
     # shellcheck disable=SC2016
-    got="$(env FORMAT="$2" PROGRAM=server VERSION=v1.1.0 own="$case_dir" after_pid="$5" after_version="$6" \
+    got="$(env FORMAT="$2" PROGRAM=server VERSION="$new_version" own="$case_dir" after_pid="$5" after_version="$6" \
         sh -c '
         fail() { echo "FAIL: $*"; exit 1; }
         must() { message="$1"; shift; "$@" || fail "$message"; }
@@ -59,11 +61,25 @@ else
     echo "ok   no restart is run by the test for a package that restarts the service"
 fi
 
+# A reinstall of the same version is not an upgrade. deb and rpm run their scripts on it, so they restart the
+# service as for an upgrade; apk runs no package script on it, so the same process keeps running, as the same
+# version. pkg keeps the old process until the restart, as for an upgrade.
+new_version=v1.0.0
+for format in deb rpm; do
+    upgrade_runs "$format, same version: a restart by the package passes" "$format" 200 v1.0.0 0 "" "restarted the service"
+    upgrade_runs "$format, same version: a service that kept its process is found" "$format" 100 v1.0.0 0 "" "the upgrade did not start a new process of the service"
+done
+upgrade_runs "apk, same version: the process that keeps running passes" apk 100 v1.0.0 0 "" "kept running"
+upgrade_runs "apk, same version: a restart nobody asked for is found" apk 200 v1.0.0 0 "" "a reinstall of the same version on apk restarted the service"
+upgrade_runs "apk, same version: a service that reports another version is found" apk 100 v1.1.0 0 "" "after a reinstall of the same version on apk the service reports v1.1.0, not v1.0.0"
+upgrade_runs "pkg, same version: the old process kept, then the restart runs the same version" pkg 100 v1.0.0 300 v1.0.0 "as v1.0.0"
+new_version=v1.1.0
+
 # pkg: the old process keeps running and reports the old version, until the command of the upgrade
 # message restarts it.
 upgrade_runs "pkg: the old process kept, then the restart runs the new version" pkg 100 v1.0.0 300 v1.1.0 "as v1.1.0"
-upgrade_runs "pkg: a service the package restarted is found" pkg 200 v1.1.0 300 v1.1.0 "the upgrade restarted the service, which a pkg package does not do"
-upgrade_runs "pkg: a service that reports the new version before its restart is found" pkg 100 v1.1.0 300 v1.1.0 "before the restart the service reports v1.1.0, not the old v1.0.0"
+upgrade_runs "pkg: a service the package restarted is found" pkg 200 v1.1.0 300 v1.1.0 "the upgrade, before its restart, restarted the service, which it does not do"
+upgrade_runs "pkg: a service that reports the new version before its restart is found" pkg 100 v1.1.0 300 v1.1.0 "after the upgrade, before its restart, the service reports v1.1.0, not v1.0.0"
 upgrade_runs "pkg: a restart that still runs the old version is found" pkg 100 v1.0.0 300 v1.0.0 "after the restart the service reports v1.0.0, not the new v1.1.0"
 upgrade_runs "pkg: a restart that keeps the process is found" pkg 100 v1.0.0 100 v1.1.0 "the restart did not start a new process of the service"
 if [ -f "$work/pkg: the old process kept, then the restart runs the new version/calls" ]; then

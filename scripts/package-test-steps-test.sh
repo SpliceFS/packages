@@ -203,8 +203,12 @@ stand_in_answer() {
             # What the package does to a running service: deb, rpm and apk restart it (a new process that
             # runs the new version, which STAND_IN_STALE_VERSION leaves at the old one), pkg does not.
             name_programs
+            installed_before=
+            [ ! -f "$STAND_IN_DIR/installed-version.server" ] || read -r installed_before <"$STAND_IN_DIR/installed-version.server"
             for each in $named; do echo "$VERSION" >"$STAND_IN_DIR/installed-version.$each"; done
-            if [ "$FORMAT" != pkg ] && [ -z "${STAND_IN_NO_RESTART:-}" ] && [ -f "$STAND_IN_DIR/active" ] && [ "$named" = server ]; then
+            # apk runs no package script on a reinstall of the same version, so it restarts nothing then.
+            if [ "$FORMAT:$installed_before" = "apk:$VERSION" ]; then :
+            elif [ "$FORMAT" != pkg ] && [ -z "${STAND_IN_NO_RESTART:-}" ] && [ -f "$STAND_IN_DIR/active" ] && [ "$named" = server ]; then
                 [ -z "${STAND_IN_STALE_VERSION:-}" ] || echo "$PUBLISHED_VERSION" >"$STAND_IN_DIR/installed-version.server"
                 start_service
             fi
@@ -512,6 +516,8 @@ scenario; stale_version=1; launch upgrade_restarts_into_the_old_version
 scenario; format=rpm; launch rpm_restarts
 scenario; format=apk; launch apk_restarts
 scenario; format=rpm; no_restart=1; launch rpm_does_not_restart
+scenario; format=apk; record=1.2.3; launch apk_same_version
+scenario; format=rpm; record=1.2.3; launch rpm_same_version
 scenario; record=none; launch nothing_published
 scenario; fail_on=check_links; launch file_check_fails
 scenario; fail_on="apt-get install"; launch baseline_install_fails
@@ -677,6 +683,13 @@ use_case rpm_restarts
 expect "an rpm upgrade restarts the running service" holds "ok: the package restarted the service"
 use_case apk_restarts
 expect "an apk upgrade restarts the running service" holds "ok: the package restarted the service"
+use_case apk_same_version
+expect "an apk reinstall of the same version leaves the running service in its process, as the same version" passed_status
+expect "the line says so, with the reason" \
+    holds "ok: the service kept running as process 4242, which reports v1.2.3: apk runs no package script on a reinstall of the same version"
+use_case rpm_same_version
+expect "an rpm reinstall of the same version restarts the running service, as an upgrade does" \
+    holds "ok: the package restarted the service (process 4242, then 4243), which reports v1.2.3"
 use_case rpm_does_not_restart
 expect "an rpm upgrade that does not restart the running service fails step 2" failed_in 2
 
