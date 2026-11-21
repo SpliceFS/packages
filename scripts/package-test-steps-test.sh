@@ -213,6 +213,8 @@ curl() {
     if [ -f "$STAND_IN_DIR/active" ]; then printf 200; else printf 000; fi
 }
 STAND_IN
+# The lines of the steps file of FreeBSD that delete the setting of each service.
+sysrc_lines="$(printf '%s\n' 'sysrc -x splicefsd_enable' 'sysrc -x splicefs_enable')"
 # What every case starts from: only the server is built (v1.2.3, and its record names 1.2.2 as the
 # published version; the client is v1.4.0 and its record names 1.3.9), no call fails, no file
 # changes, and the system is of the format deb.
@@ -232,13 +234,16 @@ scenario() {
     port_open=
     format=deb
     fetch_hook=
+    removal_lines_added=
 }
 
 # Runs the case $1 with the settings of scenario: $built names the programs whose packages are in
 # dist, the snapshot of step 0 is $first, the snapshot of step 9 is $last, the one after each reinstall
 # is $reinstalled, $cores are the cores listed at the fourth look (before step 3 of a run of the
 # server alone), $late_cores those listed at the look after the last snapshot, $user is the user the
-# service runs as, $format the package format of the system. $firewalld, when not empty, makes the
+# service runs as, $format the package format of the system ($removal_lines_added, when not empty, is
+# added to the end of the steps file of the documented removal, as the file of FreeBSD has lines the
+# others do not). $firewalld, when not empty, makes the
 # system run firewalld ($fetch_hook, when not empty, gives the system a hook that fetches the published
 # package itself), and $zones names the zone files it has before the test (public.xml and
 # public.xml.old, or neither); $port_open makes the port stay open in it. A call that holds the text
@@ -250,7 +255,13 @@ scenario() {
 launch() {
     case_dir="$t/cases/$1"
     mkdir -p "$case_dir/dir" "$case_dir/root/dist" "$case_dir/baselines"
-    ln -s "$t/farm/scripts" "$t/farm/programs" "$t/farm/steps" "$t/farm/keys" "$case_dir/root/"
+    ln -s "$t/farm/scripts" "$t/farm/programs" "$t/farm/keys" "$case_dir/root/"
+    if [ -n "$removal_lines_added" ]; then
+        cp -R "$root/steps" "$case_dir/root/steps"
+        printf '%s\n' "$removal_lines_added" >>"$case_dir/root/steps/uninstall-apt.sh"
+    else
+        ln -s "$t/farm/steps" "$case_dir/root/"
+    fi
     # The snapshots are taken in step 0, twice around the reinstall of each program built, and in step 9.
     printf '%s\n' "$first" >"$case_dir/dir/snapshot.1"
     taken=1
@@ -477,6 +488,8 @@ scenario; built="server client"; fail_on="apt-get install -y -qq /pkg/client/pub
 scenario; built="server client"; fail_on="sh deb v1.3.9 v1.4.0"; launch client_upgrade_fails
 scenario; built="server client"; fail_on="apt-get remove -y -qq splicefs-client"; launch client_plain_removal_fails
 scenario; built="server client"; last="/etc/b"; launch both_snapshot_differs
+scenario; removal_lines_added="$sysrc_lines"; launch service_lines_server_only
+scenario; removal_lines_added="$sysrc_lines"; built=client; launch service_lines_client_only
 scenario; fetch_hook=1; launch hook_fetches
 scenario; fetch_hook=1; record=none; launch hook_nothing_published
 scenario; fetch_hook=1; fail_on=fetch_published_package; launch hook_fails
@@ -739,6 +752,21 @@ expect "the published client file is installed, then the new one" \
     "sh deb v1.3.9 v1.4.0 file /pkg/client/splicefs-client_1.4.0_amd64.deb"
 expect "the documented removal names the client only" \
     sh -c "grep -q 'apt-get purge splicefs-client' '$dir/log' && ! grep -q 'apt-get purge.*splicefs-server' '$dir/log'"
+
+# The steps tell a person to leave out the line of a service never turned on; the test does, for
+# every service its steps did not turn on (those of steps 3 to 8, which only the server has), and says so.
+use_case service_lines_server_only
+expect "a run with the lines of the services passes" passed_status
+expect "the line of the service that was turned on runs" sh -c "grep -q 'sysrc -x splicefsd_enable' '$dir/log'"
+expect "the line of the service that was never turned on does not run" sh -c "! grep -q 'sysrc -x splicefs_enable' '$dir/log'"
+expect "the line that is left out is printed" holds 'step 9: deb: "sysrc -x splicefs_enable" is left out, as the steps say'
+expect "the line that runs is not printed as left out" lacks '"sysrc -x splicefsd_enable" is left out'
+
+use_case service_lines_client_only
+expect "a run of the client alone passes" passed_status
+expect "neither line runs: its service steps wait" sh -c "! grep -q 'sysrc -x' '$dir/log'"
+expect "both lines are printed as left out" \
+    sh -c "grep -q '\"sysrc -x splicefs_enable\" is left out' '$out' && grep -q '\"sysrc -x splicefsd_enable\" is left out' '$out'"
 
 use_case both_rpm
 expect "both programs pass on an rpm system" passed_status

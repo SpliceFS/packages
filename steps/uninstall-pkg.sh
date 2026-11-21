@@ -1,9 +1,10 @@
 # Remove the packages. Leave out the one you did not install:
 pkg delete splicefs-server splicefs-client
 
-# Delete the settings of the services from /etc/rc.conf, which removing a package leaves alone:
-sysrc -i -x splicefsd_enable
-sysrc -i -x splicefs_enable
+# Delete the settings of the services from /etc/rc.conf, which removing a package leaves alone.
+# Leave out the line of a service you never turned on:
+sysrc -x splicefsd_enable
+sysrc -x splicefs_enable
 
 # Remove the packages they needed that nothing else needs now:
 pkg autoremove

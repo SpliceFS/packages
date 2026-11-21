@@ -46,7 +46,9 @@
 #      once as written except that its removal command names only the packages the package manager
 #      still holds, all programs in one command (dpkg keeps the configuration of a removed package, so
 #      apt-get purge still names it; the other package managers hold nothing, so the command is left
-#      out, as the steps tell a person to do): the data, the configuration, the user and the group.
+#      out, as the steps tell a person to do; so are the lines that delete the rc.conf setting of a
+#      service the steps 3 to 8 did not turn on, as the steps say): the data, the configuration, the
+#      user and the group.
 #      Then, program by program, the data the test made is removed, the saved zone files are put back
 #      byte for byte (a file that did not exist is deleted) and the port is closed in the firewall,
 #      and nothing of ours is installed or running; and the snapshot equals the one of step 0, apart
@@ -87,6 +89,7 @@ cd "$root"
 . scripts/package-record.sh
 . scripts/package-test-program-lib.sh
 . scripts/service-check-lib.sh
+. scripts/documented-removal-lib.sh
 . scripts/service-run-local.sh
 . scripts/system-state-lib.sh
 format="${FORMAT:?FORMAT is not set}"
@@ -233,33 +236,6 @@ check_reinstall_changes_nothing() {
         in_upgrade_lib "$1" verify_markers_kept "reinstall"
     echo "ok: installing the package file over itself changed no file, no configuration and no service"
 }
-# The documented removal reads as the install page shows it, for both programs, and says "Leave out
-# the one you did not install": its removal command names the packages in $2 (what the package
-# manager still holds, separated by spaces) and the others are left out of it. With none named the
-# command is left out whole: a package manager refuses a name it does not hold, and a command with
-# no name does nothing. The setup script's own removal is left out too: it removes the repository
-# this test never set up.
-documented_removal_text() {
-    {
-        echo '/setup\.sh/d'
-        for conf in programs/*/program.conf; do
-            other="$(sed -n 's/^name=//p' "$conf")"
-            case " $2 " in
-                *" $other "*) ;;
-                *)
-                    if [ -n "$2" ]; then
-                        echo "s/ $other\$//"
-                        echo "s/ $other / /"
-                    else
-                        echo "/ $other\$/d"
-                        echo "/ $other /d"
-                    fi
-                    ;;
-            esac
-        done
-    } >"$own/removal.sed"
-    sed -f "$own/removal.sed" "$1"
-}
 
 # Runs the documented removal as a person would: root, and "yes" for the questions the package
 # manager asks. The file says sudo, which root does not have in a container, so sudo is a function
@@ -276,8 +252,12 @@ documented_removal() {
     if [ -z "$held" ]; then
         echo "step 9: $format: nothing installed, the removal command is left out, as the steps say"
     fi
+    turned_on="$(programs_turned_on)"
+    services_left_out "$file" "$turned_on" | while IFS= read -r line; do
+        echo "step 9: $format: \"$line\" is left out, as the steps say"
+    done
     # shellcheck disable=SC2310
-    text="$(documented_removal_text "$file" "$held")" || fail "reading $file failed"
+    text="$(documented_removal_text "$file" "$held" "$turned_on")" || fail "reading $file failed"
     # on_system is one command whose status is the answer, so set -e being off inside it changes nothing.
     # The script is for the shell that sh -c starts, which reads its own variables.
     # shellcheck disable=SC2016,SC2310
@@ -373,6 +353,15 @@ begin_waiting_step() {
 # Whether the service steps are built for the program $1.
 has_service_steps() {
     case " $service_step_programs " in *" $1 "*) return 0 ;; *) return 1 ;; esac
+}
+
+# The programs whose service the steps 3 to 8 turned on, separated by spaces.
+programs_turned_on() {
+    for step_program in $present; do
+        # has_service_steps is one test whose status is the answer, so set -e being off inside it changes nothing.
+        # shellcheck disable=SC2310
+        ! has_service_steps "$step_program" || printf '%s ' "$step_program"
+    done
 }
 
 # Like each_program for a service step, step $1 with the text $2 and the function $3: a program whose

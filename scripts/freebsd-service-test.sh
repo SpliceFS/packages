@@ -509,6 +509,8 @@ while read -r program service; do
     holds "$service: the upgrade message says how to restart it" "service $service restart" "$text"
     text="$(manifest_message "$manifest" "$service" remove)"
     holds "$service: the remove message says how to delete the setting" "sysrc -x ${service}_enable" "$text"
+    holds "$service: the remove message says the setting is deleted only if the service was turned on" \
+        "If you turned the service on, delete its setting:" "$text"
     if grep -q -e 'next boot' -e 'starts when the system boots' "$manifest"; then
         printf 'FAIL %s: the manifest still says that it runs by itself\n' "$service"
         failed=$((failed + 1))
