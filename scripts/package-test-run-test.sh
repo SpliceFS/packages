@@ -78,7 +78,9 @@ cat >"$t/bin/docker" <<'STAND_IN'
 # keeps the configuration of a package that was removed and not purged: the other package managers
 # keep nothing), enabled.SYSTEM and active.SYSTEM (exist while the service of the server is enabled
 # and running; the client's service never is), and for the n-th snapshot or core listing of a
-# system the files snapshot.n and cores.n. A system is named in the call by its container, so that
+# system the files snapshot.n and cores.n, the look after the last snapshot (the file last-snapshot
+# holds its number) cores.after-snapshot, and for a core given by its path the answer of a core that
+# no step could read. A system is named in the call by its container, so that
 # the systems of one case, which run at the same time, do not share what the stand-in remembers. The
 # package manager and service manager commands of the three formats change that state; a container
 # that restarts runs the service again when it is enabled, as a booted system does. STAND_IN_USER is
@@ -160,7 +162,18 @@ case "$*" in
     *getent*) echo "${STAND_IN_USER:-splicefs}" ;;
     *"grep -q /usr/local/bin"*) exit 1 ;;
     *lifecycle-snapshot.sh*) cat "$STAND_IN_DIR/snapshot.$(next_number snapshot)" ;;
-    *core-files.sh*) cat "$STAND_IN_DIR/cores.$(next_number cores)" 2>/dev/null || true ;;
+    *"core-files.sh /"*)
+        for asked in ${call#*core-files.sh }; do
+            echo "$asked: not a 64-bit ELF core with a process note: 40 bytes, starting 177 E L F"
+        done
+        ;;
+    *core-files.sh*)
+        look="cores.$(next_number cores)"
+        if [ "$(cat "$STAND_IN_DIR/snapshot.$system.count" 2>/dev/null)" = "$(cat "$STAND_IN_DIR/last-snapshot")" ]; then
+            look=cores.after-snapshot
+        fi
+        cat "$STAND_IN_DIR/$look" 2>/dev/null || true
+        ;;
     *package_held*splicefs-server*) [ -f "$STAND_IN_DIR/installed.$system.server" ] || [ -f "$STAND_IN_DIR/config.$system.server" ] ;;
     *package_held*splicefs-client*) [ -f "$STAND_IN_DIR/installed.$system.client" ] || [ -f "$STAND_IN_DIR/config.$system.client" ] ;;
     *package_held*) exit 1 ;;
@@ -202,6 +215,7 @@ scenario() {
     first="/etc/a"
     last="/etc/a"
     cores=
+    late_cores=
     user=splicefs
     firewalld=
     zones=
@@ -212,8 +226,8 @@ scenario() {
 # Starts the case $1 in the background with the settings of scenario: $built names the programs whose
 # packages are in dist ($empty_client makes a folder of the client with nothing in it), the snapshot of
 # step 0 is $first, the snapshot of step 9 is $last, the one after each reinstall is $reinstalled,
-# $cores are the cores listed at the fourth look (before step 3 of a run of the server alone), $user
-# is the user the service runs as, $target the image or format. $firewalld, when not empty, makes the systems run firewalld, and $zones names the
+# $cores are the cores listed at the fourth look (before step 3 of a run of the server alone),
+# $late_cores those listed at the look after the last snapshot, $user is the user the service runs as, $target the image or format. $firewalld, when not empty, makes the systems run firewalld, and $zones names the
 # zone files it has before the test (public.xml and public.xml.old, or neither); $port_open makes the
 # port stay open in it. A call that
 # holds the text in $fail_on fails. Keeps the output in $t/cases/$1/out, the calls in
@@ -239,6 +253,8 @@ launch() {
     printf '%s\n' "$last" >"$case_dir/dir/snapshot.$((taken + 1))"
     [ -z "$empty_client" ] || mkdir "$case_dir/root/dist/client"
     [ -z "$cores" ] || printf '%s\n' "$cores" >"$case_dir/dir/cores.4"
+    [ -z "$late_cores" ] || printf '%s\n' "$late_cores" >"$case_dir/dir/cores.after-snapshot"
+    echo "$((taken + 1))" >"$case_dir/dir/last-snapshot"
     # Bytes a copy by line would change: a carriage return and no newline at the end.
     mkdir -p "$case_dir/dir/zones-initial"
     for zone in $zones; do printf 'zone %s\r\nas shipped' "$zone" >"$case_dir/dir/zones-initial/$zone"; done
@@ -324,6 +340,17 @@ test_data_removed_before_the_last_snapshot() {
     purge="$(line_of 'apt-get purge')"
     removed="$(line_of remove_test_data)"
     [ "$purge" -gt 0 ] && [ "$removed" -gt "$purge" ] && [ "$removed" -lt "$last" ]
+}
+# The line $2 of the output, which names a core dump, comes after the first line $1 of the
+# difference between the snapshots, so that the core is named next to the difference.
+named_after_the_difference() {
+    difference="$(grep -n -F -e "$1" "$out" | head -n 1 | cut -d: -f1)"
+    named="$(grep -n -F -e "$2" "$out" | tail -n 1 | cut -d: -f1)"
+    [ -n "$difference" ] && [ -n "$named" ] && [ "$named" -gt "$difference" ]
+}
+# The cores of the system are looked for again after the last snapshot.
+cores_looked_for_after_the_last_snapshot() {
+    [ "$(last_line_of core-files.sh)" -gt "$(last_line_of lifecycle-snapshot.sh)" ]
 }
 # The line number of the last call in the log that holds the text $1, or 0.
 last_line_of() {
@@ -411,6 +438,10 @@ scenario; fail_on="verify_markers_kept plain removal"; launch plain_removal_take
 scenario; fail_on=check_programs_removed; launch plain_removal_keeps_program
 scenario; last="/etc/b"; launch snapshot_differs
 scenario; cores="/core pid 7 program splicefsd: /usr/bin/splicefsd"; launch core_dump
+scenario; cores="/core.7 pid 7 program splicefsd: /usr/bin/splicefsd"; last="$(printf '/etc/a\n/core.7')"; launch core_named_by_a_step
+scenario; late_cores="/core.9 pid 9 program splicefsd: /usr/bin/splicefsd"; last="$(printf '/etc/a\n/core.9')"; launch core_after_the_snapshot
+scenario; last="$(printf '/etc/a\n/core.5')"; launch core_no_step_could_read
+scenario; last="$(printf '/etc/a\n0123abcd  /etc/core.conf')"; launch checksum_of_a_core_named_file
 rocky=ghcr.io/splicefs/server-rocky-9:v1.0
 alpine=ghcr.io/splicefs/server-alpine-3.22:v1.0
 scenario; built=client; launch client_only
@@ -613,9 +644,32 @@ expect "a program left behind by the plain removal fails step 9" holds "the plai
 use_case snapshot_differs
 expect "a snapshot that differs fails step 9" holds "FAIL deb $debian (step 9)"
 expect "the difference is shown" holds "/etc/b"
+expect "a difference with no core in it names no core" lacks "core dump"
+expect "the cores are looked for again after the last snapshot" cores_looked_for_after_the_last_snapshot
 
 use_case core_dump
 expect "a core dump is named with the step before which it was found" holds "core dump after step 2: server: /core pid 7"
+
+use_case core_named_by_a_step
+expect "a core in the difference fails step 9" holds "FAIL deb $debian (step 9)"
+expect "the core in the difference is named next to it, with the step that found it" \
+    named_after_the_difference "> /core.7" "core dump after step 2: server: /core.7 pid 7 program splicefsd: /usr/bin/splicefsd"
+expect "a core a step named is not looked at again" sh -c "! grep -q 'core-files.sh /' '$dir/log'"
+
+use_case core_after_the_snapshot
+expect "a core that appears after the last snapshot is named by the look after it" \
+    holds "core dump after step 9: /core.9 pid 9 program splicefsd: /usr/bin/splicefsd"
+expect "and it is named next to the difference" \
+    named_after_the_difference "> /core.9" "core dump after step 9: /core.9 pid 9 program splicefsd"
+
+use_case core_no_step_could_read
+expect "a core that no step named fails step 9" holds "FAIL deb $debian (step 9)"
+expect "it is looked at by its path" sh -c "grep -q 'core-files.sh /core.5' '$dir/log'"
+expect "it is named next to the difference, with what the file is" \
+    named_after_the_difference "> /core.5" "core dump no step could read: /core.5: not a 64-bit ELF core with a process note: 40 bytes, starting 177 E L F"
+
+use_case checksum_of_a_core_named_file
+expect "the checksum of a file whose name starts with core is no path of a core" sh -c "! grep -q 'core-files.sh /' '$dir/log'"
 
 # Both programs in one boot: each step runs for the server, then for the client. The service steps are
 # built for the server only; the client says they wait and nothing is done for it.

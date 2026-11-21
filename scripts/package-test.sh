@@ -48,8 +48,9 @@
 # The numbers are those of the design of the test. The steps 3, 4, 5, 7 and 8 are built for the
 # server only: for the client each prints "service steps wait for the client's certificate trust
 # setting" and does nothing. Step 6, the modes of the client, is not built yet.
-# Before every step, the core dumps that appeared since the step before are printed with the program
-# that dumped them (scripts/core-files.sh), and beside a difference in step 9 all of them are.
+# Before every step and after the snapshot of step 9, the core dumps that appeared since the step
+# before are printed with the program that dumped them (scripts/core-files.sh), so a crash names its
+# program and its step; a core in the difference of step 9 is named again next to it.
 # A failing system does not stop the others, so one run shows every system that is broken. Runs on
 # the host (make package-test, CI). Environment: the version of each program comes from
 # dist/PROGRAM/version, which make packages wrote (scripts/package-record.sh), and a VERSION given
@@ -332,12 +333,14 @@ check_nothing_of_ours() {
 }
 
 # Compares the snapshot of the system with the one of step 0. A core dump may be what differs, so
-# the cores in the system are named beside the difference.
+# the cores are looked for once more, after the snapshot, and every core in the difference is named
+# next to it.
 check_system_as_it_was() {
     take_snapshot "$1" "$own/after"
+    note_new_cores "$1" "$previous_step"
     if ! diff "$own/before" "$own/after" >"$own/diff"; then
         cat "$own/diff"
-        docker exec "$1" sh /src/scripts/core-files.sh | sed 's/^/core dump in the system: /' || true
+        name_cores_in_difference "$1" "$own/diff"
         fail "the system is not as it was before the install: the lines above differ"
     fi
     echo "ok: the files and the checksums of /etc are as they were"
@@ -459,6 +462,7 @@ run_steps() {
         fail "the service manager did not finish booting"
     }
     : >"$own/cores-seen"
+    : >"$own/cores-noted"
     previous_step="the boot"
 
     begin_step 0 "" "the vanilla system is written down"
@@ -480,7 +484,6 @@ run_steps() {
     each_program step_after_documented_removal
     begin_step 9 "" "the system is as it was"
     check_system_as_it_was "$c"
-    note_new_cores "$c" "step 9"
 }
 
 # One system, in a container and a folder of its own: number $3 of the list. It runs in a process of
