@@ -1,9 +1,10 @@
 #!/bin/sh
-# check: freebsd-service-test.sh: the FreeBSD packages leave the service off, and tell how to turn it on
-# Tests what the FreeBSD packages do about the service, on the host: no machine, no pkg, no
-# root (part of make check). The rc scripts run against a stand-in for rc.subr, the install
-# scripts of the manifests run with stand-ins for service, sysrc and pw. What rc.subr and pkg
-# really do is proved in the machine, by scripts/freebsd-job.sh.
+# check: freebsd-service-test.sh: the FreeBSD client package leaves the service off, and tells how to turn it on
+# Tests what the FreeBSD client package does about the service, on the host: no machine, no pkg, no
+# root (part of make check). The rc script runs against a stand-in for rc.subr, the install
+# scripts of the manifest run with stand-ins for service, sysrc and pw. What rc.subr and pkg
+# really do is proved in the machine, by scripts/freebsd-job.sh. The server's service is proved
+# by the package test (scripts/package-test-steps.sh), in the machine too, so it has no part here.
 set -eu
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -34,8 +35,7 @@ holds() {
 
 # The program of each manifest and the name of its service, which is also the name of the rc
 # script and the prefix of its setting.
-programs='server splicefsd
-client splicefs'
+programs='client splicefs'
 
 # --- the rc scripts -------------------------------------------------------------------------
 

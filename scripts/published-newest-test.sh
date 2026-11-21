@@ -96,11 +96,12 @@ for function_name in newest_debver published_is_newer; do
     sed -n "/^$function_name() {\$/,/^}\$/p" scripts/published-lib.sh >> "$work/order.sh"
 done
 [ -s "$work/order.sh" ] || { echo "FAIL: scripts/published-lib.sh has no published_is_newer" >&2; exit 1; }
+echo 'published_is_newer "$@"' >> "$work/order.sh"
 
 # $1 case name, $2 the published deb version, $3 the deb version under test, $4 yes or no.
 newer() {
     got=no
-    ( . "$work/order.sh"; published_is_newer "$2" "$3" ) && got=yes
+    sh "$work/order.sh" "$2" "$3" && got=yes
     if [ "$got" = "$4" ]; then
         printf 'ok   %s\n' "$1"
     else
