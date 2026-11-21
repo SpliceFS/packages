@@ -350,7 +350,9 @@ named_after_the_difference() {
 }
 # The cores of the system are looked for again after the last snapshot.
 cores_looked_for_after_the_last_snapshot() {
-    [ "$(last_line_of core-files.sh)" -gt "$(last_line_of lifecycle-snapshot.sh)" ]
+    looked="$(last_line_of core-files.sh)"
+    snapshot="$(last_line_of lifecycle-snapshot.sh)"
+    [ "$looked" -gt "$snapshot" ]
 }
 # The line number of the last call in the log that holds the text $1, or 0.
 last_line_of() {
