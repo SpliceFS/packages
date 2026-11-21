@@ -31,6 +31,12 @@ install_published_package() {
     install_file "$1" "$2"
 }
 
+# The same file over the installed one: the upgrade path, with the old version's prerm and the new
+# version's postinst.
+upgrade_package() {
+    reinstall_package_file "$1"
+}
+
 remove_package() {
     docker exec -e DEBIAN_FRONTEND=noninteractive "$1" apt-get remove -y -qq "$name" >/dev/null
 }

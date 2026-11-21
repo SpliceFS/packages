@@ -44,6 +44,12 @@ install_published_package() {
     install_file "$1" "$2"
 }
 
+# The same file over the installed one: the upgrade path, with the new version's post and the old
+# version's preun and postun.
+upgrade_package() {
+    reinstall_package_file "$1"
+}
+
 remove_package() {
     docker exec "$1" sh -c '
         if command -v dnf >/dev/null 2>&1; then
