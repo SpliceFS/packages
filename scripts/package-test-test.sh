@@ -53,6 +53,10 @@ curl() {
     for stand_in_url; do :; done
     while [ "$#" -gt 0 ]; do
         case "$1:$stand_in_url" in
+            # The apt index of the site: one package of the server, or none when the case says nothing is published.
+            -o:*/apt/dists/stable/main/binary-amd64/Packages)
+                if [ -n "${STAND_IN_NO_SERVER_PUBLISHED:-}" ]; then : >"$2"; else printf 'Package: splicefs-server\nVersion: 1.2.2\n' >"$2"; fi
+                ;;
             -o:*/keys/*) if [ -n "${STAND_IN_OTHER_KEY:-}" ]; then echo other >"$2"; else cp "$STAND_IN_KEYS/${stand_in_url##*/}" "$2"; fi ;;
             -o:*) echo published >"$2" ;;
             *) ;;
@@ -162,6 +166,7 @@ scenario() {
     target=
     outside_after_1=200
     outside_after_2=200
+    no_server_published=
 }
 
 # Starts the case $1 in the background with the settings of scenario: $built names the programs whose
@@ -190,7 +195,7 @@ launch() {
             STAND_IN_UNPROVEN="$unproven" STAND_IN_NO_SITE="$no_site" STAND_IN_KEYS="$root/keys" \
             STAND_IN_OTHER_KEY="$other_key" STAND_IN_FAILED_PHASE="$failed_phase" STAND_IN_RESULT="$result" \
             STAND_IN_NO_RESULT="$no_result" STAND_IN_OUTSIDE_AFTER_1="$outside_after_1" \
-            STAND_IN_OUTSIDE_AFTER_2="$outside_after_2" GO_IMAGE=ghcr.io/splicefs/go:v1 \
+            STAND_IN_OUTSIDE_AFTER_2="$outside_after_2" STAND_IN_NO_SERVER_PUBLISHED="$no_server_published" GO_IMAGE=ghcr.io/splicefs/go:v1 \
             sh "$case_dir/root/scripts/package-test.sh" >"$case_dir/out" 2>&1 || status=$?
         echo "$status" >"$case_dir/status"
     ) &
@@ -266,6 +271,7 @@ scenario; target=$debian; fail_on="restart splicefs-package-test"; launch restar
 scenario; target=$debian; failed_phase=phase3; no_result=1; launch no_result
 scenario; target=deb; fail_on="-2 sh scripts/package-test-steps.sh phase1"; launch one_of_two_fails
 scenario; target=$debian; built=client; launch client_only
+scenario; target=$debian; built=client; no_server_published=1; launch client_only_no_server_published
 scenario; target=$debian; built="server client"; launch both
 scenario; target=$debian; built=; launch none
 scenario; target=$debian; empty_client=1; launch empty_client_folder
@@ -297,7 +303,7 @@ expect "the answer is said to be from outside, after each phase that asks" \
 expect "the service manager is waited for before the first phase and after the restart" \
     sh -c "[ \"\$(grep -c 'is-system-running' '$dir/log')\" -eq 2 ]"
 expect "the steps are told the format, the platform, the programs and the folder of their output" \
-    sh -c "grep -q 'phase1' '$dir/log' && grep -q -e '-e FORMAT=deb -e PLATFORM=linux/amd64 -e PROGRAMS=server -e PACKAGE_TEST_OUT=/var/tmp/package-test' '$dir/log'"
+    sh -c "grep -q 'phase1' '$dir/log' && grep -q -e '-e FORMAT=deb -e PLATFORM=linux/amd64 -e PROGRAMS=server -e FIXTURES= -e PACKAGE_TEST_OUT=/var/tmp/package-test' '$dir/log'"
 expect "the steps run in the repository at /src" sh -c "grep -q -e '-w /src splicefs-package-test-.* sh scripts/package-test-steps.sh phase1' '$dir/log'"
 expect "the log of the three phases is printed, in order" \
     sh -c "grep -n 'the log of phase' '$out' | cut -d: -f2 | tr '\n' '|' | grep -q 'the log of phase 1|the log of phase 2|the log of phase 3|'"
@@ -397,10 +403,23 @@ expect "the failing system is named" holds "failed system: deb ghcr.io/splicefs/
 use_case client_only
 expect "a run of the client alone passes" passed_status
 expect "the client listens on no port, so no probe container is started" no_call "go:v1 curl"
-expect "the server is left out, and said" holds "server: no packages, left out"
-expect "only the folder of the client is mounted" \
-    sh -c "grep -q 'dist/client:/pkg/client:ro' '$dir/log' && ! grep -q 'dist/server' '$dir/log'"
-expect "the steps are told to test the client only" sh -c "grep -q -e '-e PROGRAMS=client ' '$dir/log'"
+expect "the server has no packages, and is said to be left out" holds "server: no packages, left out"
+expect "the newest published server is said to be the fixture of the client" \
+    holds "server: no packages; the newest published server (1.2.2) is the fixture of the client"
+expect "the folder of the client is mounted, and the server's is the run's own folder of the fixture, not dist" \
+    sh -c "grep -q 'dist/client:/pkg/client:ro' '$dir/log' && grep -q -e '-v .*/fixtures/server:/pkg/server:ro' '$dir/log' && ! grep -q 'dist/server:/pkg/server' '$dir/log'"
+expect "the steps are told the client is under test and the server is its fixture" \
+    sh -c "grep -q -e '-e PROGRAMS=client -e FIXTURES=server ' '$dir/log'"
+expect "the newest published server file is fetched from its folder of the site and proven by the signed index" \
+    sh -c "grep -q 'curl.*/server/apt/pool/main/s/splicefs-server/splicefs-server_1.2.2_amd64.deb' '$dir/log' && grep -q 'verify apt/pool/main/s/splicefs-server/splicefs-server_1.2.2_amd64.deb' '$dir/log'"
+expect "the record of the fixture is in the copy of the repository the system reads" \
+    sh -c "grep -q 'the folder at /src has dist/server/version' '$dir/log'"
+expect "nothing is written in dist for the fixture" sh -c "[ ! -e '$t/cases/client_only/root/dist/server' ]"
+
+use_case client_only_no_server_published
+expect "a run of the client alone with no published server fails" failed_status
+expect "the failure says there is no server to mount from" holds "no package of server is published and dist/server has none"
+expect "no system is started" no_call "docker run"
 
 use_case both
 expect "a run of both programs passes" passed_status

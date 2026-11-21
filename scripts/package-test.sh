@@ -100,18 +100,52 @@ if [ -z "$present" ]; then
     exit 1
 fi
 
+# What the steps read of the repository, copied once, before any system starts: the systems read it in
+# every phase, minutes apart, and a repository that changes in between (an editor or git replacing a
+# file) would fail a phase with a file that is not there. The package files are not in it: they are
+# mounted from dist/PROGRAM, and only the record of each build is read from the repository. The host reads
+# the records from the copy too (record_folder), so that it and the systems read the same ones, and so that
+# the record of a fixture, which is no build, has a place that is not dist.
+repository_copy="$work/repository"
+mkdir -p "$repository_copy/dist"
+for copied in scripts programs steps keys packaging; do
+    cp -RL "$root/$copied" "$repository_copy/$copied"
+done
+for copied in $present; do
+    [ -f "$root/dist/$copied/version" ] || {
+        echo "FAIL: dist/$copied/version does not exist: run make packages first" >&2
+        exit 1
+    }
+    mkdir "$repository_copy/dist/$copied"
+    cp "$root/dist/$copied/version" "$repository_copy/dist/$copied/version"
+done
+record_folder="$repository_copy/dist"
+
+# The programs that are no program under test, only the published package a program under test needs (below).
+fixtures=""
+
+# The folder of the host that is mounted at /pkg/PROGRAM: the packages of dist for a program under test, and
+# for a fixture a folder of the run that holds only the published file fetched for it.
+package_folder() {
+    case " $fixtures " in
+        *" $1 "*) echo "$work/fixtures/$1" ;;
+        *) echo "$root/dist/$1" ;;
+    esac
+}
+
 # The hook of scripts/package-test-program-lib.sh that runs once the words of the program are set: the
 # baseline of the program is read from the package site into its file in $baselines for the systems.
 # Also tells where the published package file of the program is.
 prepare_baseline() {
-    published_dir="$root/dist/$PROGRAM/published"
+    published_dir="$(package_folder "$PROGRAM")/published"
     save_baseline_version
 }
 
 # Runs phase $1 of scripts/package-test-steps.sh in the container, as the root of the system, with
 # what the steps need to know that the system cannot know itself.
 run_phase() {
-    docker exec -e FORMAT="$format" -e PLATFORM="$platform" -e PROGRAMS="$present" -e PACKAGE_TEST_OUT="$out_dir" \
+    docker exec -e FORMAT="$format" -e PLATFORM="$platform" -e PROGRAMS="$present" -e FIXTURES="$fixtures" \
+        -e PACKAGE_TEST_OUT="$out_dir" \
         -w /src "$container" sh scripts/package-test-steps.sh "$1"
 }
 
@@ -185,8 +219,8 @@ test_system() {
     # The folder of each program is mounted at /pkg/PROGRAM.
     set -- --name "$container" --platform "$platform" -v "$repository_copy":/src:ro -v "$keys_dir":/keys:ro \
         -v "$baselines":/baselines:ro
-    for system_program in $present; do
-        set -- "$@" -v "$root/dist/$system_program":"/pkg/$system_program":ro
+    for system_program in $present $fixtures; do
+        set -- "$@" -v "$(package_folder "$system_program")":"/pkg/$system_program":ro
     done
     # boot_system is one test whose status is the answer, so set -e being off inside it changes nothing.
     # shellcheck disable=SC2310
@@ -234,6 +268,35 @@ test_system() {
 # step below uses (fail, must, system_selected, boot_system).
 use_program "${present%% *}"
 
+# A program that mounts from the server of the same system (its service check says it needs the cluster
+# certificate) has nothing to mount from in a run without packages of the server: the newest published
+# server package is installed in step 3 as its fixture. The fixture is fetched and proven like a baseline
+# and mounted at /pkg/PROGRAM, and its record, which names the published version as its version, is
+# written in the copy of the repository, the one place no build is needed for.
+case " $present " in
+    *" server "*) ;;
+    *)
+        for mounting_program in $present; do
+            use_program "$mounting_program"
+            if [ "${needs_cluster_certificate:-no}" = yes ]; then fixtures=server; fi
+        done
+        ;;
+esac
+for fixture_program in $fixtures; do
+    fixture_newest="$(sh scripts/published-newest.sh "$fixture_program")" ||
+        fail "could not read the newest published package of $fixture_program from $site_root"
+    [ "$fixture_newest" != "$nothing_published" ] ||
+        fail "no package of $fixture_program is published and dist/$fixture_program has none: the $present has no $fixture_program to mount from"
+    mkdir -p "$record_folder/$fixture_program"
+    (
+        PROGRAM="$fixture_program"
+        VERSION="$(package_release_of_debver "$fixture_newest")"
+        UPGRADE_FROM="$fixture_newest"
+        write_package_record
+    )
+    echo "$fixture_program: no packages; the newest published $fixture_program ($fixture_newest) is the fixture of the $present"
+done
+
 systems="$(cat packaging/test-systems)"
 selected=""
 # A here-document keeps the list in this shell; a pipe would run the loop in a subshell.
@@ -258,7 +321,7 @@ LIST
 # the run before any system starts: it is not a failure of the package. Choosing the program is what
 # reads its baseline from the site, for the systems too.
 fetch_baselines() {
-    for baseline_program in $present; do
+    for baseline_program in $present $fixtures; do
         use_program "$baseline_program"
         [ -n "$from" ] || continue
         # The keys are needed once, by the first program that has a published package.
@@ -277,20 +340,6 @@ fetch_baselines() {
     done
 }
 fetch_baselines
-
-# What the steps read of the repository, copied once, before any system starts: the systems read it in
-# every phase, minutes apart, and a repository that changes in between (an editor or git replacing a
-# file) would fail a phase with a file that is not there. The package files are not in it: they are
-# mounted from dist/PROGRAM, and only the record of each build is read from the repository.
-repository_copy="$work/repository"
-mkdir -p "$repository_copy/dist"
-for copied in scripts programs steps keys packaging; do
-    cp -RL "$root/$copied" "$repository_copy/$copied"
-done
-for copied in $present; do
-    mkdir "$repository_copy/dist/$copied"
-    cp "$root/dist/$copied/version" "$repository_copy/dist/$copied/version"
-done
 
 run_systems "$work" pull_system test_system <<LIST
 $selected
