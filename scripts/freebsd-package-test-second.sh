@@ -8,4 +8,5 @@ set -eu
 state="${PACKAGE_TEST_ROOT:-}/var/tmp/package-test"
 # shellcheck source=freebsd-package-test-lib.sh
 . "$state/input/src/scripts/freebsd-package-test-lib.sh"
+set_root_login_path
 run_and_return_results "$1" phase2 phase3

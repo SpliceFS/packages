@@ -10,6 +10,15 @@ root_dir="${PACKAGE_TEST_ROOT:-}"
 # environment of the steps and their output.
 state="$root_dir/var/tmp/package-test"
 
+# Sets PATH to the one a root login gets on FreeBSD: the path capability of the default class of
+# /etc/login.conf as the image ships it (the root class takes it from default), with ~/bin as the
+# /root/bin of root. The machine starts the job and the one-shot script from rc, whose path has no
+# /usr/local, where the packages put their programs; the steps look for the programs as a root user does.
+set_root_login_path() {
+    PATH=/sbin:/bin:/usr/sbin:/usr/bin:/usr/local/sbin:/usr/local/bin:/root/bin
+    export PATH
+}
+
 # The environment the steps need (scripts/package-test-steps.sh), written once by the first boot so
 # that the second boot has the same. Usage: write_package_test_env PROGRAM...
 write_package_test_env() {
@@ -38,34 +47,44 @@ run_package_test_phases() {
     done
 }
 
-# Prints the step the steps stopped in, with every line from its last line on: what it printed and why
-# it failed. Prints nothing when the steps wrote no result.
-show_failed_step() {
-    [ -f "$state/out/result" ] || return 0
-    read -r failed_line <"$state/out/result"
-    echo "$failed_line"
+# Prints the lines of the log after its first $1 lines, the ones of the phases that ran before, for a
+# phase that failed: the line "--- the step that failed" comes before the step the result names, so
+# that the step and what it printed are on the screen once, after that line. A result that names no
+# line of the log, or none at all, puts the line after everything.
+show_failed_phase_lines() {
     [ -f "$state/out/log" ] || return 0
-    awk -v line="$failed_line" '
-        { text[NR] = $0 }
-        $0 == line { found = NR }
-        END { if (found == 0) found = 1; for (i = found; i <= NR; i++) print text[i] }
+    failed_line=""
+    [ ! -f "$state/out/result" ] || read -r failed_line <"$state/out/result"
+    awk -v skip="$1" -v line="$failed_line" '
+        NR > skip { text[++count] = $0; if (line != "" && $0 == line) found = count }
+        END {
+            if (found == 0) found = count + 1
+            for (i = 1; i <= count; i++) {
+                if (i == found) print "--- the step that failed"
+                print text[i]
+            }
+            if (found == count + 1) print "--- the step that failed"
+        }
     ' "$state/out/log"
 }
 
 # Runs the phases the arguments name and writes what the host reads into the result folder $1: the
-# output folder of the steps. What the phases printed is shown, and when one fails the step it failed in.
+# output folder of the steps. What the phases printed is shown, and when one fails the step it failed in
+# is set apart (show_failed_phase_lines).
 # The status is that of the phases. Usage: run_and_return_results RESULT_FOLDER PHASE...
 run_and_return_results() {
     results="$1"
     shift
     mkdir -p "$state/out"
-    printed="$(wc -l <"$state/out/log" 2>/dev/null || echo 0)"
+    # The redirection of a missing file fails in the shell itself, which says so before 2>/dev/null applies.
+    printed=0
+    [ ! -f "$state/out/log" ] || printed="$(wc -l <"$state/out/log")"
     run_status=0
     run_package_test_phases "$@" || run_status=$?
-    tail -n +"$((printed + 1))" "$state/out/log"
-    if [ "$run_status" -ne 0 ]; then
-        echo "--- the step that failed"
-        show_failed_step
+    if [ "$run_status" -eq 0 ]; then
+        tail -n +"$((printed + 1))" "$state/out/log"
+    else
+        show_failed_phase_lines "$printed"
     fi
     rm -rf "$results/package-test"
     cp -R "$state/out" "$results/package-test"

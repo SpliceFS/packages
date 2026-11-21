@@ -21,6 +21,7 @@ mkdir -p "$state/input" "$state/out"
 tar -xf "$input_device" -C "$state/input" || { echo "FAIL: cannot read the input archive" >&2; exit 1; }
 # shellcheck source=freebsd-package-test-lib.sh
 . "$state/input/src/scripts/freebsd-package-test-lib.sh"
+set_root_login_path
 write_package_test_env "$@"
 # The second boot runs after the services that the packages start: the one-shot script requires them,
 # as the decision of the test says, and a service that is not installed is no requirement.
