@@ -148,7 +148,7 @@ check_installed_files() {
         in_system "$1" check_versions check_links check_config_folders check_extras
     definition="$(service_file)"
     must "the service definition $definition is missing" on_system "$1" test -f "$definition"
-    refuse "the service definition points at /usr/local/bin" on_system "$1" grep -q /usr/local/bin "$definition"
+    must "the service definition does not name the program $bindir/$program" on_system "$1" grep -qF "$bindir/$program" "$definition"
     must "the user $expected_user was not created" on_system "$1" grep -q "^$expected_user:" /etc/passwd
     echo "ok: the package is installed, its files are in place and the user exists"
     check_idle_after_install "$1"

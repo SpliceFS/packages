@@ -26,6 +26,8 @@
 set -eu
 
 out="${1:?usage: package-freebsd.sh OUTPUT_DIR}"
+# The format says where this package puts things (the table of scripts/package-lib.sh).
+FORMAT=pkg
 . scripts/package-lib.sh
 image="${LINUX_IMAGE:?LINUX_IMAGE is not set}"
 bin="$(cd "${BIN:?BIN is not set}" && pwd)"
@@ -85,7 +87,7 @@ build_and_test() {
     # same facts.
     cp "$defs/freebsd/$program.rc" "$defs/freebsd/manifest.in" "$defs/freebsd/check-lib.sh" "$job/"
     package_freebsd_plist > "$job/plist"
-    package_freebsd_link_list > "$job/links"
+    package_link_list > "$job/links"
     echo "FreeBSD $release: building $name $pkgver for amd64 and arm64, installing the amd64 package"
     major="${release%%.*}"
     archive="$out/freebsd-input/$release.tar"

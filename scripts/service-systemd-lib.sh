@@ -16,7 +16,7 @@ unit="$program.service"
 
 # The file that defines the service: the package puts it there.
 service_file() {
-    echo "/usr/lib/systemd/system/$unit"
+    echo "$servicedir/$unit"
 }
 
 service_active() {

@@ -59,7 +59,7 @@ runs() {
     : >"$work/calls"
     status=0
     CALLS="$work/calls" INSTALLED="$work/installed" PATH="$work/bin:/usr/bin:/bin" PROGRAM=server name=splicefs-server \
-        program=splicefsd pkgver=1.2.3 platform=freebsd/amd64 own="$work/own" site_root=https://packages.example.org \
+        program=splicefsd pkgver=1.2.3 servicedir=/usr/local/etc/rc.d platform=freebsd/amd64 own="$work/own" site_root=https://packages.example.org \
         sh -c "fail() { echo \"\$*\" >&2; exit 1; }; . scripts/service-run-local.sh; . scripts/service-test-pkg.sh; . scripts/package-test-pkg.sh; $4" \
         >"$work/out" 2>&1 || status=$?
     got="$(cat "$work/calls")"

@@ -60,7 +60,7 @@ major="$(freebsd-version -u | cut -d. -f1)"
 programs="$(sed -n 's|^bin/||p' "$in/plist")"
 
 # links is "<link> <target>" a line, the links of the package as the host made them from the
-# links file of the program (package_freebsd_link_list in scripts/package-lib.sh).
+# links file of the program (package_link_list in scripts/package-lib.sh).
 
 # One package per CPU type. goarch is how the build names the binary, abiarch how pkg names
 # the CPU type in an ABI string, and the package of version $3 is written into the folder $4.

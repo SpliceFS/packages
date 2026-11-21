@@ -82,7 +82,7 @@ remove_package() {
 
 # The file that defines the service: the package puts it there.
 service_file() {
-    echo "/usr/local/etc/rc.d/$program"
+    echo "$servicedir/$program"
 }
 
 # onestatus asks of a service that is not enabled too.

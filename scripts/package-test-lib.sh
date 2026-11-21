@@ -55,7 +55,7 @@ check_config_folders() {
 # After the package is removed none of its programs is left.
 check_programs_removed() {
     for each in $programs; do
-        [ ! -e "/usr/bin/$each" ] || fail "remove left $each behind"
+        [ ! -e "$bindir/$each" ] || fail "remove left $each behind"
     done
 }
 

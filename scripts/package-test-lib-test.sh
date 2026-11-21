@@ -44,6 +44,27 @@ runs "the published package is judged by its service program alone" check_servic
 runs "the service program of the published package must report its version" check_service_version "$work/stale" \
     "splicefsd --version does not report v1.2.3"
 
+# The removal check looks in the program folder of the table of the format, not in a folder written
+# in the check: the folder of the table is replaced by a fake one, once with a program left in it.
+# $1 case name, $2 the folder, $3 what it must answer: ok, or the text of its refusal.
+removal_runs() {
+    got="$(FORMAT=pkg PROGRAM=server VERSION=v1.2.3 PACKAGE_DATE=20261112 sh -c \
+        '. scripts/package-lib.sh; . scripts/package-test-lib.sh; bindir="$1"; check_programs_removed' sh "$2" 2>&1)" &&
+        status=ok || status="$got"
+    case "$status" in
+        *"$3"*) printf 'ok   %s\n' "$1" ;;
+        *)
+            printf 'FAIL %s: wanted "%s" got "%s"\n' "$1" "$3" "$status"
+            failed=$((failed + 1))
+            ;;
+    esac
+}
+
+mkdir "$work/gone" "$work/left"
+: > "$work/left/splicefsdctl"
+removal_runs "a removal that left no program in the program folder of the format passes" "$work/gone" ok
+removal_runs "a program left in the program folder of the format is found" "$work/left" "remove left splicefsdctl behind"
+
 if [ "$failed" -ne 0 ]; then
     echo "$failed package-test-lib case(s) failed"
     exit 1

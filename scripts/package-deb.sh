@@ -8,6 +8,8 @@ set -eu
 
 out="${1:?usage: package-deb.sh OUTPUT_DIR}"
 : "${BIN:?BIN is not set}"
+# The format says where this package puts things (the table of scripts/package-lib.sh).
+FORMAT=deb
 # shellcheck source=package-lib.sh
 . scripts/package-lib.sh
 docs="$(package_docs)"
