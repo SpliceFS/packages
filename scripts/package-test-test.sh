@@ -39,26 +39,28 @@ printf 'deb ghcr.io/splicefs/server-debian-12:v1.0\ndeb ghcr.io/splicefs/server-
     >"$t/farm/packaging/test-systems"
 printf 'rpm ghcr.io/splicefs/server-rocky-9:v1.0\napk ghcr.io/splicefs/server-alpine-3.22:v1.0\n' \
     >>"$t/farm/packaging/test-systems"
-cat >"$t/bin/curl" <<'STAND_IN'
-#!/bin/sh
+# The stand-in commands are functions of one file that the script under test is started after, so
+# that a call starts no process: the script calls docker and curl by name, and there are a few dozen
+# calls in each of the cases. Every name they set starts with stand_in_, because the functions run
+# in the shell of the script and must not change a variable of it. The two small scripts of bin
+# answer a command that is started by its name and not run by the shell (xargs).
+cat >"$t/stand-ins.sh" <<'STAND_IN'
 # Stand-in curl: every address is logged and writes a file for the output name. The site serves the
 # keys of the repository, or another key when STAND_IN_OTHER_KEY is set.
-echo "curl $*" >>"$STAND_IN_DIR/log"
-[ -z "${STAND_IN_NO_SITE:-}" ] || exit 22
-for url; do :; done
-while [ "$#" -gt 0 ]; do
-    case "$1:$url" in
-        -o:*/keys/*) if [ -n "${STAND_IN_OTHER_KEY:-}" ]; then echo other >"$2"; else cp "$STAND_IN_KEYS/${url##*/}" "$2"; fi ;;
-        -o:*) echo published >"$2" ;;
-        *) ;;
-    esac
-    shift
-done
-STAND_IN
-chmod 755 "$t/bin/curl"
+curl() {
+    echo "curl $*" >>"$STAND_IN_DIR/log"
+    [ -z "${STAND_IN_NO_SITE:-}" ] || return 22
+    for stand_in_url; do :; done
+    while [ "$#" -gt 0 ]; do
+        case "$1:$stand_in_url" in
+            -o:*/keys/*) if [ -n "${STAND_IN_OTHER_KEY:-}" ]; then echo other >"$2"; else cp "$STAND_IN_KEYS/${stand_in_url##*/}" "$2"; fi ;;
+            -o:*) echo published >"$2" ;;
+            *) ;;
+        esac
+        shift
+    done
+}
 
-cat >"$t/bin/docker" <<'STAND_IN'
-#!/bin/sh
 # Stand-in docker. STAND_IN_DIR holds the log of the calls and, for each container, a folder named
 # by it that stands for the folder the steps write into. A phase of the steps run in a container
 # appends one line to its log, and writes its result in the third phase or when it fails:
@@ -66,84 +68,80 @@ cat >"$t/bin/docker" <<'STAND_IN'
 # for the phase named in STAND_IN_FAILED_PHASE), and "ok" otherwise; STAND_IN_NO_RESULT writes none.
 # A system is named in the call by its container, so that the systems of one case, which run at the
 # same time, do not share what the stand-in remembers.
-echo "docker $*" >>"$STAND_IN_DIR/log"
-call="$*"
-rest="${call#*splicefs-package-test-}"
-container="splicefs-package-test-${rest%% *}"
-container="${container%%:*}"
-folder="$STAND_IN_DIR/out.$container"
-if [ -n "${STAND_IN_FAIL:-}" ]; then
-    case "$call" in *"$STAND_IN_FAIL"*) exit 1 ;; *) ;; esac
-fi
-case "$1" in
-    version) echo linux/amd64 ;;
-    inspect)
-        # The address of the system on its network, or whether it runs.
-        case "$call" in *IPAddress*) echo "bridge 172.17.0.2" ;; *) echo true ;; esac
-        ;;
-    run)
-        case "$call" in
-            *":/src:ro"*)
-                # The boot: what is mounted at /src has what the steps read at the moment the system starts.
-                src="${call%%:/src:ro*}"
-                src="${src##* }"
-                for read_file in scripts/package-test-steps.sh scripts/service-run-local.sh dist/server/version; do
-                    [ ! -f "$src/$read_file" ] || echo "the folder at /src has $read_file" >>"$STAND_IN_DIR/log"
-                done
-                echo "the folder at /src is $src" >>"$STAND_IN_DIR/log"
-                ;;
-            # The probe container, which asks the server from the network of the system.
-            *"go:v1 curl"*)
-                if grep -q 'package-test-steps.sh phase2' "$STAND_IN_DIR/log"; then
-                    printf '%s' "${STAND_IN_OUTSIDE_AFTER_2:-200}"
-                else
-                    printf '%s' "${STAND_IN_OUTSIDE_AFTER_1:-200}"
-                fi
-                ;;
-            *) ;;
-        esac
-        ;;
-    logs) echo "container output" ;;
-    cp)
-        # docker cp CONTAINER:/folder/. DESTINATION
-        [ -d "$folder" ] || exit 1
-        cp -R "$folder/." "$3"
-        ;;
-    exec)
-        case "$call" in
-            *is-system-running*) echo running ;;
-            *"package-test-steps.sh phase1"*)
-                mkdir -p "$folder"
-                echo "the log of phase 1" >>"$folder/log"
-                if [ "${STAND_IN_FAILED_PHASE:-}" = phase1 ]; then
-                    [ -n "${STAND_IN_NO_RESULT:-}" ] || echo "${STAND_IN_RESULT:-}" >"$folder/result"
-                    exit 1
-                fi
-                ;;
-            *"package-test-steps.sh phase2"*)
-                mkdir -p "$folder"
-                echo "the log of phase 2" >>"$folder/log"
-                if [ "${STAND_IN_FAILED_PHASE:-}" = phase2 ]; then
-                    [ -n "${STAND_IN_NO_RESULT:-}" ] || echo "${STAND_IN_RESULT:-}" >"$folder/result"
-                    exit 1
-                fi
-                ;;
-            *"package-test-steps.sh phase3"*)
-                mkdir -p "$folder"
-                echo "the log of phase 3" >>"$folder/log"
-                if [ "${STAND_IN_FAILED_PHASE:-}" = phase3 ]; then
-                    [ -n "${STAND_IN_NO_RESULT:-}" ] || echo "${STAND_IN_RESULT:-}" >"$folder/result"
-                    exit 1
-                fi
-                [ -n "${STAND_IN_NO_RESULT:-}" ] || echo ok >"$folder/result"
-                ;;
-            *) ;;
-        esac
-        ;;
-    *) ;;
-esac
+docker() {
+    echo "docker $*" >>"$STAND_IN_DIR/log"
+    stand_in_call="$*"
+    stand_in_rest="${stand_in_call#*splicefs-package-test-}"
+    stand_in_container="splicefs-package-test-${stand_in_rest%% *}"
+    stand_in_container="${stand_in_container%%:*}"
+    stand_in_folder="$STAND_IN_DIR/out.$stand_in_container"
+    if [ -n "${STAND_IN_FAIL:-}" ]; then
+        case "$stand_in_call" in *"$STAND_IN_FAIL"*) return 1 ;; *) ;; esac
+    fi
+    case "$1" in
+        version) echo linux/amd64 ;;
+        inspect)
+            # The address of the system on its network, or whether it runs.
+            case "$stand_in_call" in *IPAddress*) echo "bridge 172.17.0.2" ;; *) echo true ;; esac
+            ;;
+        run)
+            case "$stand_in_call" in
+                *":/src:ro"*)
+                    # The boot: what is mounted at /src has what the steps read at the moment the system starts.
+                    stand_in_src="${stand_in_call%%:/src:ro*}"
+                    stand_in_src="${stand_in_src##* }"
+                    for stand_in_file in scripts/package-test-steps.sh scripts/service-run-local.sh dist/server/version; do
+                        [ ! -f "$stand_in_src/$stand_in_file" ] || echo "the folder at /src has $stand_in_file" >>"$STAND_IN_DIR/log"
+                    done
+                    echo "the folder at /src is $stand_in_src" >>"$STAND_IN_DIR/log"
+                    ;;
+                # The probe container, which asks the server from the network of the system.
+                *"go:v1 curl"*)
+                    if grep -q 'package-test-steps.sh phase2' "$STAND_IN_DIR/log"; then
+                        printf '%s' "${STAND_IN_OUTSIDE_AFTER_2:-200}"
+                    else
+                        printf '%s' "${STAND_IN_OUTSIDE_AFTER_1:-200}"
+                    fi
+                    ;;
+                *) ;;
+            esac
+            ;;
+        logs) echo "container output" ;;
+        cp)
+            # docker cp CONTAINER:/folder/. DESTINATION
+            [ -d "$stand_in_folder" ] || return 1
+            cp -R "$stand_in_folder/." "$3"
+            ;;
+        exec)
+            case "$stand_in_call" in
+                *is-system-running*) echo running ;;
+                *"package-test-steps.sh phase1"*) stand_in_phase 1 ;;
+                *"package-test-steps.sh phase2"*) stand_in_phase 2 ;;
+                *"package-test-steps.sh phase3"*)
+                    stand_in_phase 3 || return 1
+                    [ -n "${STAND_IN_NO_RESULT:-}" ] || echo ok >"$stand_in_folder/result"
+                    ;;
+                *) ;;
+            esac
+            ;;
+        *) ;;
+    esac
+}
+
+# Phase $1 (1, 2 or 3) of the steps in the container: its log, and the failure the case says for it.
+stand_in_phase() {
+    mkdir -p "$stand_in_folder"
+    echo "the log of phase $1" >>"$stand_in_folder/log"
+    if [ "${STAND_IN_FAILED_PHASE:-}" = "phase$1" ]; then
+        [ -n "${STAND_IN_NO_RESULT:-}" ] || echo "${STAND_IN_RESULT:-}" >"$stand_in_folder/result"
+        return 1
+    fi
+}
 STAND_IN
-chmod 755 "$t/bin/docker"
+for stand_in_command in curl docker; do
+    printf '#!/bin/sh\n. "%s/stand-ins.sh"\n%s "$@"\n' "$t" "$stand_in_command" >"$t/bin/$stand_in_command"
+    chmod 755 "$t/bin/$stand_in_command"
+done
 
 # What every case starts from: only the server is built (v1.2.3, and its record names 1.2.2 as the
 # published version; the client is v1.4.0 and its record names 1.3.9), no call fails, every phase
@@ -191,7 +189,7 @@ launch() {
             STAND_IN_OTHER_KEY="$other_key" STAND_IN_FAILED_PHASE="$failed_phase" STAND_IN_RESULT="$result" \
             STAND_IN_NO_RESULT="$no_result" STAND_IN_OUTSIDE_AFTER_1="$outside_after_1" \
             STAND_IN_OUTSIDE_AFTER_2="$outside_after_2" GO_IMAGE=ghcr.io/splicefs/go:v1 \
-            sh "$case_dir/root/scripts/package-test.sh" >"$case_dir/out" 2>&1 || status=$?
+            sh -c '. "$1"; shift; . "$0"' "$case_dir/root/scripts/package-test.sh" "$t/stand-ins.sh" >"$case_dir/out" 2>&1 || status=$?
         echo "$status" >"$case_dir/status"
     ) &
 }
