@@ -27,6 +27,18 @@ if grep -Eq 'NO_PUBKEY|BADSIG|is not signed|EXPKEYSIG' /tmp/update.log; then
     fail "apt reported a signature problem on the good repository"
 fi
 
+# A client in the middle of an update asks for the files its Release names by their hash, so
+# Release must say so and every file it lists must be there under its hash (apt uses the
+# strongest hash that Release lists).
+dists=/repo/apt/dists/stable
+grep -qx 'Acquire-By-Hash: yes' "$dists/Release" || fail "Release does not say Acquire-By-Hash: yes"
+awk '/^SHA512:/ { listed = 1; next } /^[^ ]/ { listed = 0 } listed && NF == 3 { print $1, $3 }' \
+    "$dists/Release" > /tmp/listed
+[ -s /tmp/listed ] || fail "Release lists no file by SHA512"
+while read -r hash path; do
+    [ -f "$dists/$(dirname "$path")/by-hash/SHA512/$hash" ] || fail "$path is not in by-hash/SHA512/$hash"
+done < /tmp/listed
+
 # The exact version is named because dist may hold older builds that apt would prefer.
 apt-get install -y -qq "$name=$debver" >/dev/null
 check_versions
