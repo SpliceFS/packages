@@ -76,6 +76,13 @@
 # and the stop takes the mount away. Step 1a leaves the client alone until a published release has the
 # cluster_key setting (service_before_upgrade of programs/client/service-check.sh). Step 6, the other modes
 # of the client, is not built yet.
+# A run with packages of the client alone (a client release) has no new server to mount from: the host names the
+# newest published server in FIXTURES, fetched and proven like the baseline of step 1, and step 3 installs it, as a
+# fixture, before the client's own step 3 (the same install as step 1's, the same enabling, configuration and
+# start as the server steps give it); step 4 restarts it after the cluster key was made, as for a server that
+# step 1a started, and step 9 takes it away with the client: the documented removal names it, since it is
+# installed, and what the test made for it is taken away as for a program under test. It is no program under
+# test: it gets no steps 1 to 2, 5, 7 or 8.
 # Phase 1 is the steps 0 to 4 and the restart of the service in step 5; phase 2, after the host
 # restarted the system, is the rest of step 5; phase 3 is the steps 7 to 9.
 # Before every step and after the snapshot of step 9, the core dumps that appeared since the step
@@ -117,6 +124,9 @@ cd "$root"
 format="${FORMAT:?FORMAT is not set}"
 platform="${PLATFORM:?PLATFORM is not set}"
 present="${PROGRAMS:?PROGRAMS is not set}"
+# The programs of the run that are published packages the programs under test need, and no more (empty for a
+# run of both programs).
+fixtures="${FIXTURES:-}"
 own="${PACKAGE_TEST_OUT:?PACKAGE_TEST_OUT is not set}"
 # Where the host put what it fetched: the published package file of each program is in its folder
 # under /pkg, its version is in a file of /baselines named by the program.
@@ -219,13 +229,9 @@ check_message_of_new_package() {
     check_package_message "$1" "$2" "$new_file"
 }
 
-# Step 1. The published package is what people have installed. It is the one the record of the
-# build names, or the newest on the site; nothing is installed when none is published.
-install_baseline() {
-    if [ -z "$from" ]; then
-        echo "nothing is published for $PROGRAM: there is no baseline, and nothing is installed in this step"
-        return 0
-    fi
+# The published package of the program is installed, fetched and proven the way the baseline of step 1 and the
+# fixture of step 3 both need, and the package manager lists it and the program reports its version.
+install_published_file() {
     published_file="$(published_file_of_system)"
     record_fetched_version "$published_file"
     must "installing the published package failed" keep_output "$own/baseline-output" install_published_package "$1" "$published_file"
@@ -235,6 +241,16 @@ install_baseline() {
     # shellcheck disable=SC2016
     must "the installed program does not report the published version $old_tag" \
         on_system "$1" sh -c '"$1" --version | grep -qF "$2"' sh "$program" "$old_tag"
+}
+
+# Step 1. The published package is what people have installed. It is the one the record of the
+# build names, or the newest on the site; nothing is installed when none is published.
+install_baseline() {
+    if [ -z "$from" ]; then
+        echo "nothing is published for $PROGRAM: there is no baseline, and nothing is installed in this step"
+        return 0
+    fi
+    install_published_file "$1"
     must "writing the configuration file and the data file failed" in_upgrade_lib "$1" write_markers "$format"
     echo "ok: the published $old_tag is installed, with a configuration file and a data file"
 }
@@ -321,8 +337,8 @@ documented_removal() {
     if [ -z "$held" ]; then
         echo "step 9: $format: nothing installed, the removal command is left out, as the steps say"
     fi
-    # The steps 3 to 8 turned on the service of every program of the run.
-    turned_on="$present"
+    # The steps 3 to 8 turned on the service of every program of the run, and of the fixture.
+    turned_on="$present${fixtures:+ $fixtures}"
     services_left_out "$file" "$turned_on" | while IFS= read -r line; do
         echo "step 9: $format: \"$line\" is left out, as the steps say"
     done
@@ -408,12 +424,19 @@ begin_step() {
     cat "$own/step-line"
 }
 
-# Runs the command $@ for each program of the run in order, with the program chosen first.
-each_program() {
-    for step_program in $present; do
+# Runs the command $2... for each program of the list $1 in order, with the program chosen first.
+each_program_of() {
+    list="$1"
+    shift
+    for step_program in $list; do
         use_program_in_system "$step_program"
         "$@"
     done
+}
+
+# The same for each program under test.
+each_program() {
+    each_program_of "$present" "$@"
 }
 
 # Like each_program for a service step: step $1 with the text $2 and the function $3.
@@ -464,10 +487,27 @@ step_running_baseline() {
 # has nothing to mount from: that is no run of the client's service steps, and it says so.
 require_server_in_the_run() {
     [ "${needs_cluster_certificate:-no}" = yes ] || return 0
-    case " $present " in
+    case " $present $fixtures " in
         *" server "*) return 0 ;;
         *) fail "the $PROGRAM mounts from the server of the same system, and this run has no packages of the server in dist/server" ;;
     esac
+}
+
+# Step 3, before the client's own: the published server is installed, enabled, configured and started the way the
+# server's steps do it, as the fixture of a run of the client alone, and what it is is written down, so that step 4
+# restarts it once the cluster key is made, as for a server that step 1a started.
+step_server_fixture() {
+    case " $fixtures " in
+        *" server "*) ;;
+        *) return 0 ;;
+    esac
+    use_program_in_system server
+    begin_step 3 "$PROGRAM" "the published server is installed as the client's fixture"
+    install_published_file "$system"
+    echo "ok: the published $old_tag is installed"
+    service_enable_and_configure
+    service_start_and_check
+    note_running_service "$system" "$old_tag"
 }
 
 # Steps 3 and 4 turn the service on and start it, unless step 1a did and the upgrade kept it so: then they
@@ -586,6 +626,7 @@ phase1() {
     each_service_program 1a "the published package's service is enabled, configured and started, to be upgraded while it runs" \
         step_running_baseline
     each_program step_new_package
+    step_server_fixture
     each_service_program 3 "the service is enabled, and the test configuration is written through the documented folders" \
         step_enable_and_configure
     each_service_program 4 "the service is started, runs as its own user and does its job" step_start_and_check
@@ -609,7 +650,7 @@ phase3() {
     each_program step_plain_removal
     begin_step 9 "" "the documented removal"
     documented_removal "$system"
-    each_program step_after_documented_removal
+    each_program_of "$present${fixtures:+ $fixtures}" step_after_documented_removal
     begin_step 9 "" "the system is as it was"
     check_system_as_it_was "$system"
 }

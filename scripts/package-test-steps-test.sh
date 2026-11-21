@@ -311,12 +311,14 @@ scenario() {
     removal_lines_added=
     no_restart=
     stale_version=
+    fixture=
 }
 
 # Runs the case $1 with the settings of scenario: $built names the programs whose packages are in
 # dist, the snapshot of step 0 is $first, the snapshot of step 9 is $last, the one after each reinstall
 # is $reinstalled, $cores are the cores listed at the fifth look (before step 3 of a run of the
-# server alone), $no_restart and $stale_version, when not empty, make the package leave a running service
+# server alone), $fixture, when not empty, is the published server the host names as the fixture of a run
+# of the client alone (v1.2.2 is what its record and its baseline say), $no_restart and $stale_version, when not empty, make the package leave a running service
 # alone, or restart it into the old version, $late_cores those listed at the look after the last snapshot, $user is the user the
 # service runs as, $format the package format of the system ($removal_lines_added, when not empty, is
 # added to the end of the steps file of the documented removal, as the file of FreeBSD has lines the
@@ -358,6 +360,11 @@ launch() {
         printf '%s\n' "$reinstalled" >"$case_dir/dir/snapshot.$((taken + 2))"
         taken=$((taken + 2))
     done
+    if [ -n "$fixture" ]; then
+        mkdir -p "$case_dir/root/dist/$fixture"
+        printf 'VERSION=v1.2.2\nPACKAGE_DATE=20261113\nUPGRADE_FROM=1.2.2\n' >"$case_dir/root/dist/$fixture/version"
+        printf '1.2.2\n' >"$case_dir/baselines/$fixture"
+    fi
     printf '%s\n' "$last" >"$case_dir/dir/snapshot.$((taken + 1))"
     [ -z "$cores" ] || printf '%s\n' "$cores" >"$case_dir/dir/cores.5"
     [ -z "$late_cores" ] || printf '%s\n' "$late_cores" >"$case_dir/dir/cores.after-snapshot"
@@ -370,7 +377,7 @@ launch() {
         export STAND_IN_FAIL="$fail_on" STAND_IN_DIR="$case_dir/dir" STAND_IN_USER="$user" \
             STAND_IN_FIREWALLD="$firewalld" STAND_IN_PORT_OPEN="$port_open" STAND_IN_FETCH="$fetch_hook" \
             STAND_IN_FETCHED_SERVER="$fetched_server" STAND_IN_FETCHED_CLIENT="$fetched_client" \
-            STAND_IN_NO_RESTART="$no_restart" STAND_IN_STALE_VERSION="$stale_version" \
+            STAND_IN_NO_RESTART="$no_restart" STAND_IN_STALE_VERSION="$stale_version" FIXTURES="$fixture" \
             FORMAT="$format" PLATFORM=linux/amd64 PROGRAMS="$built" PACKAGE_TEST_OUT="$case_dir/out" BASELINES="$case_dir/baselines"
         steps="$case_dir/root/scripts/package-test-steps.sh"
         sh "$steps" phase1 || status=$?
@@ -478,6 +485,13 @@ cores_looked_for_after_the_last_snapshot() {
     snapshot="$(last_line_of lifecycle-snapshot.sh)"
     [ "$looked" -gt "$snapshot" ]
 }
+# After the last test configuration is written (the client's) the server is restarted, and then the client starts.
+server_restarted_between_the_client_configuration_and_its_start() {
+    configured="$(last_line_of write_test_config)"
+    restarted="$(last_line_of 'systemctl restart splicefsd')"
+    client_started="$(line_of 'systemctl start splicefs.service')"
+    [ "$restarted" -gt "$configured" ] && [ "$client_started" -gt "$restarted" ]
+}
 # The line number of the last call in the log that holds the text $1, or 0.
 last_line_of() {
     n="$(grep -n -F -e "$1" "$dir/log" | tail -n 1 | cut -d: -f1)"
@@ -573,6 +587,11 @@ scenario; late_cores="/core.9 pid 9 program splicefsd: /usr/bin/splicefsd"; last
 scenario; last="$(printf '/etc/a\n/core.5')"; launch core_no_step_could_read
 scenario; last="$(printf '/etc/a\n0123abcd  /etc/core.conf')"; launch checksum_of_a_core_named_file
 scenario; built=client; launch client_only
+scenario; built=client; fixture=server; launch client_fixture
+scenario; built=client; fixture=server; fail_on="apt-get install -y -qq /pkg/server/published"; launch fixture_install_fails
+scenario; built=client; fixture=server; fail_on="systemctl start"; launch fixture_start_fails
+scenario; built=client; fixture=server; format=rpm; launch client_fixture_rpm
+scenario; built=client; fixture=server; format=apk; launch client_fixture_apk
 scenario; built="server client"; launch both
 scenario; built="server client"; format=rpm; launch both_rpm
 scenario; built="server client"; format=apk; launch both_apk
@@ -970,6 +989,49 @@ expect "nothing is configured or started" sh -c "! grep -q -e 'write_test_config
 expect "the published client file is installed, then the new one" \
     in_order "apt-get install -y -qq /pkg/client/published/splicefs-client_1.3.9_amd64.deb" \
     "sh deb v1.3.9 v1.4.0 file /pkg/client/splicefs-client_1.4.0_amd64.deb"
+
+# A run of the client alone: the host names the published server as the fixture. Step 3 installs it before the
+# client's own step 3, the way step 1 installs a published package, and starts it like the server steps do; step 4
+# restarts it once the cluster key is made; step 9 takes it away with the client.
+use_case client_fixture
+expect "a run of the client with the published server as its fixture passes" passed_status
+expect "the steps run in order, each once" \
+    steps_run 'step 0: step 1: step 1a: step 2: step 3: step 4: step 5: step 7: step 8: step 9: '
+expect "step 3 says the server is installed as the fixture, before the client's own step 3" \
+    lines_in_order "step 3: server: the published server is installed as the client's fixture" "step 3: client: "
+expect "the published server file is installed, enabled, configured and started" \
+    in_order "apt-get install -y -qq /pkg/server/published/splicefs-server_1.2.2_amd64.deb" "systemctl enable" write_test_config \
+    "systemctl start splicefsd"
+expect "the server is restarted after the client's configuration, which holds the cluster key, and before the client starts" \
+    server_restarted_between_the_client_configuration_and_its_start
+expect "the new package of the server does not exist, so no new file is put over the fixture" sh -c "! grep -q 'sh deb v1.2.2' '$dir/log'"
+expect "the fixture is no program under test: no step 5, 7 or 8 of its own" sh -c "! grep -q '^step [578]: server: ' '$out'"
+expect "the fixture is not removed by a plain removal of its own" sh -c "! grep -q 'apt-get remove -y -qq splicefs-server' '$dir/log'"
+expect "the documented removal names the fixture with the client, in one command" \
+    sh -c "[ \"\$(grep -c 'apt-get purge' '$dir/log')\" -eq 1 ] && grep -q 'apt-get purge splicefs-server splicefs-client' '$dir/log'"
+expect "what the test made for the fixture is taken away, as for the client, and nothing of it is left" \
+    sh -c "[ \"\$(grep -c 'remove_test_data' '$dir/log')\" -eq 2 ] && grep -q '^step 9: server: what' '$out'"
+expect "the client's mount is looked for after the server was restarted" \
+    lines_in_order "ok: the server serves a certificate the cluster key signed" "ok: /mnt/media is a mount"
+
+use_case fixture_install_fails
+expect "a fixture that does not install fails step 3" failed_in 3
+expect "it is the server's step 3 that failed" holds "step 3: server: the published server is installed as the client's fixture"
+expect "nothing of the client is configured" sh -c "! grep -q 'write_test_config' '$dir/log'"
+
+use_case fixture_start_fails
+expect "a fixture that does not start fails step 3" failed_in 3
+expect "the client is not configured" sh -c "! grep -q '^step 3: client: ' '$out'"
+
+use_case client_fixture_rpm
+expect "the client with a fixture passes on an rpm system" passed_status
+expect "the fixture is installed when the client is removed, so the documented removal names it alone, as the steps tell a person to" \
+    sh -c "[ \"\$(grep -c 'dnf remove' '$dir/log')\" -eq 2 ] && grep -q 'dnf remove splicefs-server\$' '$dir/log'"
+
+use_case client_fixture_apk
+expect "the client with a fixture passes on an apk system" passed_status
+expect "the documented removal names the fixture alone" \
+    sh -c "[ \"\$(grep -c 'apk del' '$dir/log')\" -eq 2 ] && grep -q 'apk del splicefs-server\$' '$dir/log'"
 
 # The steps tell a person to leave out the line of a service never turned on; the test does, for
 # every service its steps did not turn on (those of steps 3 to 8, which only the server has), and says so.
